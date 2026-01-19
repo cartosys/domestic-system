@@ -1,0 +1,53 @@
+
+# General
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+*.old
+*.orig
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.a
+*.o
+*.cgo
+*.cgo1.go
+*.cgo2.c
+vendor/
+
+# Ethereum
+build/
+artifacts/
+cache/
+*.abi
+*.bin
+*.json
+*.sol.js
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# OS generated files
+*.DS_Store
+
+charm-wallet-tui
