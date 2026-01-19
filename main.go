@@ -819,6 +819,7 @@ func (m model) View() string {
 
 		// Render wallet list using lipgloss
 		var listItems []string
+		var foregroundFullAddrColor = cText
 		if len(m.wallets) == 0 {
 			listItems = append(listItems, lipgloss.NewStyle().Foreground(cMuted).Render("No wallets added yet. Press 'a' to add one."))
 		} else {
@@ -828,12 +829,14 @@ func (m model) View() string {
 				if i == m.selectedWallet {
 					marker = lipgloss.NewStyle().Foreground(cAccent2).Bold(true).Render("▶ ")
 					itemStyle = lipgloss.NewStyle().Foreground(cAccent2).Bold(true)
+					foregroundFullAddrColor = cText
 				} else {
 					marker = "  "
-					itemStyle = lipgloss.NewStyle().Foreground(cText)
+					itemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e1a2aa"))
+					foregroundFullAddrColor = lipgloss.Color("#ba3fd7")
 				}
 				shortAddr := shortenAddr(addr)
-				fullAddr := lipgloss.NewStyle().Foreground(cMuted).Render(addr)
+				fullAddr := lipgloss.NewStyle().Foreground(foregroundFullAddrColor).Render(addr)
 				listItems = append(listItems, marker+itemStyle.Render(shortAddr)+"\n  "+fullAddr)
 			}
 		}
