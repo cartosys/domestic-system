@@ -88,14 +88,14 @@ func LoadWalletDetailsWithTimeout(client *Client, addr common.Address, watch []W
 	}
 
 	if client == nil || client.Client == nil {
-		d.ErrMessage = "No RPC client (set ETH_RPC_URL)."
+		d.ErrMessage = "No RPC client connected. Configure an RPC endpoint in Settings."
 		return d
 	}
 
 	// ETH balance
 	wei, err := client.BalanceAt(ctx, addr, nil)
 	if err != nil {
-		d.ErrMessage = "Failed to load ETH balance."
+		d.ErrMessage = "Failed to load ETH balance: " + err.Error()
 		return d
 	}
 	d.EthWei = wei
