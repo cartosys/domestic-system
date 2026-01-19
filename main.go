@@ -20,6 +20,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/muesli/gamut"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -30,12 +32,14 @@ import (
 var (
 	cBg      = lipgloss.Color("#0B0F14") // near-black
 	cPanel   = lipgloss.Color("#0F1720") // slightly lighter
-	cBorder  = lipgloss.Color("#223042")
+	cBorder  = lipgloss.Color("#874BFD")
 	cMuted   = lipgloss.Color("#8AA0B6")
 	cText    = lipgloss.Color("#D6E2F0")
 	cAccent  = lipgloss.Color("#7EE787") // green-ish
 	cAccent2 = lipgloss.Color("#79C0FF") // blue-ish
 	cWarn    = lipgloss.Color("#FFA657") // orange
+
+	blends    = gamut.Blends(lipgloss.Color("#F25D94"), lipgloss.Color("#EDFF82"), 50)
 
 	appStyle = lipgloss.NewStyle().
 			Background(cBg).
@@ -77,6 +81,13 @@ const (
 	pageDetails
 	pageSettings
 )
+
+// clickableArea represents a clickable region on screen for addresses
+type clickableArea struct {
+	X, Y         int    // top-left position
+	Width, Height int    // dimensions
+	Address      string // wallet address to navigate to
+}
 
 type walletItem struct {
 	addr string
@@ -157,8 +168,13 @@ type model struct {
 	form           *huh.Form
 	configPath     string
 
-	// currently selected address for global header
-	selectedAddress string
+	// currently highlighted address in wallet list
+	highlightedAddress string
+	// active address (the one marked with ★)
+	activeAddress string
+	
+	// clickable areas for mouse support
+	clickableAreas []clickableArea
 }
 
 type watchedToken struct {
@@ -248,9 +264,16 @@ func newModel() model {
 		configPath:     configPath,
 	}
 
-	// Set initial selected address
+	// Set initial highlighted address and active address
 	if len(wallets) > 0 {
-		m.selectedAddress = wallets[selectedIdx].Address
+		m.highlightedAddress = wallets[selectedIdx].Address
+		// Find the active wallet (marked with ★)
+		for _, w := range wallets {
+			if w.Active {
+				m.activeAddress = w.Address
+				break
+			}
+		}
 	}
 
 	return m
@@ -549,7 +572,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.wallets = append(m.wallets, newWallet)
 						m.selectedWallet = len(m.wallets) - 1
-						m.selectedAddress = newAddr
+						m.highlightedAddress = newAddr
 						m.adding = false
 						m.input.SetValue("")
 						m.input.Blur()
@@ -588,7 +611,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedWallet > 0 {
 					m.selectedWallet--
 					if len(m.wallets) > 0 {
-						m.selectedAddress = m.wallets[m.selectedWallet].Address
+						m.highlightedAddress = m.wallets[m.selectedWallet].Address
 					}
 				}
 				return m, nil
@@ -597,7 +620,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedWallet < len(m.wallets)-1 {
 					m.selectedWallet++
 					if len(m.wallets) > 0 {
-						m.selectedAddress = m.wallets[m.selectedWallet].Address
+						m.highlightedAddress = m.wallets[m.selectedWallet].Address
 					}
 				}
 				return m, nil
@@ -613,6 +636,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					for i := range m.wallets {
 						m.wallets[i].Active = (i == m.selectedWallet)
 					}
+					// Update active address to the newly activated wallet
+					m.activeAddress = m.wallets[m.selectedWallet].Address
 					saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
 				}
 				return m, nil
@@ -627,7 +652,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				addr := m.wallets[m.selectedWallet].Address
-				m.selectedAddress = addr
+				m.highlightedAddress = addr
 				m.activePage = pageDetails
 				m.loading = true
 				m.details = details{Address: addr}
@@ -645,11 +670,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedWallet >= len(m.wallets) && m.selectedWallet > 0 {
 					m.selectedWallet--
 				}
-				// Update selected address
+				// Update highlighted address and check if active was deleted
 				if len(m.wallets) > 0 {
-					m.selectedAddress = m.wallets[m.selectedWallet].Address
+					m.highlightedAddress = m.wallets[m.selectedWallet].Address
+					// Update active address if needed
+					m.activeAddress = ""
+					for _, w := range m.wallets {
+						if w.Active {
+							m.activeAddress = w.Address
+							break
+						}
+					}
 				} else {
-					m.selectedAddress = ""
+					m.highlightedAddress = ""
+					m.activeAddress = ""
 				}
 				// Save wallets to config
 				saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
@@ -765,11 +799,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		// handle address click on details page
-		if m.activePage == pageDetails && msg.Type == tea.MouseLeft {
-			// Check if click is on the address line (line 2 in the panel)
-			if msg.Y == m.addressLineY && m.details.Address != "" {
-				return m, copyToClipboard(m.details.Address)
+		if msg.Type == tea.MouseLeft {
+			// Check if click is on any registered clickable address
+			for _, area := range m.clickableAreas {
+				if msg.X >= area.X && msg.X < area.X+area.Width &&
+					msg.Y >= area.Y && msg.Y < area.Y+area.Height {
+					// If on details page and clicking same address, copy to clipboard
+					if m.activePage == pageDetails && area.Address == m.details.Address {
+						return m, copyToClipboard(area.Address)
+					}
+					// Otherwise navigate to wallet details
+					// Find wallet index
+					for i, w := range m.wallets {
+						if strings.EqualFold(w.Address, area.Address) {
+							m.selectedWallet = i
+							break
+						}
+					}
+					m.highlightedAddress = area.Address
+					m.activePage = pageDetails
+					m.loading = true
+					m.details = details{Address: area.Address}
+					ethAddr := common.HexToAddress(area.Address)
+					return m, loadDetails(m.ethClient, ethAddr, m.tokenWatch)
+				}
+			}
+			
+			// Legacy: handle address click on details page if no area matched
+			if m.activePage == pageDetails && m.details.Address != "" {
+				if msg.Y == m.addressLineY {
+					return m, copyToClipboard(m.details.Address)
+				}
 			}
 		}
 
@@ -793,17 +853,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // -------------------- VIEW --------------------
 
 func (m model) globalHeader() string {
-	// Selected Address
+	// Active Address (the one marked with ★)
 	var addrDisplay string
-	if m.selectedAddress != "" {
+	if m.activeAddress != "" {
 		addrDisplay = lipgloss.NewStyle().
 			Foreground(cAccent2).
 			Bold(true).
-			Render("Address: " + shortenAddr(m.selectedAddress))
+			Render("Active Address: " + shortenAddr(m.activeAddress))
 	} else {
 		addrDisplay = lipgloss.NewStyle().
 			Foreground(cMuted).
-			Render("Address: No selection")
+			Render("Active Address: No selection")
 	}
 
 	// RPC Status with green dot
@@ -864,9 +924,24 @@ func (m model) globalHeader() string {
 }
 
 func (m model) View() string {
+	// Clear clickable areas for fresh render
+	m.clickableAreas = nil
+	
 	// Render global header outside of page content
 	globalHdr := m.globalHeader()
 	headerPanel := panelStyle.Render(globalHdr)
+	
+	// Register global header address as clickable (approximate position)
+	if m.activeAddress != "" {
+		// Header address is at approximately (4, 1) accounting for panel padding
+		m.clickableAreas = append(m.clickableAreas, clickableArea{
+			X:       4,
+			Y:       1,
+			Width:   42, // Ethereum address length
+			Height:  1,
+			Address: m.activeAddress,
+		})
+	}
 	
 	var pageContent string
 	var nav string
@@ -882,6 +957,9 @@ func (m model) View() string {
 		if len(m.wallets) == 0 {
 			listItems = append(listItems, lipgloss.NewStyle().Foreground(cMuted).Render("No wallets added yet. Press 'a' to add one."))
 		} else {
+			// Starting Y position: headerPanel (3) + title line (1) + subtitle (1) + padding (2) = 7
+			currentY := 7
+			
 			for i, wallet := range m.wallets {
 				var itemStyle lipgloss.Style
 				var marker string
@@ -905,6 +983,27 @@ func (m model) View() string {
 				}
 				fullAddr := lipgloss.NewStyle().Foreground(foregroundFullAddrColor).Render(wallet.Address)
 				listItems = append(listItems, marker+itemStyle.Render(shortAddr)+"\n  "+fullAddr)
+				
+				// Register both short and full address lines as clickable
+				// Short address line
+				m.clickableAreas = append(m.clickableAreas, clickableArea{
+					X:       4,
+					Y:       currentY,
+					Width:   lipgloss.Width(shortAddr) + 2,
+					Height:  1,
+					Address: wallet.Address,
+				})
+				currentY++
+				
+				// Full address line
+				m.clickableAreas = append(m.clickableAreas, clickableArea{
+					X:       4,
+					Y:       currentY,
+					Width:   42, // Full Ethereum address width
+					Height:  1,
+					Address: wallet.Address,
+				})
+				currentY += 2 // Account for blank line between items
 			}
 		}
 		listView := strings.Join(listItems, "\n\n")
@@ -958,7 +1057,7 @@ func (m model) navWallets() string {
 	left := strings.Join([]string{
 		key("↑/↓") + " move",
 		key("Enter") + " open",
-		key("Space") + " active",
+		key("Space") + " activate",
 		key("a") + " add",
 		key("d") + " delete",
 		key("s") + " settings",
