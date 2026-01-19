@@ -106,8 +106,15 @@ type rpcURL struct {
 	Active bool
 }
 
+type walletEntry struct {
+	Address string `json:"address"`
+	Name    string `json:"name,omitempty"`
+	Active  bool   `json:"active"`
+}
+
 type config struct {
-	RPCURLs []rpcURL `json:"rpc_urls"`
+	RPCURLs []rpcURL       `json:"rpc_urls"`
+	Wallets []walletEntry `json:"wallets"`
 }
 
 // -------------------- MODEL --------------------
@@ -118,12 +125,14 @@ type model struct {
 	activePage page
 
 	// main list
-	wallets        []string
+	wallets        []walletEntry
 	selectedWallet int
 
 	// add-wallet input
-	adding bool
-	input  textinput.Model
+	adding    bool
+	input     textinput.Model
+	addError  string // error message when adding wallet (e.g., duplicate)
+	addErrTime time.Time // time when error was shown
 
 	// details state
 	spin      spinner.Model
@@ -161,10 +170,26 @@ type watchedToken struct {
 // -------------------- INIT --------------------
 
 func newModel() model {
-	// Initialize wallet addresses
-	wallets := []string{
-		"0x742d35Cc6634C0532925a3b844Bc454e4438f44e", // example
-		"0x00000000219ab540356cBB839Cbe05303d7705Fa", // example
+	// config path
+	homeDir, _ := os.UserHomeDir()
+	configPath := filepath.Join(homeDir, ".charm-wallet-config.json")
+
+	// load config
+	cfg := loadConfig(configPath)
+	
+	// Load wallet entries from config
+	wallets := cfg.Wallets
+	if wallets == nil {
+		wallets = []walletEntry{}
+	}
+	
+	// Find active wallet or default to first
+	selectedIdx := 0
+	for i, w := range wallets {
+		if w.Active {
+			selectedIdx = i
+			break
+		}
 	}
 
 	// input
@@ -184,13 +209,6 @@ func newModel() model {
 
 	// rpc
 	rpc := strings.TrimSpace(os.Getenv("ETH_RPC_URL"))
-
-	// config path
-	homeDir, _ := os.UserHomeDir()
-	configPath := filepath.Join(homeDir, ".charm-wallet-config.json")
-
-	// load config
-	cfg := loadConfig(configPath)
 	
 	// If no RPC in config but ENV is set, use ENV
 	if len(cfg.RPCURLs) == 0 && rpc != "" {
@@ -218,7 +236,7 @@ func newModel() model {
 	m := model{
 		activePage:     pageWallets,
 		wallets:        wallets,
-		selectedWallet: 0,
+		selectedWallet: selectedIdx,
 		adding:         false,
 		input:          in,
 		spin:           sp,
@@ -232,7 +250,7 @@ func newModel() model {
 
 	// Set initial selected address
 	if len(wallets) > 0 {
-		m.selectedAddress = wallets[0]
+		m.selectedAddress = wallets[selectedIdx].Address
 	}
 
 	return m
@@ -512,12 +530,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					val := strings.TrimSpace(m.input.Value())
 					if isValidEthAddress(val) {
 						newAddr := common.HexToAddress(val).Hex()
-						m.wallets = append(m.wallets, newAddr)
+						
+						// Check for duplicates
+						for _, w := range m.wallets {
+							if strings.EqualFold(w.Address, newAddr) {
+								m.addError = "Duplicate address - wallet already exists"
+								m.addErrTime = time.Now()
+								m.input.SetValue("")
+								return m, nil
+							}
+						}
+						
+						// Create new wallet entry (name can be edited later)
+						newWallet := walletEntry{
+							Address: newAddr,
+							Name:    "",
+							Active:  false,
+						}
+						m.wallets = append(m.wallets, newWallet)
 						m.selectedWallet = len(m.wallets) - 1
 						m.selectedAddress = newAddr
 						m.adding = false
 						m.input.SetValue("")
 						m.input.Blur()
+						m.addError = ""
+						// Save wallets to config
+						saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
 						return m, nil
 					}
 					// invalid -> keep input, maybe later show toast
@@ -527,6 +565,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.adding = false
 					m.input.SetValue("")
 					m.input.Blur()
+					m.addError = ""
+					return m, nil
+				
+				case "ctrl+v":
+					// Paste from clipboard
+					clipContent, err := clipboard.ReadAll()
+					if err == nil {
+						m.input.SetValue(strings.TrimSpace(clipContent))
+					}
 					return m, nil
 				}
 
@@ -541,7 +588,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedWallet > 0 {
 					m.selectedWallet--
 					if len(m.wallets) > 0 {
-						m.selectedAddress = m.wallets[m.selectedWallet]
+						m.selectedAddress = m.wallets[m.selectedWallet].Address
 					}
 				}
 				return m, nil
@@ -550,7 +597,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedWallet < len(m.wallets)-1 {
 					m.selectedWallet++
 					if len(m.wallets) > 0 {
-						m.selectedAddress = m.wallets[m.selectedWallet]
+						m.selectedAddress = m.wallets[m.selectedWallet].Address
 					}
 				}
 				return m, nil
@@ -558,6 +605,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "a":
 				m.adding = true
 				m.input.Focus()
+				return m, nil
+
+			case " ":
+				// Set selected wallet as active
+				if len(m.wallets) > 0 {
+					for i := range m.wallets {
+						m.wallets[i].Active = (i == m.selectedWallet)
+					}
+					saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
+				}
 				return m, nil
 
 			case "s":
@@ -569,7 +626,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.wallets) == 0 {
 					return m, nil
 				}
-				addr := m.wallets[m.selectedWallet]
+				addr := m.wallets[m.selectedWallet].Address
 				m.selectedAddress = addr
 				m.activePage = pageDetails
 				m.loading = true
@@ -590,10 +647,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Update selected address
 				if len(m.wallets) > 0 {
-					m.selectedAddress = m.wallets[m.selectedWallet]
+					m.selectedAddress = m.wallets[m.selectedWallet].Address
 				} else {
 					m.selectedAddress = ""
 				}
+				// Save wallets to config
+				saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
 				return m, nil
 			}
 			return m, nil
@@ -628,7 +687,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								url := m.form.GetString("RPC URL")
 								if name != "" && url != "" {
 									m.rpcURLs = append(m.rpcURLs, rpcURL{Name: name, URL: url, Active: false})
-									saveConfig(m.configPath, config{RPCURLs: m.rpcURLs})
+									saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
 								}
 							} else if m.settingsMode == "edit" {
 								name := m.form.GetString("RPC Name")
@@ -636,7 +695,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
 									m.rpcURLs[m.selectedRPCIdx].Name = name
 									m.rpcURLs[m.selectedRPCIdx].URL = url
-									saveConfig(m.configPath, config{RPCURLs: m.rpcURLs})
+									saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
 								}
 							}
 							m.settingsMode = "list"
@@ -673,7 +732,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.selectedRPCIdx >= len(m.rpcURLs) && m.selectedRPCIdx > 0 {
 							m.selectedRPCIdx--
 						}
-						saveConfig(m.configPath, config{RPCURLs: m.rpcURLs})
+						saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
 					}
 					return m, nil
 
@@ -696,7 +755,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.rpcURLs[i].Active = (i == m.selectedRPCIdx)
 						}
 						m.rpcURL = m.rpcURLs[m.selectedRPCIdx].URL
-						saveConfig(m.configPath, config{RPCURLs: m.rpcURLs})
+						saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
 						// Reconnect with new RPC
 						return m, connectRPC(m.rpcURL)
 					}
@@ -823,7 +882,7 @@ func (m model) View() string {
 		if len(m.wallets) == 0 {
 			listItems = append(listItems, lipgloss.NewStyle().Foreground(cMuted).Render("No wallets added yet. Press 'a' to add one."))
 		} else {
-			for i, addr := range m.wallets {
+			for i, wallet := range m.wallets {
 				var itemStyle lipgloss.Style
 				var marker string
 				if i == m.selectedWallet {
@@ -835,8 +894,16 @@ func (m model) View() string {
 					itemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e1a2aa"))
 					foregroundFullAddrColor = lipgloss.Color("#ba3fd7")
 				}
-				shortAddr := shortenAddr(addr)
-				fullAddr := lipgloss.NewStyle().Foreground(foregroundFullAddrColor).Render(addr)
+				shortAddr := shortenAddr(wallet.Address)
+				// Add name if present
+				if wallet.Name != "" {
+					shortAddr = wallet.Name + " - " + shortAddr
+				}
+				// Add active indicator
+				if wallet.Active {
+					shortAddr = "★ " + shortAddr
+				}
+				fullAddr := lipgloss.NewStyle().Foreground(foregroundFullAddrColor).Render(wallet.Address)
 				listItems = append(listItems, marker+itemStyle.Render(shortAddr)+"\n  "+fullAddr)
 			}
 		}
@@ -849,11 +916,20 @@ func (m model) View() string {
 
 		var addBoxView string
 		if m.adding {
+			inputView := m.input.View() + "\n" +
+				hotkeyStyle.Render("Enter") + " save   " +
+				hotkeyStyle.Render("Esc") + " cancel   " +
+				hotkeyStyle.Render("Ctrl+V") + " paste"
+			
+			// Show error message if present and recent
+			if m.addError != "" && time.Since(m.addErrTime) < 3*time.Second {
+				errorStyle := lipgloss.NewStyle().Foreground(cWarn).Bold(true)
+				inputView += "\n" + errorStyle.Render(m.addError)
+			}
+			
 			addBoxView = "\n\n" + panelStyle.
 				BorderForeground(cAccent2).
-				Render(m.input.View() + "\n" +
-					hotkeyStyle.Render("Enter") + " save   " +
-					hotkeyStyle.Render("Esc") + " cancel")
+				Render(inputView)
 		}
 
 		walletsContent := header + "\n" + subtitle + "\n\n" + listView + "\n\n" + statusBar + addBoxView
@@ -882,6 +958,7 @@ func (m model) navWallets() string {
 	left := strings.Join([]string{
 		key("↑/↓") + " move",
 		key("Enter") + " open",
+		key("Space") + " active",
 		key("a") + " add",
 		key("d") + " delete",
 		key("s") + " settings",
