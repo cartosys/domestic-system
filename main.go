@@ -74,6 +74,12 @@ var (
 
 type page int
 
+// Temporary form field storage (package-level to avoid pointer-to-copy issues)
+var (
+	tempRPCFormName string
+	tempRPCFormURL  string
+)
+
 const (
 	pageWallets page = iota
 	pageDetails
@@ -366,27 +372,27 @@ func saveConfig(path string, cfg config) error {
 }
 
 func (m *model) createAddRPCForm() {
-	name := ""
-	url := ""
+	tempRPCFormName = ""
+	tempRPCFormURL = ""
 	
 	m.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("RPC Name").
 				Description("A friendly name for this RPC endpoint").
-				Value(&name).
+				Value(&tempRPCFormName).
 				Placeholder("My Infura Node"),
 			
 			huh.NewInput().
 				Title("RPC URL").
 				Description("The complete RPC URL (https://...)").
-				Value(&url).
+				Value(&tempRPCFormURL).
 				Placeholder("https://mainnet.infura.io/v3/..."),
 		),
 	).WithTheme(huh.ThemeCatppuccin())
 	
-	// Store values for after form completion
-	m.form.State = huh.StateNormal
+	// Initialize the form
+	m.form.Init()
 }
 
 func (m *model) createEditRPCForm(idx int) {
@@ -395,28 +401,74 @@ func (m *model) createEditRPCForm(idx int) {
 	}
 	
 	rpc := m.rpcURLs[idx]
-	name := rpc.Name
-	url := rpc.URL
+	tempRPCFormName = rpc.Name
+	tempRPCFormURL = rpc.URL
 	
 	m.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("RPC Name").
-				Value(&name).
+				Value(&tempRPCFormName).
 				Placeholder("My Node"),
 			
 			huh.NewInput().
 				Title("RPC URL").
-				Value(&url).
+				Value(&tempRPCFormURL).
 				Placeholder("https://..."),
 		),
 	).WithTheme(huh.ThemeCatppuccin())
+	
+	// Initialize the form
+	m.form.Init()
 }
 
 // -------------------- UPDATE --------------------
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// Handle form updates first (before message switching)
+	if m.activePage == pageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+			
+			// Debug: log form state
+			fmt.Fprintf(os.Stderr, "Form state: %v, Name: %q, URL: %q\n", m.form.State, tempRPCFormName, tempRPCFormURL)
+			
+			// Check if form is completed
+			if m.form.State == huh.StateCompleted {
+				if m.settingsMode == "add" {
+					if tempRPCFormName != "" && tempRPCFormURL != "" {
+						newRPC := rpcURL{Name: tempRPCFormName, URL: tempRPCFormURL, Active: false}
+						m.rpcURLs = append(m.rpcURLs, newRPC)
+						err := saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
+						// Debug: uncomment to see save status
+						fmt.Fprintf(os.Stderr, "Saved new RPC: %+v, err: %v\n", newRPC, err)
+						_ = err
+					}
+				} else if m.settingsMode == "edit" {
+					if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
+						m.rpcURLs[m.selectedRPCIdx].Name = tempRPCFormName
+						m.rpcURLs[m.selectedRPCIdx].URL = tempRPCFormURL
+						saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
+					}
+				}
+				m.settingsMode = "list"
+				m.form = nil
+				// Return without the form's cmd to ensure we're back in list mode
+				return m, nil
+			}
+			
+			// Check if form was aborted (ESC pressed)
+			if m.form.State == huh.StateAborted {
+				m.settingsMode = "list"
+				m.form = nil
+				return m, nil
+			}
+		}
+		return m, cmd
+	}
 
 	switch msg := msg.(type) {
 
@@ -616,42 +668,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case pageSettings:
-			// Handle form input if in add/edit mode
-			if m.settingsMode == "add" || m.settingsMode == "edit" {
-				if m.form != nil {
-					form, cmd := m.form.Update(msg)
-					if f, ok := form.(*huh.Form); ok {
-						m.form = f
-						
-						// Check if form is completed
-						if m.form.State == huh.StateCompleted {
-							// Extract values from form
-							if m.settingsMode == "add" {
-								// Get form values
-								name := m.form.GetString("RPC Name")
-								url := m.form.GetString("RPC URL")
-								if name != "" && url != "" {
-									m.rpcURLs = append(m.rpcURLs, rpcURL{Name: name, URL: url, Active: false})
-									saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
-								}
-							} else if m.settingsMode == "edit" {
-								name := m.form.GetString("RPC Name")
-								url := m.form.GetString("RPC URL")
-								if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
-									m.rpcURLs[m.selectedRPCIdx].Name = name
-									m.rpcURLs[m.selectedRPCIdx].URL = url
-									saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
-								}
-							}
-							m.settingsMode = "list"
-							m.form = nil
-						}
-					}
-					return m, cmd
-				}
-			}
-
-			// List mode controls
+			// Only handle list mode controls here (form handled at top of Update)
 			if m.settingsMode == "list" {
 				switch msg.String() {
 				case "esc", "backspace":
