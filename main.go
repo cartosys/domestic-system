@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,9 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
+
+	"charm-wallet-tui/rpc"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -22,9 +22,7 @@ import (
 
 	"github.com/muesli/gamut"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // -------------------- THEME (Lip Gloss) --------------------
@@ -150,11 +148,11 @@ type model struct {
 	loading   bool
 	details   details
 	rpcURL    string
-	ethClient *ethclient.Client
+	ethClient *rpc.Client
 
 	// token watchlist (simple starter set)
 	// You can expand this (or load from config).
-	tokenWatch []watchedToken
+	tokenWatch []rpc.WatchedToken
 
 	// clipboard feedback
 	copiedMsg      string
@@ -175,12 +173,6 @@ type model struct {
 	
 	// clickable areas for mouse support
 	clickableAreas []clickableArea
-}
-
-type watchedToken struct {
-	Symbol   string
-	Decimals uint8
-	Address  common.Address
 }
 
 // -------------------- INIT --------------------
@@ -223,16 +215,16 @@ func newModel() model {
 	sp.Spinner = spinner.Line
 	sp.Style = lipgloss.NewStyle().Foreground(cAccent2)
 
-	// rpc
-	rpc := strings.TrimSpace(os.Getenv("ETH_RPC_URL"))
+	// rpc URL from environment
+	rpcFromEnv := strings.TrimSpace(os.Getenv("ETH_RPC_URL"))
 	
 	// If no RPC in config but ENV is set, use ENV
-	if len(cfg.RPCURLs) == 0 && rpc != "" {
-		cfg.RPCURLs = []rpcURL{{Name: "Default", URL: rpc, Active: true}}
+	if len(cfg.RPCURLs) == 0 && rpcFromEnv != "" {
+		cfg.RPCURLs = []rpcURL{{Name: "Default", URL: rpcFromEnv, Active: true}}
 	}
 	
 	// Find active RPC
-	activeRPC := rpc
+	activeRPC := rpcFromEnv
 	for _, r := range cfg.RPCURLs {
 		if r.Active {
 			activeRPC = r.URL
@@ -242,7 +234,7 @@ func newModel() model {
 
 	// starter token watchlist (Mainnet):
 	// USDC, USDT, DAI, WETH
-	watch := []watchedToken{
+	watch := []rpc.WatchedToken{
 		{Symbol: "WETH", Decimals: 18, Address: common.HexToAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")},
 		{Symbol: "USDC", Decimals: 6, Address: common.HexToAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")},
 		{Symbol: "USDT", Decimals: 6, Address: common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7")},
@@ -292,16 +284,14 @@ func (m model) Init() tea.Cmd {
 type clipboardCopiedMsg struct{}
 
 type rpcConnectedMsg struct {
-	client *ethclient.Client
+	client *rpc.Client
 	err    error
 }
 
 func connectRPC(url string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		c, err := ethclient.DialContext(ctx, url)
-		return rpcConnectedMsg{client: c, err: err}
+		result := rpc.Connect(url)
+		return rpcConnectedMsg{client: result.Client, err: result.Error}
 	}
 }
 
@@ -310,109 +300,30 @@ type detailsLoadedMsg struct {
 	err error
 }
 
-func loadDetails(client *ethclient.Client, addr common.Address, watch []watchedToken) tea.Cmd {
+func loadDetails(client *rpc.Client, addr common.Address, watch []rpc.WatchedToken) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		defer cancel()
-
+		walletDetails := rpc.LoadWalletDetails(client, addr, watch)
+		
+		// Convert rpc.WalletDetails to our details type
 		d := details{
-			Address:  addr.Hex(),
-			EthWei:   big.NewInt(0),
-			LoadedAt: time.Now(),
+			Address:    walletDetails.Address,
+			EthWei:     walletDetails.EthWei,
+			LoadedAt:   walletDetails.LoadedAt,
+			ErrMessage: walletDetails.ErrMessage,
 		}
-
-		if client == nil {
-			d.ErrMessage = "No RPC client (set ETH_RPC_URL)."
-			return detailsLoadedMsg{d: d, err: nil}
+		
+		// Convert token balances
+		for _, t := range walletDetails.Tokens {
+			d.Tokens = append(d.Tokens, tokenBalance{
+				Symbol:   t.Symbol,
+				Decimals: t.Decimals,
+				Balance:  t.Balance,
+			})
 		}
-
-		// ETH balance
-		wei, err := client.BalanceAt(ctx, addr, nil)
-		if err != nil {
-			d.ErrMessage = "Failed to load ETH balance."
-			return detailsLoadedMsg{d: d, err: err}
-		}
-		d.EthWei = wei
-
-		// ERC20 balances (simple sequential calls)
-		// For speed later: replace with Multicall3 batching.
-		var toks []tokenBalance
-		for _, t := range watch {
-			bal, err := erc20BalanceOf(ctx, client, t.Address, addr)
-			if err != nil {
-				// skip token silently; you can surface in UI if desired
-				continue
-			}
-			if bal.Sign() > 0 {
-				toks = append(toks, tokenBalance{
-					Symbol:   t.Symbol,
-					Decimals: t.Decimals,
-					Balance:  bal,
-				})
-			}
-		}
-
-		sort.Slice(toks, func(i, j int) bool {
-			return strings.ToLower(toks[i].Symbol) < strings.ToLower(toks[j].Symbol)
-		})
-		d.Tokens = toks
-
+		
 		return detailsLoadedMsg{d: d, err: nil}
 	}
 }
-
-// Minimal ERC20 balanceOf via eth_call.
-var (
-	// balanceOf(address) methodID = keccak256("balanceOf(address)")[:4]
-	balanceOfSelector = []byte{0x70, 0xa0, 0x82, 0x31}
-)
-
-func erc20BalanceOf(ctx context.Context, client *ethclient.Client, token common.Address, owner common.Address) (*big.Int, error) {
-	// calldata = selector + 32-byte left-padded address
-	padded := common.LeftPadBytes(owner.Bytes(), 32)
-	data := append(balanceOfSelector, padded...)
-
-	// go-ethereum CallContract wants a CallMsg
-	msg := ethereum.CallMsg{
-		To:   &token,
-		Data: data,
-	}
-	out, err := client.CallContract(ctx, msg, nil)
-	if err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		return big.NewInt(0), nil
-	}
-	return new(big.Int).SetBytes(out), nil
-}
-
-// Tiny helper to avoid importing the full ethereum package name in the user’s face.
-type callMsg struct {
-	To   *common.Address
-	Data []byte
-}
-
-func ethereumCallMsg(to common.Address, data []byte) callMsg {
-	return callMsg{To: &to, Data: data}
-}
-
-// Adapter: ethclient.CallContract expects ethereum.CallMsg. We mirror fields and cast using a small trick:
-// We'll just re-create the struct using the same field names via an inline struct that matches.
-func (c callMsg) toEthereumCallMsg() interface{} {
-	// This shape matches ethereum.CallMsg fields that CallContract uses: To, Data.
-	return struct {
-		To   *common.Address
-		Data []byte
-	}{To: c.To, Data: c.Data}
-}
-
-// We need to satisfy the actual type at compile time. The easiest is to import the ethereum package.
-// But to keep this file compact, we’ll do it properly: import "github.com/ethereum/go-ethereum".
-// (We’ll add it below as a normal import via alias.)
-//
-// NOTE: Because Go requires exact types, we’ll do the real thing:
-func init() {}
 
 func copyToClipboard(text string) tea.Cmd {
 	return func() tea.Msg {
@@ -1223,7 +1134,7 @@ func key(s string) string {
 	return hotkeyKeyStyle.Render(s)
 }
 
-func rpcStatus(url string, c *ethclient.Client) string {
+func rpcStatus(url string, c *rpc.Client) string {
 	if url == "" {
 		return "not set"
 	}
