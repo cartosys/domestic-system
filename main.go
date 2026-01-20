@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"image/color"
 
 	"charm-wallet-tui/rpc"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/muesli/gamut"
+	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -36,8 +38,6 @@ var (
 	cAccent  = lipgloss.Color("#7EE787") // green-ish
 	cAccent2 = lipgloss.Color("#79C0FF") // blue-ish
 	cWarn    = lipgloss.Color("#FFA657") // orange
-
-	blends    = gamut.Blends(lipgloss.Color("#F25D94"), lipgloss.Color("#EDFF82"), 50)
 
 	appStyle = lipgloss.NewStyle().
 			Background(cBg).
@@ -781,13 +781,13 @@ func (m model) globalHeader() string {
 		addrDisplay = lipgloss.NewStyle().
 			Foreground(cAccent2).
 			Bold(true).
-			Render("Active Address: " + shortenAddr(m.activeAddress))
+			Render("Active Address: " + fadeString(shortenAddr(m.activeAddress), "#F25D94", "#EDFF82"))
 	} else {
 		addrDisplay = lipgloss.NewStyle().
 			Foreground(cMuted).
 			Render("Active Address: No selection")
 	}
-
+	
 	// RPC Status with green dot
 	var statusIcon string
 	var statusColor lipgloss.Color
@@ -875,26 +875,29 @@ func (m model) View() string {
 
 		// Render wallet list using lipgloss
 		var listItems []string
-		var foregroundFullAddrColor = cText
 		if len(m.wallets) == 0 {
 			listItems = append(listItems, lipgloss.NewStyle().Foreground(cMuted).Render("No wallets added yet. Press 'a' to add one."))
 		} else {
 			// Starting Y position: headerPanel (3) + title line (1) + subtitle (1) + padding (2) = 7
 			currentY := 7
-			
+			var fullAddr string
+			var shortAddr string
 			for i, wallet := range m.wallets {
 				var itemStyle lipgloss.Style
 				var marker string
 				if i == m.selectedWallet {
 					marker = lipgloss.NewStyle().Foreground(cAccent2).Bold(true).Render("▶ ")
 					itemStyle = lipgloss.NewStyle().Foreground(cAccent2).Bold(true)
-					foregroundFullAddrColor = cText
+					fullAddr = lipgloss.NewStyle().Foreground(cText).Render(wallet.Address)
+					shortAddr = shortenAddr(wallet.Address)
+				
 				} else {
 					marker = "  "
 					itemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e1a2aa"))
-					foregroundFullAddrColor = lipgloss.Color("#ba3fd7")
+					fullAddr = lipgloss.NewStyle().Foreground(lipgloss.Color("#ba3fd7")).Render(fadeString(wallet.Address, "#7D5AFC", "#FF87D7"))
+					shortAddr = fadeString(shortenAddr(wallet.Address), "#F25D94", "#EDFF82")
 				}
-				shortAddr := shortenAddr(wallet.Address)
+				
 				// Add name if present
 				if wallet.Name != "" {
 					shortAddr = wallet.Name + " - " + shortAddr
@@ -903,7 +906,6 @@ func (m model) View() string {
 				if wallet.Active {
 					shortAddr = "✓ " + shortAddr
 				}
-				fullAddr := lipgloss.NewStyle().Foreground(foregroundFullAddrColor).Render(wallet.Address)
 				listItems = append(listItems, marker+itemStyle.Render(shortAddr)+"\n  "+fullAddr)
 				
 				// Register both short and full address lines as clickable
@@ -1140,6 +1142,10 @@ func (m model) navSettings() string {
 		),
 	)
 }
+func fadeString(s string, firstColor string, lastColor string) string {
+	blends  := gamut.Blends(lipgloss.Color(firstColor), lipgloss.Color(lastColor), len(s))
+	return lipgloss.NewStyle().Render(rainbow(lipgloss.NewStyle(), s, blends))
+}
 
 func key(s string) string {
 	return hotkeyKeyStyle.Render(s)
@@ -1168,13 +1174,22 @@ func loadedAt(t time.Time, loading bool) string {
 // -------------------- HELPERS --------------------
 
 func shortenAddr(a string) string {
+
 	a = strings.TrimSpace(a)
 	if len(a) < 12 {
 		return a
 	}
+
 	return a[:6] + "…" + a[len(a)-4:]
 }
-
+func rainbow(base lipgloss.Style, s string, colors []color.Color) string {
+	var str string
+	for i, ss := range s {
+		color, _ := colorful.MakeColor(colors[i%len(colors)])
+		str = str + base.Foreground(lipgloss.Color(color.Hex())).Render(string(ss))
+	}
+	return str
+}
 var reEthAddr = regexp.MustCompile(`^(0x)?[0-9a-fA-F]{40}$`)
 
 func isValidEthAddress(s string) bool {
