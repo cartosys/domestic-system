@@ -814,6 +814,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.settingsMode = "list"
 				return m, nil
 
+			case "esc":
+				return m, tea.Quit
+
 			case "enter":
 				if len(m.wallets) == 0 {
 					return m, nil
@@ -1227,7 +1230,7 @@ func (m model) navWallets() string {
 		key("d") + " delete",
 		key("s") + " settings",
 		key("l") + " debug log",
-		key("q") + " quit",
+		key("Esc") + " quit",
 	}, "   ")
 
 	return navStyle.Width(max(0, m.w-2)).Render(left)
@@ -1235,12 +1238,12 @@ func (m model) navWallets() string {
 
 func (m model) navDetails() string {
 	left := strings.Join([]string{
-		key("Esc") + " back",
 		key("r") + " refresh",
 		key("n") + " nickname",
 		key("click addr") + " copy",
 		key("l") + " debug log",
 		key("q") + " quit",
+		key("Esc") + " back",
 	}, "   ")
 
 	right := helpRightStyle.Render(
@@ -1375,8 +1378,8 @@ func (m model) navSettings() string {
 	var left string
 	if m.settingsMode == "add" || m.settingsMode == "edit" {
 		left = strings.Join([]string{
-			key("Esc") + " cancel",
 			key("l") + " debug log",
+			key("Esc") + " cancel",
 		}, "   ")
 	} else {
 		left = strings.Join([]string{
