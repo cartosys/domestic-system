@@ -208,7 +208,7 @@ func newModel() model {
 
 	// input
 	in := textinput.New()
-	in.Placeholder = "0x…"
+	in.Placeholder = "Paste Public Address 0x…"
 	in.Prompt = "Add wallet: "
 	in.PromptStyle = lipgloss.NewStyle().Foreground(cAccent)
 	in.TextStyle = lipgloss.NewStyle().Foreground(cText)
