@@ -78,6 +78,7 @@ type page int
 var (
 	tempRPCFormName string
 	tempRPCFormURL  string
+	tempNicknameField string
 )
 
 const (
@@ -171,6 +172,9 @@ type model struct {
 	selectedRPCIdx int
 	form           *huh.Form
 	configPath     string
+
+	// nickname editing
+	nicknaming     bool
 
 	// currently highlighted address in wallet list
 	highlightedAddress string
@@ -422,12 +426,71 @@ func (m *model) createEditRPCForm(idx int) {
 	m.form.Init()
 }
 
+func (m *model) createNicknameForm() {
+	// Find current wallet's nickname
+	tempNicknameField = ""
+	for _, w := range m.wallets {
+		if strings.EqualFold(w.Address, m.details.Address) {
+			tempNicknameField = w.Name
+			break
+		}
+	}
+	
+	placeholderText := "Enter nickname"
+	if tempNicknameField != "" {
+		placeholderText = tempNicknameField
+	}
+	
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Wallet Nickname").
+				Description("Set a friendly name for this wallet").
+				Value(&tempNicknameField).
+				Placeholder(placeholderText),
+		),
+	).WithTheme(huh.ThemeCatppuccin())
+	
+	// Initialize the form
+	m.form.Init()
+}
+
 // -------------------- UPDATE --------------------
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	// Handle form updates first (before message switching)
+	if m.activePage == pageDetails && m.nicknaming && m.form != nil {
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+			
+			// Check if form is completed
+			if m.form.State == huh.StateCompleted {
+				// Save nickname to wallet entry
+				for i := range m.wallets {
+					if strings.EqualFold(m.wallets[i].Address, m.details.Address) {
+						m.wallets[i].Name = strings.TrimSpace(tempNicknameField)
+						break
+					}
+				}
+				saveConfig(m.configPath, config{RPCURLs: m.rpcURLs, Wallets: m.wallets})
+				m.nicknaming = false
+				m.form = nil
+				return m, nil
+			}
+			
+			// Check if form was aborted (ESC pressed)
+			if m.form.State == huh.StateAborted {
+				m.nicknaming = false
+				m.form = nil
+				return m, nil
+			}
+		}
+		return m, cmd
+	}
+	
 	if m.activePage == pageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
@@ -649,16 +712,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case pageDetails:
-			switch msg.String() {
-			case "esc", "backspace":
-				m.activePage = pageWallets
-				return m, nil
+			// Don't handle keys if nicknaming form is active
+			if !m.nicknaming {
+				switch msg.String() {
+				case "esc", "backspace":
+					m.activePage = pageWallets
+					return m, nil
 
-			case "r":
-				// refresh
-				addr := common.HexToAddress(m.details.Address)
-				m.loading = true
-				return m, loadDetails(m.ethClient, addr, m.tokenWatch)
+				case "r":
+					// refresh
+					addr := common.HexToAddress(m.details.Address)
+					m.loading = true
+					return m, loadDetails(m.ethClient, addr, m.tokenWatch)
+				
+				case "n":
+					// nickname
+					m.nicknaming = true
+					m.createNicknameForm()
+					return m, nil
+				}
 			}
 
 		case pageSettings:
@@ -1004,6 +1076,7 @@ func (m model) navDetails() string {
 	left := strings.Join([]string{
 		key("Esc") + " back",
 		key("r") + " refresh",
+		key("n") + " nickname",
 		key("click addr") + " copy",
 		key("q") + " quit",
 	}, "   ")
@@ -1022,9 +1095,31 @@ func (m model) navDetails() string {
 
 func (m model) detailsView() string {
 	h := titleStyle.Render("Wallet Details")
+	
+	// Show form if in nicknaming mode
+	if m.nicknaming && m.form != nil {
+		return h + "\n\n" + m.form.View()
+	}
+	
+	// Find nickname for current wallet
+	var nickname string
+	for _, w := range m.wallets {
+		if strings.EqualFold(w.Address, m.details.Address) {
+			nickname = w.Name
+			break
+		}
+	}
+	
 	// Make address clickable with underline hint
 	addrStyle := lipgloss.NewStyle().Foreground(cMuted).Underline(true)
 	sub := addrStyle.Render(m.details.Address)
+	
+	// Add nickname if it exists
+	if nickname != "" {
+		nicknameStyle := lipgloss.NewStyle().Foreground(cAccent2).Italic(true)
+		sub = nicknameStyle.Render("\""+nickname+"\"") + "  " + sub
+	}
+	
 	if m.copiedMsg != "" {
 		sub += "  " + lipgloss.NewStyle().Foreground(cAccent).Render(m.copiedMsg)
 	}
