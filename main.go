@@ -91,6 +91,7 @@ const (
 	pageWallets page = iota
 	pageDetails
 	pageSettings
+	pageDappBrowser
 )
 
 // clickableArea represents a clickable region on screen for addresses
@@ -724,7 +725,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	if m.activePage == pageDetails && (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
+	if (m.activePage == pageDetails || m.activePage == pageDappBrowser) && (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
@@ -997,6 +998,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.settingsMode = "list"
 				return m, nil
 
+			case "b":
+				m.activePage = pageDappBrowser
+				m.dappMode = "list"
+				return m, nil
+
 			case "esc":
 				return m, tea.Quit
 
@@ -1059,8 +1065,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case pageDetails:
-			// Don't handle keys if nicknaming or dapp form is active
-			if !m.nicknaming && m.dappMode == "list" {
+			// Don't handle keys if nicknaming form is active
+			if !m.nicknaming {
 				switch msg.String() {
 				case "esc", "backspace":
 					m.activePage = pageWallets
@@ -1077,6 +1083,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// nickname
 					m.nicknaming = true
 					m.createNicknameForm()
+					return m, nil
+				}
+			}
+
+		case pageDappBrowser:
+			// Only handle list mode controls here (form handled at top of Update)
+			if m.dappMode == "list" {
+				switch msg.String() {
+				case "esc", "backspace":
+					m.activePage = pageWallets
 					return m, nil
 
 				case "up", "k":
@@ -1430,18 +1446,19 @@ func (m model) View() string {
 
 	case pageDetails:
 		detailsContent := m.detailsView()
-		dappBrowserContent := m.dAppBrowserView()
 		
-		// Render both panels
-		detailsPanel := panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
-		dappPanel := panelStyle.Width(max(0, m.w-2)).Render(dappBrowserContent)
+		// Render details panel only (dApp browser moved to its own page)
+		pageContent = panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
 		
 		// Calculate address line Y position (accounting for panel padding + global header)
 		m.addressLineY = 5 // 1 for panel padding + 2 for global header + 1 for blank line + 1 for title line
 		
-		// Combine both panels vertically
-		pageContent = lipgloss.JoinVertical(lipgloss.Left, detailsPanel, dappPanel)
 		nav = m.navDetails()
+
+	case pageDappBrowser:
+		dappBrowserContent := m.dAppBrowserView()
+		pageContent = panelStyle.Width(max(0, m.w-2)).Render(dappBrowserContent)
+		nav = m.navDappBrowser()
 
 	case pageSettings:
 		settingsContent := m.settingsView()
@@ -1470,6 +1487,7 @@ func (m model) navWallets() string {
 		key("a") + " add",
 		key("d") + " delete",
 		key("s") + " settings",
+		key("b") + " dApps",
 		key("l") + " debug log",
 		key("Esc") + " quit",
 	}, "   ")
@@ -1479,22 +1497,12 @@ func (m model) navWallets() string {
 
 func (m model) navDetails() string {
 	var left string
-	if m.dappMode == "add" || m.dappMode == "edit" {
-		left = strings.Join([]string{
-			key("Esc") + " cancel",
-		}, "   ")
-	} else {
-		left = strings.Join([]string{
-			key("r") + " refresh",
-			key("n") + " nickname",
-			key("↑/↓") + " select dApp",
-			key("a") + " add dApp",
-			key("e") + " edit dApp",
-			key("x") + " delete dApp",
-			key("l") + " debug log",
-			key("Esc") + " back",
-		}, "   ")
-	}
+	left = strings.Join([]string{
+		key("r") + " refresh",
+		key("n") + " nickname",
+		key("l") + " debug log",
+		key("Esc") + " back",
+	}, "   ")
 
 	right := helpRightStyle.Render(
 		fmt.Sprintf("Loaded: %s", loadedAt(m.details.LoadedAt, m.loading)),
@@ -1506,6 +1514,26 @@ func (m model) navDetails() string {
 			lipgloss.NewStyle().Width(max(0, m.w-lipgloss.Width(left)-4)).Align(lipgloss.Right).Render(right),
 		),
 	)
+}
+
+func (m model) navDappBrowser() string {
+	var left string
+	if m.dappMode == "add" || m.dappMode == "edit" {
+		left = strings.Join([]string{
+			key("Esc") + " cancel",
+		}, "   ")
+	} else {
+		left = strings.Join([]string{
+			key("↑/↓") + " select",
+			key("a") + " add",
+			key("e") + " edit",
+			key("x") + " delete",
+			key("l") + " debug log",
+			key("Esc") + " back",
+		}, "   ")
+	}
+
+	return navStyle.Width(max(0, m.w-2)).Render(left)
 }
 
 func (m model) detailsView() string {
