@@ -17,7 +17,7 @@ import (
 	"charm-wallet-tui/views/dapps"
 	"charm-wallet-tui/views/details"
 	"charm-wallet-tui/views/settings"
-	// "charm-wallet-tui/views/wallets"
+	"charm-wallet-tui/views/wallets"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
@@ -1384,80 +1384,9 @@ func (m model) View() string {
 		nav = m.navHome()
 
 	case pageWallets:
-		header := titleStyle.Render("Account List")
-		subtitle := lipgloss.NewStyle().Foreground(cMuted).Render("Browse accounts and addresses")
-
-		// Render wallet list using lipgloss
-		var listItems []string
-		if len(m.wallets) == 0 {
-			listItems = append(listItems, lipgloss.NewStyle().Foreground(cMuted).Render("No wallets added yet. Press 'a' to add one."))
-		} else {
-			// Starting Y position accounting for:
-			// - global header panel (varies, ~5 lines)
-			// - page content panel padding (1 line top)
-			// - title line (1)
-			// - subtitle (1)
-			// - blank line (1)
-			// Total ~9 lines from top
-			currentY := 9
-			var fullAddr string
-			var shortAddr string
-			for i, wallet := range m.wallets {
-				var itemStyle lipgloss.Style
-				var marker string
-				if i == m.selectedWallet {
-					marker = lipgloss.NewStyle().Foreground(cAccent2).Bold(true).Render("▶ ")
-					itemStyle = lipgloss.NewStyle().Foreground(cAccent2).Bold(true)
-					fullAddr = lipgloss.NewStyle().Foreground(cText).Render(wallet.Address)
-					shortAddr = helpers.ShortenAddr(wallet.Address)
-
-				} else {
-					marker = "  "
-					itemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e1a2aa"))
-					fullAddr = lipgloss.NewStyle().Foreground(lipgloss.Color("#ba3fd7")).Render(helpers.FadeString(wallet.Address, "#7D5AFC", "#FF87D7"))
-					shortAddr = helpers.FadeString(helpers.ShortenAddr(wallet.Address), "#F25D94", "#EDFF82")
-				}
-
-				// Add name if present
-				if wallet.Name != "" {
-					shortAddr = wallet.Name + " - " + shortAddr
-				}
-				// Add active indicator
-				if wallet.Active {
-					shortAddr = "✓ " + shortAddr
-				}
-				listItems = append(listItems, marker+itemStyle.Render(shortAddr)+"\n  "+fullAddr)
-
-				// Register both short and full address lines as clickable
-				// Short address line
-				m.clickableAreas = append(m.clickableAreas, clickableArea{
-					X:       4,
-					Y:       currentY,
-					Width:   lipgloss.Width(shortAddr) + 2,
-					Height:  1,
-					Address: wallet.Address,
-				})
-				currentY++
-
-				// Full address line
-				m.clickableAreas = append(m.clickableAreas, clickableArea{
-					X:       4,
-					Y:       currentY,
-					Width:   42, // Full Ethereum address width
-					Height:  1,
-					Address: wallet.Address,
-				})
-				currentY += 2 // Account for blank line between items
-			}
-		}
-		listView := strings.Join(listItems, "\n\n")
-
-		// Status bar
-		statusBar := lipgloss.NewStyle().Foreground(cMuted).Render(
-			fmt.Sprintf("%d wallets", len(m.wallets)),
-		)
-
-		var addBoxView string
+		walletsContent, _ := wallets.Render(m.wallets, m.selectedWallet, m.addError)
+		
+		// Show add wallet form if in adding mode
 		if m.adding {
 			inputView := m.input.View() + "\n" +
 				hotkeyStyle.Render("Enter") + " save   " +
@@ -1470,14 +1399,14 @@ func (m model) View() string {
 				inputView += "\n" + errorStyle.Render(m.addError)
 			}
 
-			addBoxView = "\n\n" + panelStyle.
+			addBoxView := "\n\n" + panelStyle.
 				BorderForeground(cAccent2).
 				Render(inputView)
+			walletsContent += addBoxView
 		}
-
-		walletsContent := header + "\n" + subtitle + "\n\n" + listView + "\n\n" + statusBar + addBoxView
+		
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(walletsContent)
-		nav = m.navWallets()
+		nav = wallets.Nav(m.w - 2)
 
 	case pageDetails:
 		// Convert local walletDetails to rpc.WalletDetails
@@ -1567,22 +1496,7 @@ func (m model) navHome() string {
 	return navStyle.Width(max(0, m.w-2)).Render(left)
 }
 
-func (m model) navWallets() string {
-	left := strings.Join([]string{
-		key("↑/↓") + " move",
-		key("Enter") + " open",
-		key("Space") + " activate",
-		key("a") + " add",
-		key("d") + " delete",
-		key("h") + " home",
-		key("s") + " settings",
-		key("b") + " dApps",
-		key("l") + " debug log",
-		key("Esc") + " quit",
-	}, "   ")
 
-	return navStyle.Width(max(0, m.w-2)).Render(left)
-}
 
 func (m model) renderLogPanel() string {
 	title := lipgloss.NewStyle().
