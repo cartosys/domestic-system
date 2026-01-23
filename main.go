@@ -1330,31 +1330,16 @@ func (m model) View() string {
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(walletsContent)
 		nav = wallets.Nav(m.w - 2)
 
-	case pageDetails:		
-		// Calculate address line Y position (accounting for panel padding + global header)
-		m.addressLineY = 5 // 1 for panel padding + 2 for global header + 1 for blank line + 1 for title line
-
-		// Convert local walletDetails to rpc.WalletDetails
-		rpcDetails := rpc.WalletDetails{
-			Address:    m.details.Address,
-			EthWei:     m.details.EthWei,
-			LoadedAt:   m.details.LoadedAt,
-			ErrMessage: m.details.ErrMessage,
-		}
-		for _, t := range m.details.Tokens {
-			rpcDetails.Tokens = append(rpcDetails.Tokens, rpc.TokenBalance{
-				Symbol:   t.Symbol,
-				Decimals: t.Decimals,
-				Balance:  t.Balance,
-			})
-		}
-
-		detailsContent := details.Render(rpcDetails, m.wallets, m.loading, m.copiedMsg, m.spin.View())
+	case pageDetails:
+		detailsContent := details.Render(m.details, m.nicknaming, m.form)
 		
 		// Render details panel only (dApp browser moved to its own page)
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
 		
-		nav = details.Nav(m.w - 2, m.nicknaming)
+		// Calculate address line Y position (accounting for panel padding + global header)
+		m.addressLineY = 5 // 1 for panel padding + 2 for global header + 1 for blank line + 1 for title line
+		
+		nav = details.Nav(m.w - 2, m.details, m.loading)
 
 	case pageDappBrowser:
 		dappBrowserContent := m.dAppBrowserView()
@@ -1440,6 +1425,75 @@ func (m model) navDappBrowser() string {
 	}
 
 	return navStyle.Width(max(0, m.w-2)).Render(left)
+}
+
+func (m model) detailsView() string {
+	h := titleStyle.Render("Account Details")
+
+	// Show form if in nicknaming mode
+	if m.nicknaming && m.form != nil {
+		return h + "\n\n" + m.form.View()
+	}
+
+	// Find nickname for current wallet
+	var nickname string
+	for _, w := range m.wallets {
+		if strings.EqualFold(w.Address, m.details.Address) {
+			nickname = w.Name
+			break
+		}
+	}
+
+	// Make address clickable with underline hint
+	addrStyle := lipgloss.NewStyle().Foreground(cMuted).Underline(true)
+	sub := addrStyle.Render(m.details.Address)
+
+	// Add nickname if it exists
+	if nickname != "" {
+		nicknameStyle := lipgloss.NewStyle().Foreground(cAccent2).Italic(true)
+		sub = nicknameStyle.Render("\""+nickname+"\"") + "  " + sub
+	}
+
+	if m.copiedMsg != "" {
+		sub += "  " + lipgloss.NewStyle().Foreground(cAccent).Render(m.copiedMsg)
+	}
+
+	if m.loading {
+		return h + "\n" + sub + "\n\n" + m.spin.View() + " fetching balances…"
+	}
+
+	if m.details.ErrMessage != "" {
+		msg := lipgloss.NewStyle().Foreground(cWarn).Render("⚠ " + m.details.ErrMessage)
+		hint := hotkeyStyle.Render("Tip: set ") + lipgloss.NewStyle().Foreground(cAccent).Render("ETH_RPC_URL") +
+			hotkeyStyle.Render(" then press ") + key("r") + hotkeyStyle.Render(" to refresh.")
+		return h + "\n" + sub + "\n\n" + msg + "\n\n" + hint
+	}
+
+	ethLine := fmt.Sprintf("%s  %s",
+		lipgloss.NewStyle().Foreground(cAccent2).Bold(true).Render("ETH"),
+		lipgloss.NewStyle().Foreground(cText).Render(helpers.FormatETH(m.details.EthWei)),
+	)
+
+	lines := []string{h, sub, "", ethLine, ""}
+
+	if len(m.details.Tokens) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(cMuted).Render("No watched token balances found (non-zero)."))
+		lines = append(lines, hotkeyStyle.Render("Edit tokenWatch in code (or add config) to track more tokens."))
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, lipgloss.NewStyle().Foreground(cMuted).Render("Tokens (watchlist)"))
+
+	// table-ish rendering
+	for _, t := range m.details.Tokens {
+		row := fmt.Sprintf("%-6s  %s",
+			lipgloss.NewStyle().Foreground(cAccent).Render(t.Symbol),
+			lipgloss.NewStyle().Foreground(cText).Render(helpers.FormatToken(t.Balance, t.Decimals, t.Symbol)),
+		)
+		lines = append(lines, row)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (m model) dAppBrowserView() string {
