@@ -1512,8 +1512,15 @@ func (m model) View() string {
 			listWidth := max(0, (m.w*4)/10-2)
 			detailsWidth := max(0, (m.w*6)/10-2)
 			
+			// Get the height of the left panel content to match it on the right
 			leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
-			rightPanel := panelStyle.Width(detailsWidth).Render(detailsContent)
+			leftPanelHeight := lipgloss.Height(leftPanel)
+			
+			// Set the right panel to match the left panel height
+			rightPanel := panelStyle.
+				Width(detailsWidth + 1).
+				Height(leftPanelHeight - 2).
+				Render(detailsContent)
 			
 			pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 		} else {
