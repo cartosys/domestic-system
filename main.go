@@ -16,7 +16,7 @@ import (
 	// View packages - ready to use when delegating rendering
 	"charm-wallet-tui/views/dapps"
 	// "charm-wallet-tui/views/details"
-	// "charm-wallet-tui/views/settings"
+	"charm-wallet-tui/views/settings"
 	// "charm-wallet-tui/views/wallets"
 
 	"github.com/atotto/clipboard"
@@ -1502,9 +1502,15 @@ func (m model) View() string {
 		nav = dapps.Nav(m.w-2, m.dappMode)
 
 	case pageSettings:
-		settingsContent := m.settingsView()
+		settingsContent := settings.Render(m.rpcURLs, m.selectedRPCIdx)
+		
+		// Show form if in add/edit mode
+		if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
+			settingsContent = styles.TitleStyle.Render("RPC Settings") + "\n\n" + m.form.View()
+		}
+		
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(settingsContent)
-		nav = m.navSettings()
+		nav = settings.Nav(m.w-2, m.settingsMode)
 	}
 
 	// Render log panel only if enabled
@@ -1646,75 +1652,6 @@ func (m model) detailsView() string {
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-func (m model) settingsView() string {
-	h := titleStyle.Render("RPC Settings")
-
-	if m.settingsMode == "add" || m.settingsMode == "edit" {
-		if m.form != nil {
-			return h + "\n\n" + m.form.View()
-		}
-	}
-
-	// List mode
-	lines := []string{h, ""}
-
-	if len(m.rpcURLs) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Foreground(cMuted).Render("No RPC URLs configured."))
-		lines = append(lines, "")
-		lines = append(lines, hotkeyStyle.Render("Press ")+key("a")+hotkeyStyle.Render(" to add your first RPC URL."))
-	} else {
-		lines = append(lines, lipgloss.NewStyle().Foreground(cMuted).Render("Configured RPC Endpoints:"))
-		lines = append(lines, "")
-
-		for i, rpc := range m.rpcURLs {
-			var marker string
-			if rpc.Active {
-				marker = lipgloss.NewStyle().Foreground(cAccent).Render("● ")
-			} else {
-				marker = lipgloss.NewStyle().Foreground(cMuted).Render("○ ")
-			}
-
-			nameStyle := lipgloss.NewStyle().Foreground(cText)
-			urlStyle := lipgloss.NewStyle().Foreground(cMuted)
-
-			if i == m.selectedRPCIdx {
-				nameStyle = nameStyle.Background(cPanel).Foreground(cAccent2).Bold(true)
-				urlStyle = urlStyle.Background(cPanel)
-				marker = lipgloss.NewStyle().Foreground(cAccent2).Render("▶ ")
-			}
-
-			line := marker + nameStyle.Render(rpc.Name)
-			lines = append(lines, line)
-			lines = append(lines, "  "+urlStyle.Render(rpc.URL))
-			lines = append(lines, "")
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func (m model) navSettings() string {
-	var left string
-	if m.settingsMode == "add" || m.settingsMode == "edit" {
-		left = strings.Join([]string{
-			key("l") + " debug log",
-			key("Esc") + " cancel",
-		}, "   ")
-	} else {
-		left = strings.Join([]string{
-			key("↑/↓") + " select",
-			key("Enter") + " activate",
-			key("a") + " add",
-			key("e") + " edit",
-			key("d") + " delete",
-			key("l") + " debug log",
-			key("Esc") + " back",
-		}, "   ")
-	}
-
-	return navStyle.Width(max(0, m.w-2)).Render(left)
 }
 
 func (m model) renderLogPanel() string {
