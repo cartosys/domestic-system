@@ -14,7 +14,7 @@ import (
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 	// View packages - ready to use when delegating rendering
-	// "charm-wallet-tui/views/dapps"
+	"charm-wallet-tui/views/dapps"
 	// "charm-wallet-tui/views/details"
 	// "charm-wallet-tui/views/settings"
 	// "charm-wallet-tui/views/wallets"
@@ -1491,9 +1491,15 @@ func (m model) View() string {
 		nav = m.navDetails()
 
 	case pageDappBrowser:
-		dappBrowserContent := m.dAppBrowserView()
+		dappBrowserContent := dapps.Render(m.dapps, m.selectedDappIdx)
+		
+		// Show form if in add/edit mode
+		if (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
+			dappBrowserContent = styles.TitleStyle.Render("dApp Browser") + "\n\n" + m.form.View()
+		}
+		
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(dappBrowserContent)
-		nav = m.navDappBrowser()
+		nav = dapps.Nav(m.w-2, m.dappMode)
 
 	case pageSettings:
 		settingsContent := m.settingsView()
@@ -1573,26 +1579,6 @@ func (m model) navDetails() string {
 	)
 }
 
-func (m model) navDappBrowser() string {
-	var left string
-	if m.dappMode == "add" || m.dappMode == "edit" {
-		left = strings.Join([]string{
-			key("Esc") + " cancel",
-		}, "   ")
-	} else {
-		left = strings.Join([]string{
-			key("↑/↓") + " select",
-			key("a") + " add",
-			key("e") + " edit",
-			key("x") + " delete",
-			key("l") + " debug log",
-			key("Esc") + " back",
-		}, "   ")
-	}
-
-	return navStyle.Width(max(0, m.w-2)).Render(left)
-}
-
 func (m model) detailsView() string {
 	h := titleStyle.Render("Account Details")
 
@@ -1657,52 +1643,6 @@ func (m model) detailsView() string {
 			lipgloss.NewStyle().Foreground(cText).Render(helpers.FormatToken(t.Balance, t.Decimals, t.Symbol)),
 		)
 		lines = append(lines, row)
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func (m model) dAppBrowserView() string {
-	h := titleStyle.Render("dApp Browser")
-
-	// Show form if in add/edit mode
-	if (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
-		return h + "\n\n" + m.form.View()
-	}
-
-	lines := []string{h, ""}
-
-	if len(m.dapps) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Foreground(cMuted).Render("No dApps configured."))
-		lines = append(lines, "")
-		lines = append(lines, hotkeyStyle.Render("Press ") + key("a") + hotkeyStyle.Render(" to add your first dApp."))
-	} else {
-		lines = append(lines, lipgloss.NewStyle().Foreground(cMuted).Render("Available dApps:"))
-		lines = append(lines, "")
-
-		for i, dapp := range m.dapps {
-			var marker string
-			nameStyle := lipgloss.NewStyle().Foreground(cText)
-			addrStyle := lipgloss.NewStyle().Foreground(cMuted)
-
-			if i == m.selectedDappIdx {
-				nameStyle = nameStyle.Background(cPanel).Foreground(cAccent2).Bold(true)
-				addrStyle = addrStyle.Background(cPanel)
-				marker = lipgloss.NewStyle().Foreground(cAccent2).Render("▶ ")
-			} else {
-				marker = "  "
-			}
-
-			icon := dapp.Icon
-			if icon == "" {
-				icon = "🌐"
-			}
-
-			line := marker + icon + " " + nameStyle.Render(dapp.Name)
-			lines = append(lines, line)
-			lines = append(lines, "  "+addrStyle.Render(dapp.Address))
-			lines = append(lines, "")
-		}
 	}
 
 	return strings.Join(lines, "\n")
