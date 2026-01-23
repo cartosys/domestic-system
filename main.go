@@ -194,6 +194,12 @@ type model struct {
 	sendButtonFocused bool
 	showSendForm      bool
 	sendForm          *huh.Form
+
+	// transaction result panel
+	showTxResultPanel bool
+	txResultPackaging bool
+	txResultHex       string
+	txResultError     string
 }
 
 // -------------------- INIT --------------------
@@ -329,6 +335,31 @@ func initLogViewport() tea.Cmd {
 type detailsLoadedMsg struct {
 	d   walletDetails
 	err error
+}
+
+type packageTransactionMsg struct {
+	rawTx string
+	err   error
+}
+
+func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string) tea.Cmd {
+	return func() tea.Msg {
+		// Convert ETH amount to Wei
+		amountFloat := new(big.Float)
+		amountFloat.SetString(ethAmount)
+		weiFloat := new(big.Float).Mul(amountFloat, big.NewFloat(1e18))
+		amountWei, _ := weiFloat.Int(nil)
+
+		// Call RPC package function
+		rawTx, err := rpc.PackageTransaction(
+			common.HexToAddress(fromAddr),
+			common.HexToAddress(toAddr),
+			amountWei,
+			rpcURL,
+		)
+
+		return packageTransactionMsg{rawTx: rawTx, err: err}
+	}
 }
 
 func loadDetails(client *rpc.Client, addr common.Address, watch []rpc.WatchedToken) tea.Cmd {
@@ -723,11 +754,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check if form is completed
 			if m.sendForm.State == huh.StateCompleted {
-				// TODO: Handle send transaction
-				m.addLog("info", fmt.Sprintf("Send transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
+				// Package the transaction
+				m.addLog("info", fmt.Sprintf("Packaging transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
 				m.showSendForm = false
 				m.sendForm = nil
-				return m, nil
+				m.showTxResultPanel = true
+				m.txResultPackaging = true
+				m.txResultHex = ""
+				m.txResultError = ""
+				return m, packageTransaction(m.activeAddress, tempSendToAddr, tempSendAmount, m.rpcURL)
 			}
 
 			// Check if form was aborted (ESC pressed)
@@ -784,8 +819,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check if form is completed
 			if m.sendForm.State == huh.StateCompleted {
-				// TODO: Handle send transaction
-				m.addLog("info", fmt.Sprintf("Send transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
+				// Package the transaction
+				m.addLog("info", fmt.Sprintf("Packaging transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
 				m.showSendForm = false
 				m.sendForm = nil
 				return m, nil
@@ -1007,6 +1042,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case packageTransactionMsg:
+		m.txResultPackaging = false
+		if msg.err != nil {
+			m.txResultError = msg.err.Error()
+			m.addLog("error", "Transaction packaging failed: "+msg.err.Error())
+		} else {
+			m.txResultHex = msg.rawTx
+			m.addLog("success", "Transaction packaged successfully")
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// global keys
 		switch msg.String() {
@@ -1093,6 +1139,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Handle send button focus toggle with Tab
+
+			// Handle transaction result panel
+			if m.showTxResultPanel {
+				switch msg.String() {
+				case "esc", "enter":
+					m.showTxResultPanel = false
+					m.txResultHex = ""
+					m.txResultError = ""
+					m.txResultPackaging = false
+					return m, nil
+				}
+				return m, nil
+			}
 			switch msg.String() {
 			case "tab":
 				// Don't allow tab navigation when send form is active
@@ -1633,7 +1692,33 @@ func (m model) View() string {
 			detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
 			
 		// Show send form if active
-		if m.showSendForm && m.sendForm != nil {
+		// Show transaction result panel if active
+		if m.showTxResultPanel {
+			txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign") + "\n\n"
+			if m.txResultPackaging {
+				txResultContent += m.spin.View() + " Packaging transaction..."
+			} else if m.txResultError != "" {
+				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
+				txResultContent += errorStyle.Render("Error: " + m.txResultError)
+				txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+			} else {
+				// Display the transaction hex
+				txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("Raw Transaction (RLP Hex):") + "\n\n"
+				// Wrap hex string for better readability
+				wrappedHex := ""
+				for i, char := range m.txResultHex {
+					if i > 0 && i%64 == 0 {
+						wrappedHex += "\n"
+					}
+					wrappedHex += string(char)
+				}
+				txStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EDFF82")).Bold(true)
+				txResultContent += txStyle.Render(wrappedHex)
+				txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+			}
+			detailsContent = txResultContent
+		// Show send form if active
+		} else if m.showSendForm && m.sendForm != nil {
 			sendFormContent := styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
 			detailsContent = sendFormContent
 		} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {

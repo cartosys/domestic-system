@@ -6,6 +6,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"encoding/hex"
+
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -172,4 +175,37 @@ func erc20BalanceOf(ctx context.Context, client *ethclient.Client, token common.
 		return big.NewInt(0), nil
 	}
 	return new(big.Int).SetBytes(out), nil
+}
+
+// PackageTransaction creates an unsigned, RLP-encoded hex string of a transaction.
+func PackageTransaction(fromAddress common.Address, toAddress common.Address, amount *big.Int, rpcURL string) (string, error) {
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return "", err
+	}
+
+	// 1. Fetch current network requirements
+	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		return "", err
+	}
+
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		return "", err
+	}
+
+	// 2. Create the transaction object
+	gasLimit := uint64(21000) 
+	tx := types.NewTransaction(nonce, toAddress, amount, gasLimit, gasPrice, nil)
+
+	// 3. Serialize the transaction using RLP encoding
+	// MarshalBinary returns the RLP-encoded bytes of the transaction
+	rawTxBytes, err := tx.MarshalBinary()
+	if err != nil {
+		return "", err
+	}
+
+	// 4. Return as a hex string for later use
+	return hex.EncodeToString(rawTxBytes), nil
 }
