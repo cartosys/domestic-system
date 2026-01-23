@@ -738,6 +738,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.activePage == pageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
+		// Intercept ESC key to cancel form
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
+			m.settingsMode = "list"
+			m.form = nil
+			return m, nil
+		}
+		
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
