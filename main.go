@@ -273,18 +273,6 @@ func newModel() model {
 		selectedDappIdx: 0,
 	}
 
-	// Set initial highlighted address and active address
-	if len(accounts) > 0 {
-		m.highlightedAddress = accounts[selectedIdx].Address
-		// Find the active wallet (marked with ★)
-		for _, w := range accounts {
-			if w.Active {
-				m.activeAddress = w.Address
-				break
-			}
-		}
-	}
-
 	return m
 }
 
@@ -885,6 +873,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case pageWallets:
+			// Set initial highlighted address and active address
+			if len(m.accounts) > 0 {
+				m.highlightedAddress = m.accounts[m.selectedWallet].Address
+				// Find the active wallet (marked with ★)
+				for _, w := range m.accounts {
+					if w.Active {
+						m.activeAddress = w.Address
+						break
+					}
+				}
+			}
 			// adding flow
 			if m.adding {
 				switch msg.String() {
