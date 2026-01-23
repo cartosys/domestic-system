@@ -21,7 +21,6 @@ type ClickableArea struct {
 func Nav(width int) string {
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " move",
-		styles.Key("Enter") + " open",
 		styles.Key("Space") + " activate",
 		styles.Key("a") + " add",
 		styles.Key("d") + " delete",

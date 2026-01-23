@@ -70,6 +70,8 @@ var (
 	tempDappAddress   string
 	tempDappIcon      string
 	tempDappNetwork   string
+	tempSendToAddr    string
+	tempSendAmount    string
 )
 
 const (
@@ -187,6 +189,11 @@ type model struct {
 	deleteDialogAddr      string
 	deleteDialogIdx       int
 	deleteDialogYesSelected bool // true = Yes button, false = No button
+
+	// send button state
+	sendButtonFocused bool
+	showSendForm      bool
+	sendForm          *huh.Form
 }
 
 // -------------------- INIT --------------------
@@ -457,6 +464,57 @@ func (m *model) updateLogViewport() {
 
 
 
+func (m *model) createSendForm() {
+	tempSendToAddr = ""
+	tempSendAmount = ""
+
+	m.sendForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Send To").
+				Description("Enter a valid Ethereum address (Ctrl+V to paste)").
+				Value(&tempSendToAddr).
+				Placeholder("0x...").
+				Validate(func(s string) error {
+					if !helpers.IsValidEthAddress(s) {
+						return fmt.Errorf("invalid ethereum address")
+					}
+					return nil
+				}),
+
+			huh.NewInput().
+				Title("Amount (ETH)").
+				Description(fmt.Sprintf("Available: %s ETH", helpers.FormatETH(m.details.EthWei))).
+				Value(&tempSendAmount).
+				Placeholder("0.0").
+				Validate(func(s string) error {
+					if s == "" {
+						return fmt.Errorf("amount is required")
+					}
+					// Parse amount as big.Float
+					amount := new(big.Float)
+					_, ok := amount.SetString(s)
+					if !ok {
+						return fmt.Errorf("invalid amount")
+					}
+					// Check if amount is <= balance
+					balanceFloat := new(big.Float).SetInt(m.details.EthWei)
+					balanceETH := new(big.Float).Quo(balanceFloat, big.NewFloat(1e18))
+					if amount.Cmp(balanceETH) > 0 {
+						return fmt.Errorf("amount exceeds balance")
+					}
+					if amount.Cmp(big.NewFloat(0)) <= 0 {
+						return fmt.Errorf("amount must be greater than 0")
+					}
+					return nil
+				}),
+		),
+	).WithTheme(huh.ThemeCatppuccin())
+
+	// Initialize the form
+	m.sendForm.Init()
+}
+
 func (m *model) createAddRPCForm() {
 	tempRPCFormName = ""
 	tempRPCFormURL = ""
@@ -650,6 +708,38 @@ func (m *model) createEditDappForm(idx int) {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Handle send form updates first
+	if m.activePage == pageWallets && m.showSendForm && m.sendForm != nil {
+		// Intercept ESC key to cancel form
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
+			m.showSendForm = false
+			m.sendForm = nil
+			return m, nil
+		}
+		
+		form, cmd := m.sendForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.sendForm = f
+
+			// Check if form is completed
+			if m.sendForm.State == huh.StateCompleted {
+				// TODO: Handle send transaction
+				m.addLog("info", fmt.Sprintf("Send transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
+				m.showSendForm = false
+				m.sendForm = nil
+				return m, nil
+			}
+
+			// Check if form was aborted (ESC pressed)
+			if m.sendForm.State == huh.StateAborted {
+				m.showSendForm = false
+				m.sendForm = nil
+				return m, nil
+			}
+		}
+		return m, cmd
+	}
+
 	if m.activePage == pageHome {
 		if m.homeForm == nil {
 			m.homeForm = home.CreateForm()
@@ -673,6 +763,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.dappMode = "list"
 				}
 				m.homeForm = nil
+				return m, nil
+			}
+		}
+		return m, cmd
+	}
+
+	// Handle form updates first (before message switching)
+	if m.activePage == pageWallets && m.showSendForm && m.sendForm != nil {
+		// Intercept ESC key to cancel form
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
+			m.showSendForm = false
+			m.sendForm = nil
+			return m, nil
+		}
+		
+		form, cmd := m.sendForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.sendForm = f
+
+			// Check if form is completed
+			if m.sendForm.State == huh.StateCompleted {
+				// TODO: Handle send transaction
+				m.addLog("info", fmt.Sprintf("Send transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
+				m.showSendForm = false
+				m.sendForm = nil
+				return m, nil
+			}
+
+			// Check if form was aborted (ESC pressed)
+			if m.sendForm.State == huh.StateAborted {
+				m.showSendForm = false
+				m.sendForm = nil
 				return m, nil
 			}
 		}
@@ -838,6 +960,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ethClient = msg.client
 			m.rpcConnected = true
 			m.addLog("success", fmt.Sprintf("RPC connected to `%s`", msg.client.URL))
+			// Load active account details automatically when on wallet page with split view
+			if m.activePage == pageWallets && m.detailsInWallets && len(m.accounts) > 0 {
+				return m, m.loadSelectedWalletDetails()
+			}
 		}
 		return m, nil
 
@@ -965,6 +1091,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+
+			// Handle send button focus toggle with Tab
+			switch msg.String() {
+			case "tab":
+				// Don't allow tab navigation when send form is active
+				if m.showSendForm {
+					return m, nil
+				}
+				// Only allow focusing send button if ETH balance > 0
+				if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+					m.sendButtonFocused = !m.sendButtonFocused
+				}
+				return m, nil
+			case "enter":
+				// Show send form when send button is focused
+				if m.sendButtonFocused && m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+					m.createSendForm()
+					m.showSendForm = true
+					m.sendButtonFocused = false
+					return m, nil
+				}
+			}
 			// Set initial highlighted address and active address
 			if len(m.accounts) > 0 {
 				m.highlightedAddress = m.accounts[m.selectedWallet].Address
@@ -1085,30 +1233,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "esc":
 				return m, tea.Quit
-
-			case "enter":
-				if len(m.accounts) == 0 {
-					return m, nil
-				}
-				addr := m.accounts[m.selectedWallet].Address
-				m.highlightedAddress = addr
-				m.activePage = pageDetails
-				
-				// Check if we have cached details for this address
-				cachedDetails, hasCached := m.detailsCache[strings.ToLower(addr)]
-				if hasCached {
-					// Use cached details
-					m.details = cachedDetails
-					m.loading = false
-					m.addLog("info", fmt.Sprintf("Showing cached details for `%s`", helpers.ShortenAddr(addr)))
-					return m, nil
-				}
-				
-				// No cached data, load fresh
-				m.loading = true
-				m.details = walletDetails{Address: addr}
-				ethAddr := common.HexToAddress(addr)
-				return m, loadDetails(m.ethClient, ethAddr, m.tokenWatch)
 
 			case "d":
 				// Show delete confirmation dialog
@@ -1508,64 +1632,73 @@ func (m model) View() string {
 
 			detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
 			
-			// Calculate panel widths (split 40/60)
-			listWidth := max(0, (m.w*4)/10-2)
-			detailsWidth := max(0, (m.w*6)/10-2)
+		// Show send form if active
+		if m.showSendForm && m.sendForm != nil {
+			sendFormContent := styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
+			detailsContent = sendFormContent
+		} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+			// Add send button if ETH balance > 0 and form is not active
+			var sendButtonStyle lipgloss.Style
+			if m.sendButtonFocused {
+				sendButtonStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#FFF7DB")).
+					Background(lipgloss.Color("#F25D94")).
+					Padding(0, 3).
+					MarginTop(2).
+					Underline(true)
+			} else {
+				sendButtonStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#FFF7DB")).
+					Background(lipgloss.Color("#888B7E")).
+					Padding(0, 3).
+					MarginTop(2)
+			}
+			sendButton := sendButtonStyle.Render("Send")
+			detailsContent += "\n\n" + sendButton
 			
-			// Get the height of the left panel content to match it on the right
-			leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
-			leftPanelHeight := lipgloss.Height(leftPanel)
-			
-			// Set the right panel to match the left panel height
-			rightPanel := panelStyle.
-				Width(detailsWidth + 1).
-				Height(leftPanelHeight - 2).
-				Render(detailsContent)
-			
-			pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
-		} else {
-			pageContent = panelStyle.Width(max(0, m.w-2)).Render(walletsContent)
+			// Add hint text
+			if !m.sendButtonFocused {
+				hintText := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#666666")).
+					MarginTop(1).
+					Render("Press Tab to select")
+				detailsContent += "\n" + hintText
+			} else {
+				hintText := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#666666")).
+					MarginTop(1).
+					Render("Press Enter to send")
+				detailsContent += "\n" + hintText
+			}
 		}
-		nav = wallets.Nav(m.w - 2)
 		
-		// Render delete confirmation dialog overlay
-		if m.showDeleteDialog {
-			// Dialog overlays the current view
-			return m.renderDeleteDialog()
-		}
+		// Calculate panel widths (split 40/60)
+		listWidth := max(0, (m.w*4)/10-2)
+		detailsWidth := max(0, (m.w*6)/10-2)
+		
+		// Get the height of the left panel content to match it on the right
+		leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
+		leftPanelHeight := lipgloss.Height(leftPanel)
+		
+		// Set the right panel to match the left panel height
+		rightPanel := panelStyle.
+			Width(detailsWidth + 1).
+			Height(leftPanelHeight - 2).
+			Render(detailsContent)
+		
+		pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+	} else {
+		pageContent = panelStyle.Width(max(0, m.w-2)).Render(walletsContent)
+	}
+	nav = wallets.Nav(m.w - 2)
+	
+	// Render delete confirmation dialog overlay
+	if m.showDeleteDialog {
+		// Dialog overlays the current view
+		return m.renderDeleteDialog()
+	}
 
-	case pageDetails:
-		// Convert local walletDetails to rpc.WalletDetails
-		rpcDetails := rpc.WalletDetails{
-			Address:    m.details.Address,
-			EthWei:     m.details.EthWei,
-			LoadedAt:   m.details.LoadedAt,
-			ErrMessage: m.details.ErrMessage,
-		}
-		for _, t := range m.details.Tokens {
-			rpcDetails.Tokens = append(rpcDetails.Tokens, rpc.TokenBalance{
-				Symbol:   t.Symbol,
-				Decimals: t.Decimals,
-				Balance:  t.Balance,
-			})
-		}
-
-		detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
-		
-		// Show form if in nicknaming mode
-		if m.nicknaming && m.form != nil {
-			detailsContent = styles.TitleStyle.Render("Account Details") + "\n\n" + m.form.View()
-		}
-		
-		// Render details panel only (dApp browser moved to its own page)
-		pageContent = panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
-		
-		// Calculate address line Y position (accounting for panel padding + global header)
-		m.addressLineY = 5 // 1 for panel padding + 2 for global header + 1 for blank line + 1 for title line
-		
-		nav = details.Nav(m.w-2, m.nicknaming)
-
-	case pageDappBrowser:
+case pageDetails:
 		dappBrowserContent := dapps.Render(m.dapps, m.selectedDappIdx)
 		
 		// Show form if in add/edit mode
