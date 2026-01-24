@@ -503,7 +503,7 @@ func (m *model) createSendForm() {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Send To").
-				Description("Enter a valid Ethereum address (Ctrl+V to paste)").
+				Description("Enter a valid Ethereum address (Ctrl+v to paste)").
 				Value(&tempSendToAddr).
 				Placeholder("0x...").
 				Validate(func(s string) error {
@@ -1186,6 +1186,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// adding flow
 			if m.adding {
 				switch msg.String() {
+				case "esc", "escape":
+					// Cancel adding mode
+					m.adding = false
+					m.input.SetValue("")
+					m.input.Blur()
+					m.addError = ""
+					return m, nil
+				case "ctrl+v":
+					// Handle Ctrl+v paste explicitly
+					text, err := clipboard.ReadAll()
+					if err == nil && text != "" {
+						m.input.SetValue(text)
+					}
+					return m, nil
 				case "enter":
 					val := strings.TrimSpace(m.input.Value())
 					if helpers.IsValidEthAddress(val) {
@@ -1658,7 +1672,7 @@ func (m model) View() string {
 			inputView := m.input.View() + "\n" +
 				hotkeyStyle.Render("Enter") + " save   " +
 				hotkeyStyle.Render("Esc") + " cancel   " +
-				hotkeyStyle.Render("Ctrl+V") + " paste"
+				hotkeyStyle.Render("Ctrl+v") + " paste"
 
 			// Show error message if present and recent
 			if m.addError != "" && time.Since(m.addErrTime) < 3*time.Second {
