@@ -184,3 +184,51 @@ func TestConnectWithActiveRPCURL(t *testing.T) {
 	
 	t.Log("✓ All RPC endpoint tests passed!")
 }
+
+func TestPackageTransaction(t *testing.T) {
+	rpcURL := os.Getenv("ETH_RPC_URL")
+	if rpcURL == "" {
+		t.Skip("ETH_RPC_URL not set, skipping transaction packaging test")
+	}
+
+	// Test addresses
+	fromAddr := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb2")
+	toAddr := common.HexToAddress("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed")
+	amount := common.Big1 // 1 wei
+
+	pkg, err := PackageTransaction(fromAddr, toAddr, amount, rpcURL)
+	if err != nil {
+		t.Fatalf("Failed to package transaction: %v", err)
+	}
+
+	// Verify raw hex is not empty
+	if pkg.RawHex == "" {
+		t.Error("RawHex is empty")
+	}
+
+	// Verify EIP-681 format
+	if pkg.EIP681 == "" {
+		t.Error("EIP681 is empty")
+	}
+
+	// Check EIP-681 format structure: ethereum:<address>@<chainId>?value=<wei>
+	if !strings.HasPrefix(pkg.EIP681, "ethereum:") {
+		t.Errorf("EIP-681 URI should start with 'ethereum:', got: %s", pkg.EIP681)
+	}
+
+	expectedToAddr := strings.ToLower(strings.TrimPrefix(toAddr.Hex(), "0x"))
+	if !strings.Contains(strings.ToLower(pkg.EIP681), expectedToAddr) {
+		t.Errorf("EIP-681 URI should contain recipient address %s, got: %s", expectedToAddr, pkg.EIP681)
+	}
+
+	if !strings.Contains(pkg.EIP681, "?value=") {
+		t.Errorf("EIP-681 URI should contain '?value=', got: %s", pkg.EIP681)
+	}
+
+	if !strings.Contains(pkg.EIP681, "@") {
+		t.Errorf("EIP-681 URI should contain '@' for chain ID, got: %s", pkg.EIP681)
+	}
+
+	t.Logf("✓ Raw transaction hex: %s", pkg.RawHex[:64]+"...")
+	t.Logf("✓ EIP-681 URI: %s", pkg.EIP681)
+}

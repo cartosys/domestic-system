@@ -178,22 +178,34 @@ func erc20BalanceOf(ctx context.Context, client *ethclient.Client, token common.
 	return new(big.Int).SetBytes(out), nil
 }
 
-// PackageTransaction creates an unsigned, RLP-encoded hex string of a transaction.
-func PackageTransaction(fromAddress common.Address, toAddress common.Address, amount *big.Int, rpcURL string) (string, error) {
+// TransactionPackage contains both raw hex and EIP-681 formatted transaction data
+type TransactionPackage struct {
+	RawHex string // RLP-encoded transaction hex
+	EIP681 string // EIP-681 formatted URI (ethereum:<address>@<chainId>?value=<wei>)
+}
+
+// PackageTransaction creates an unsigned transaction with both raw hex and EIP-681 format.
+func PackageTransaction(fromAddress common.Address, toAddress common.Address, amount *big.Int, rpcURL string) (TransactionPackage, error) {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
-		return "", err
+		return TransactionPackage{}, err
 	}
 
 	// 1. Fetch current network requirements
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
-		return "", err
+		return TransactionPackage{}, err
 	}
 
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
-		return "", err
+		return TransactionPackage{}, err
+	}
+
+	// Get chain ID
+	chainID, err := client.ChainID(context.Background())
+	if err != nil {
+		return TransactionPackage{}, err
 	}
 
 	// 2. Create the transaction object
@@ -204,11 +216,79 @@ func PackageTransaction(fromAddress common.Address, toAddress common.Address, am
 	// MarshalBinary returns the RLP-encoded bytes of the transaction
 	rawTxBytes, err := tx.MarshalBinary()
 	if err != nil {
-		return "", err
+		return TransactionPackage{}, err
 	}
 
-	// 4. Return as a hex string for later use
-	return hex.EncodeToString(rawTxBytes), nil
+	// 4. Format as EIP-681 URI: ethereum:<address>@<chainId>?value=<wei>
+	// Use checksummed address (with capital letters) as per EIP-55
+	eip681URI := "ethereum:" + toAddress.Hex() + "@" + chainID.String() + "?value=" + amount.String()
+
+	// 5. Return both formats
+	return TransactionPackage{
+		RawHex: hex.EncodeToString(rawTxBytes),
+		EIP681: eip681URI,
+	}, nil
+}
+
+// TransactionPackageEIP4527 contains transaction data in EIP-4527 format
+type TransactionPackageEIP4527 struct {
+	JSON   string // JSON-formatted transaction per EIP-4527
+	QRData string // The data to encode in QR code (JSON string)
+}
+
+// PackageTransactionEIP4527 creates a transaction package using EIP-4527 format.
+// EIP-4527 defines a JSON schema for encoding Ethereum transactions in QR codes.
+func PackageTransactionEIP4527(fromAddress common.Address, toAddress common.Address, amount *big.Int, rpcURL string) (TransactionPackageEIP4527, error) {
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return TransactionPackageEIP4527{}, err
+	}
+
+	// 1. Fetch current network requirements
+	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		return TransactionPackageEIP4527{}, err
+	}
+
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		return TransactionPackageEIP4527{}, err
+	}
+
+	// Get chain ID
+	chainID, err := client.ChainID(context.Background())
+	if err != nil {
+		return TransactionPackageEIP4527{}, err
+	}
+
+	gasLimit := uint64(21000)
+
+	// 2. Create EIP-4527 formatted JSON with minimal encoding
+	// Use shortest possible hex encoding (no leading zeros)
+	// EIP-4527 uses a JSON schema with fields: from, to, value, gas, gasPrice, nonce, chainId
+	eip4527JSON := `{` +
+		`"from":"` + fromAddress.Hex() + `",` +
+		`"to":"` + toAddress.Hex() + `",` +
+		`"value":"0x` + amount.Text(16) + `",` +
+		`"gas":"0x` + new(big.Int).SetUint64(gasLimit).Text(16) + `",` +
+		`"gasPrice":"0x` + gasPrice.Text(16) + `",` +
+		`"nonce":"0x` + new(big.Int).SetUint64(nonce).Text(16) + `",` +
+		`"chainId":"0x` + chainID.Text(16) + `"` +
+		`}`
+	
+	// 3. Create a compact version for QR code (remove optional fields and whitespace)
+	// Minimal version: just to, value, and chainId (enough for basic transaction)
+	compactQR := `{` +
+		`"to":"` + toAddress.Hex() + `",` +
+		`"value":"0x` + amount.Text(16) + `",` +
+		`"chainId":"0x` + chainID.Text(16) + `"` +
+		`}`
+
+	// 4. Return the package with full JSON for display and compact version for QR
+	return TransactionPackageEIP4527{
+		JSON:   eip4527JSON,
+		QRData: compactQR,
+	}, nil
 }
 
 // GenerateQRCode converts a string into a QR code representation for terminal display.

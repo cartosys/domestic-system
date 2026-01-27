@@ -30,8 +30,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lucasb-eyer/go-colorful"
-	// "github.com/muesli/gamut"
-
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -201,6 +199,7 @@ type model struct {
 	showTxResultPanel bool
 	txResultPackaging bool
 	txResultHex       string
+	txResultEIP681    string
 	txResultError     string
 }
 
@@ -352,8 +351,8 @@ type detailsLoadedMsg struct {
 }
 
 type packageTransactionMsg struct {
-	rawTx string
-	err   error
+	pkg rpc.TransactionPackageEIP4527
+	err error
 }
 
 func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string) tea.Cmd {
@@ -364,15 +363,15 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 		weiFloat := new(big.Float).Mul(amountFloat, big.NewFloat(1e18))
 		amountWei, _ := weiFloat.Int(nil)
 
-		// Call RPC package function
-		rawTx, err := rpc.PackageTransaction(
+		// Call RPC package function using EIP-4527 format
+		pkg, err := rpc.PackageTransactionEIP4527(
 			common.HexToAddress(fromAddr),
 			common.HexToAddress(toAddr),
 			amountWei,
 			rpcURL,
 		)
 
-		return packageTransactionMsg{rawTx: rawTx, err: err}
+		return packageTransactionMsg{pkg: pkg, err: err}
 	}
 }
 
@@ -1062,8 +1061,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.txResultError = msg.err.Error()
 			m.addLog("error", "Transaction packaging failed: "+msg.err.Error())
 		} else {
-			m.txResultHex = msg.rawTx
-			m.addLog("success", "Transaction packaged successfully")
+			m.txResultHex = msg.pkg.JSON
+			m.txResultEIP681 = msg.pkg.QRData
+			m.addLog("success", "Transaction packaged successfully (EIP-4527)")
 		}
 		return m, nil
 
@@ -1160,6 +1160,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "esc", "enter":
 					m.showTxResultPanel = false
 					m.txResultHex = ""
+					m.txResultEIP681 = ""
 					m.txResultError = ""
 					m.txResultPackaging = false
 					return m, nil
@@ -1772,7 +1773,7 @@ func (m model) View() string {
 		// Show send form if active
 		// Show transaction result panel if active
 		if m.showTxResultPanel {
-			txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign") + "\n\n"
+			txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
 			if m.txResultPackaging {
 				txResultContent += m.spin.View() + " Packaging transaction..."
 			} else if m.txResultError != "" {
@@ -1780,25 +1781,18 @@ func (m model) View() string {
 				txResultContent += errorStyle.Render("Error: " + m.txResultError)
 				txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
 			} else {
-				// Generate and display QR code
-				qrCode := rpc.GenerateQRCode("0x" + m.txResultHex)
-				qrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#874BFD"))
+				// Generate and display QR code using EIP-4527 JSON format
+				qrCode := rpc.GenerateQRCode(m.txResultEIP681)
+				qrStyle := lipgloss.NewStyle()
 				txResultContent += qrStyle.Render(qrCode) + "\n"
 				
-				// Display the transaction hex
-				txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("Raw Transaction (RLP Hex):") + "\n\n"
+				// Display the EIP-4527 JSON formatted transaction
+				txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("EIP-4527 Transaction JSON:") + "\n\n"
+				// Render JSON as plain text without styling to make it easily selectable
+				txResultContent += m.txResultHex
 				
-				// Wrap hex string for better readability
-				wrappedHex := ""
-				for i, char := range m.txResultHex {
-					if i > 0 && i%64 == 0 {
-						wrappedHex += "\n"
-					}
-					wrappedHex += string(char)
-				}
-				txStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EDFF82")).Bold(true)
-				txResultContent += txStyle.Render(wrappedHex)
-				txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+				txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
+				txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
 			}
 			detailsContent = txResultContent
 		// Show send form if active
