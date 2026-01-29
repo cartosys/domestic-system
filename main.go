@@ -305,6 +305,7 @@ func newModel() model {
 		rpcURLs:          cfg.RPCURLs,
 		selectedRPCIdx:   0,
 		configPath:       configPath,
+		logEnabled:       cfg.Logger,
 		logViewport:      vp,
 		logBuffer:        &strings.Builder{},
 		logSpinner:       logSpin,
@@ -319,12 +320,16 @@ func newModel() model {
 }
 
 func (m model) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.spin.Tick}
+	if m.logEnabled {
+		cmds = append(cmds, initLogViewport(), m.logSpinner.Tick)
+	}
 	// connect if rpc is set
 	if m.rpcURL != "" {
 		m.rpcConnecting = true
-		return tea.Batch(m.spin.Tick, connectRPC(m.rpcURL))
+		cmds = append(cmds, connectRPC(m.rpcURL))
 	}
-	return m.spin.Tick
+	return tea.Batch(cmds...)
 }
 
 // -------------------- COMMANDS / MESSAGES --------------------
@@ -875,7 +880,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
-				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 				m.nicknaming = false
 				m.form = nil
 				return m, nil
@@ -909,7 +914,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if tempDappName != "" && tempDappAddress != "" {
 						newDapp := config.DApp{Name: tempDappName, Address: tempDappAddress, Icon: tempDappIcon, Network: tempDappNetwork}
 						m.dapps = append(m.dapps, newDapp)
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						m.addLog("success", fmt.Sprintf("Added dApp: `%s`", tempDappName))
 					}
 				} else if m.dappMode == "edit" {
@@ -918,7 +923,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.dapps[m.selectedDappIdx].Address = tempDappAddress
 						m.dapps[m.selectedDappIdx].Icon = tempDappIcon
 						m.dapps[m.selectedDappIdx].Network = tempDappNetwork
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						m.addLog("success", fmt.Sprintf("Updated dApp: `%s`", tempDappName))
 					}
 				}
@@ -955,14 +960,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if tempRPCFormName != "" && tempRPCFormURL != "" {
 						newRPC := config.RPCUrl{Name: tempRPCFormName, URL: tempRPCFormURL, Active: false}
 						m.rpcURLs = append(m.rpcURLs, newRPC)
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						m.addLog("success", fmt.Sprintf("Added RPC endpoint: `%s` (%s)", tempRPCFormName, tempRPCFormURL))
 					}
 				} else if m.settingsMode == "edit" {
 					if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
 						m.rpcURLs[m.selectedRPCIdx].Name = tempRPCFormName
 						m.rpcURLs[m.selectedRPCIdx].URL = tempRPCFormURL
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						m.addLog("success", fmt.Sprintf("Updated RPC endpoint: `%s`", tempRPCFormName))
 					}
 				}
@@ -1108,6 +1113,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.logViewport.Width = m.w - 6
 					}
 					m.logReady = false
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 					return m, tea.Batch(initLogViewport(), m.logSpinner.Tick)
 				}
 				// Clear logs and de-initialize when disabling
@@ -1116,6 +1122,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.logger = nil
 				m.logReady = false
+				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 				return m, nil
 
 			case "pageup", "pagedown":
@@ -1171,7 +1178,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.activeAddress = ""
 						}
 						// Save wallets to config
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						m.addLog("warning", fmt.Sprintf("Deleted wallet `%s`", helpers.ShortenAddr(deletedAddr)))
 						m.showDeleteDialog = false
 						// Load details for the newly selected wallet if split view is enabled
@@ -1322,7 +1329,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.focusedInput = 0
 						m.addError = ""
 						// Save wallets to config
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						if nickname != "" {
 							m.addLog("success", fmt.Sprintf("Added wallet `%s` with nickname `%s`", helpers.ShortenAddr(newAddr), nickname))
 						} else {
@@ -1386,7 +1393,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					// Update active address to the newly activated wallet
 					m.activeAddress = m.accounts[m.selectedWallet].Address
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 					m.addLog("info", fmt.Sprintf("Activated wallet `%s`", helpers.ShortenAddr(m.activeAddress)))
 
 					// If split view is enabled, refresh details for the newly activated wallet
@@ -1501,7 +1508,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.selectedDappIdx >= len(m.dapps) && m.selectedDappIdx > 0 {
 							m.selectedDappIdx--
 						}
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						m.addLog("warning", fmt.Sprintf("Deleted dApp `%s`", deletedDapp))
 					}
 					return m, nil
@@ -1536,7 +1543,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.selectedRPCIdx >= len(m.rpcURLs) && m.selectedRPCIdx > 0 {
 							m.selectedRPCIdx--
 						}
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 					}
 					return m, nil
 
@@ -1559,7 +1566,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.rpcURLs[i].Active = (i == m.selectedRPCIdx)
 						}
 						m.rpcURL = m.rpcURLs[m.selectedRPCIdx].URL
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
 						// Set connecting state and reconnect with new RPC
 						m.rpcConnecting = true
 						m.rpcConnected = false

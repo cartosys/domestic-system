@@ -10,6 +10,7 @@ type Config struct {
 	RPCURLs []RPCUrl      `json:"rpc_urls"`
 	Wallets []WalletEntry `json:"wallets"`
 	Dapps   []DApp        `json:"dapps"`
+	Logger  bool          `json:"logger"`
 }
 
 // RPCUrl represents an RPC endpoint
