@@ -2,6 +2,7 @@ package dapps
 
 import (
 	"charm-wallet-tui/config"
+	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/styles"
 	"strings"
 
@@ -18,7 +19,7 @@ func Nav(width int, dappMode string) string {
 		}, "   ")
 	} else {
 		left = strings.Join([]string{
-			styles.Key("↑/↓") + " select",
+			styles.Key("Tab") + " select next",
 			styles.Key("Enter") + " open",
 			styles.Key("a") + " add",
 			styles.Key("e") + " edit",
@@ -32,50 +33,113 @@ func Nav(width int, dappMode string) string {
 	return styles.NavStyle.Width(width).Render(left)
 }
 
-// Render renders the dApp browser view
+// dAppCardStyle returns the style for a dApp card (unfocused)
+func dAppCardStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(28).
+		Height(6).
+		Align(lipgloss.Center, lipgloss.Center).
+		Background(styles.CPanel).
+		Padding(1, 2).
+		BorderStyle(lipgloss.HiddenBorder())
+}
+
+// dAppCardFocusedStyle returns the style for a focused dApp card
+func dAppCardFocusedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(28).
+		Height(6).
+		Align(lipgloss.Center, lipgloss.Center).
+		Background(styles.CPanel).
+		Padding(1, 2).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("69")) // Purple-blue from composable-views
+}
+
+// renderDAppCard renders a single dApp card
+func renderDAppCard(dapp config.DApp, focused bool) string {
+	icon := dapp.Icon
+	if icon == "" {
+		icon = "🌐"
+	}
+
+	// Shorten the address with fadeString
+	shortenedAddr := helpers.ShortenAddr(dapp.Address)
+	fadedAddr := helpers.FadeString(shortenedAddr, "#F25D94", "#EDFF82")
+
+	// Name styling
+	nameStyle := lipgloss.NewStyle().
+		Foreground(styles.CText).
+		Bold(true).
+		Align(lipgloss.Center)
+
+	// Network badge
+	networkBadge := ""
+	if dapp.Network != "" {
+		networkBadge = lipgloss.NewStyle().
+			Foreground(styles.CAccent).
+			Render("[" + dapp.Network + "]")
+	}
+
+	// Build card content
+	content := icon + "\n\n" +
+		nameStyle.Render(dapp.Name) + "\n" +
+		fadedAddr
+	
+	if networkBadge != "" {
+		content += "\n" + networkBadge
+	}
+
+	// Apply appropriate style
+	if focused {
+		return dAppCardFocusedStyle().Render(content)
+	}
+	return dAppCardStyle().Render(content)
+}
+
+// Render renders the dApp browser view with grid layout
 func Render(dapps []config.DApp, selectedIdx int) string {
 	h := styles.TitleStyle.Render("dApp Browser")
 
-	lines := []string{h, ""}
-
 	if len(dapps) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Foreground(styles.CMuted).Render("No dApps configured."))
-		lines = append(lines, "")
-		lines = append(lines, lipgloss.NewStyle().Foreground(styles.CMuted).Render("Press ")+styles.Key("a")+lipgloss.NewStyle().Foreground(styles.CMuted).Render(" to add your first dApp."))
-	} else {
-		lines = append(lines, lipgloss.NewStyle().Foreground(styles.CMuted).Render("Available dApps:"))
-		lines = append(lines, "")
+		emptyMsg := lipgloss.NewStyle().
+			Foreground(styles.CMuted).
+			Render("No dApps configured.")
+		
+		helpMsg := lipgloss.NewStyle().
+			Foreground(styles.CMuted).
+			Render("Press ") + styles.Key("a") + 
+			lipgloss.NewStyle().Foreground(styles.CMuted).Render(" to add your first dApp.")
 
-		for i, dapp := range dapps {
-			var marker string
-			nameStyle := lipgloss.NewStyle().Foreground(styles.CText)
-			addrStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
-
-			if i == selectedIdx {
-				nameStyle = nameStyle.Background(styles.CPanel).Foreground(styles.CAccent2).Bold(true)
-				addrStyle = addrStyle.Background(styles.CPanel)
-				marker = lipgloss.NewStyle().Foreground(styles.CAccent2).Render("▶ ")
-			} else {
-				marker = "  "
-			}
-
-			icon := dapp.Icon
-			if icon == "" {
-				icon = "🌐"
-			}
-
-			// Show network if set
-			networkInfo := ""
-			if dapp.Network != "" {
-				networkInfo = lipgloss.NewStyle().Foreground(styles.CAccent).Render(" [" + dapp.Network + "]")
-			}
-
-			line := marker + icon + " " + nameStyle.Render(dapp.Name) + networkInfo
-			lines = append(lines, line)
-			lines = append(lines, "  "+addrStyle.Render(dapp.Address))
-			lines = append(lines, "")
-		}
+		return h + "\n\n" + emptyMsg + "\n\n" + helpMsg
 	}
 
-	return strings.Join(lines, "\n")
+	// Build grid of dApp cards
+	// Calculate grid layout (3 columns)
+	const columnsPerRow = 3
+	const horizontalSpacing = "  " // 2 spaces between cards
+	var rows []string
+
+	for i := 0; i < len(dapps); i += columnsPerRow {
+		var rowCards []string
+		for j := 0; j < columnsPerRow && i+j < len(dapps); j++ {
+			idx := i + j
+			focused := (idx == selectedIdx)
+			card := renderDAppCard(dapps[idx], focused)
+			rowCards = append(rowCards, card)
+			
+			// Add spacing between cards (except after last card in row)
+			if j < columnsPerRow-1 && i+j+1 < len(dapps) {
+				rowCards = append(rowCards, horizontalSpacing)
+			}
+		}
+		// Join cards in this row horizontally
+		row := lipgloss.JoinHorizontal(lipgloss.Top, rowCards...)
+		rows = append(rows, row)
+	}
+
+	// Join all rows vertically with vertical spacing (1 line between rows)
+	grid := strings.Join(rows, "\n")
+
+	return h + "\n\n" + grid
 }

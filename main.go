@@ -1417,15 +1417,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
 
-				case "up", "k":
-					if m.selectedDappIdx > 0 {
-						m.selectedDappIdx--
+				case "tab":
+					// Cycle to next dApp (wraps around)
+					if len(m.dapps) > 0 {
+						m.selectedDappIdx = (m.selectedDappIdx + 1) % len(m.dapps)
 					}
 					return m, nil
 
-				case "down", "j":
-					if m.selectedDappIdx < len(m.dapps)-1 {
-						m.selectedDappIdx++
+				case "shift+tab":
+					// Cycle to previous dApp (wraps around)
+					if len(m.dapps) > 0 {
+						m.selectedDappIdx--
+						if m.selectedDappIdx < 0 {
+							m.selectedDappIdx = len(m.dapps) - 1
+						}
 					}
 					return m, nil
 
@@ -1441,7 +1446,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, nil
 
-				case "x":
+				case "x", "d":
 					// Delete selected dApp
 					if len(m.dapps) > 0 && m.selectedDappIdx < len(m.dapps) {
 						deletedDapp := m.dapps[m.selectedDappIdx].Name
@@ -1861,7 +1866,7 @@ func (m model) View() string {
 		return m.renderDeleteDialog()
 	}
 
-case pageDetails:
+	case pageDappBrowser:
 		dappBrowserContent := dapps.Render(m.dapps, m.selectedDappIdx)
 		
 		// Show form if in add/edit mode
@@ -1871,6 +1876,26 @@ case pageDetails:
 		
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(dappBrowserContent)
 		nav = dapps.Nav(m.w-2, m.dappMode)
+
+	case pageDetails:
+		// Convert local walletDetails to rpc.WalletDetails
+		rpcDetails := rpc.WalletDetails{
+			Address:    m.details.Address,
+			EthWei:     m.details.EthWei,
+			LoadedAt:   m.details.LoadedAt,
+			ErrMessage: m.details.ErrMessage,
+		}
+		for _, t := range m.details.Tokens {
+			rpcDetails.Tokens = append(rpcDetails.Tokens, rpc.TokenBalance{
+				Symbol:   t.Symbol,
+				Decimals: t.Decimals,
+				Balance:  t.Balance,
+			})
+		}
+
+		detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
+		pageContent = panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
+		nav = details.Nav(m.w - 2, m.nicknaming)
 
 	case pageSettings:
 		settingsContent := settings.Render(m.rpcURLs, m.selectedRPCIdx)
