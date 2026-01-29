@@ -14,7 +14,7 @@ func Nav(width int, dappMode string) string {
 	var left string
 	if dappMode == "add" || dappMode == "edit" {
 		left = strings.Join([]string{
-			styles.Key("l") + " debug log",
+			styles.Key("l") + " logger",
 			styles.Key("Esc") + " cancel",
 		}, "   ")
 	} else {
@@ -25,7 +25,7 @@ func Nav(width int, dappMode string) string {
 			styles.Key("e") + " edit",
 			styles.Key("d") + " delete",
 			styles.Key("h") + " home",
-			styles.Key("l") + " debug log",
+			styles.Key("l") + " logger",
 			styles.Key("Esc") + " back",
 		}, "   ")
 	}
@@ -85,7 +85,7 @@ func renderDAppCard(dapp config.DApp, focused bool) string {
 	content := icon + "\n\n" +
 		nameStyle.Render(dapp.Name) + "\n" +
 		fadedAddr
-	
+
 	if networkBadge != "" {
 		content += "\n" + networkBadge
 	}
@@ -105,10 +105,10 @@ func Render(dapps []config.DApp, selectedIdx int) string {
 		emptyMsg := lipgloss.NewStyle().
 			Foreground(styles.CMuted).
 			Render("No dApps configured.")
-		
+
 		helpMsg := lipgloss.NewStyle().
 			Foreground(styles.CMuted).
-			Render("Press ") + styles.Key("a") + 
+			Render("Press ") + styles.Key("a") +
 			lipgloss.NewStyle().Foreground(styles.CMuted).Render(" to add your first dApp.")
 
 		return h + "\n\n" + emptyMsg + "\n\n" + helpMsg
@@ -127,7 +127,7 @@ func Render(dapps []config.DApp, selectedIdx int) string {
 			focused := (idx == selectedIdx)
 			card := renderDAppCard(dapps[idx], focused)
 			rowCards = append(rowCards, card)
-			
+
 			// Add spacing between cards (except after last card in row)
 			if j < columnsPerRow-1 && i+j+1 < len(dapps) {
 				rowCards = append(rowCards, horizontalSpacing)

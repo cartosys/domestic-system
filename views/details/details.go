@@ -16,7 +16,7 @@ func Nav(width int, nicknaming bool) string {
 	var left string
 	if nicknaming {
 		left = strings.Join([]string{
-			styles.Key("l") + " debug log",
+			styles.Key("l") + " logger",
 			styles.Key("Esc") + " cancel",
 		}, "   ")
 	} else {
@@ -28,7 +28,7 @@ func Nav(width int, nicknaming bool) string {
 			styles.Key("w") + " wallets",
 			styles.Key("s") + " settings",
 			styles.Key("b") + " dApps",
-			styles.Key("l") + " debug log",
+			styles.Key("l") + " logger",
 			styles.Key("Esc") + " back",
 		}, "   ")
 	}

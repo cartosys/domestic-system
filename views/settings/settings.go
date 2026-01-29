@@ -13,7 +13,7 @@ func Nav(width int, settingsMode string) string {
 	var left string
 	if settingsMode == "add" || settingsMode == "edit" {
 		left = strings.Join([]string{
-			styles.Key("l") + " debug log",
+			styles.Key("l") + " logger",
 			styles.Key("Esc") + " cancel",
 		}, "   ")
 	} else {
@@ -24,7 +24,7 @@ func Nav(width int, settingsMode string) string {
 			styles.Key("e") + " edit",
 			styles.Key("d") + " delete",
 			styles.Key("h") + " home",
-			styles.Key("l") + " debug log",
+			styles.Key("l") + " logger",
 			styles.Key("Esc") + " back",
 		}, "   ")
 	}

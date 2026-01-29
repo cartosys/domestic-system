@@ -26,11 +26,11 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
 
-	"github.com/lucasb-eyer/go-colorful"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 // -------------------- THEME (Lip Gloss) --------------------
@@ -95,8 +95,6 @@ func (w walletItem) Title() string       { return helpers.ShortenAddr(w.addr) }
 func (w walletItem) Description() string { return w.addr }
 func (w walletItem) FilterValue() string { return w.addr }
 
-
-
 type tokenBalance struct {
 	Symbol   string
 	Decimals uint8
@@ -119,7 +117,7 @@ type model struct {
 	activePage page
 
 	// main list
-	accounts        []config.WalletEntry
+	accounts       []config.WalletEntry
 	selectedWallet int
 
 	// add-wallet input
@@ -175,7 +173,7 @@ type model struct {
 	// clickable areas for mouse support
 	clickableAreas []clickableArea
 
-	// debug log panel
+	// logger panel
 	logEnabled  bool
 	logger      *log.Logger
 	logBuffer   *strings.Builder
@@ -187,9 +185,9 @@ type model struct {
 	detailsInWallets bool // when true, show details panel alongside wallet list
 
 	// delete confirmation dialog
-	showDeleteDialog      bool
-	deleteDialogAddr      string
-	deleteDialogIdx       int
+	showDeleteDialog        bool
+	deleteDialogAddr        string
+	deleteDialogIdx         int
 	deleteDialogYesSelected bool // true = Yes button, false = No button
 
 	// send button state
@@ -293,27 +291,27 @@ func newModel() model {
 	logSpin.Style = lipgloss.NewStyle().Foreground(cAccent2)
 
 	m := model{
-		activePage:     pageWallets,
-		accounts:       accounts,
-		selectedWallet: selectedIdx,
-		adding:         false,
-		input:          in,
-		nicknameInput:  nicknameIn,
-		focusedInput:   0,
-		spin:           sp,
-		rpcURL:         activeRPC,
-		tokenWatch:     watch,
-		settingsMode:   "list",
-		rpcURLs:        cfg.RPCURLs,
-		selectedRPCIdx: 0,
-		configPath:     configPath,
-		logViewport:    vp,
-		logBuffer:      &strings.Builder{},
-		logSpinner:     logSpin,
-		detailsCache:   make(map[string]walletDetails),
-		dapps:          cfg.Dapps,
-		dappMode:       "list",
-		selectedDappIdx: 0,
+		activePage:       pageWallets,
+		accounts:         accounts,
+		selectedWallet:   selectedIdx,
+		adding:           false,
+		input:            in,
+		nicknameInput:    nicknameIn,
+		focusedInput:     0,
+		spin:             sp,
+		rpcURL:           activeRPC,
+		tokenWatch:       watch,
+		settingsMode:     "list",
+		rpcURLs:          cfg.RPCURLs,
+		selectedRPCIdx:   0,
+		configPath:       configPath,
+		logViewport:      vp,
+		logBuffer:        &strings.Builder{},
+		logSpinner:       logSpin,
+		detailsCache:     make(map[string]walletDetails),
+		dapps:            cfg.Dapps,
+		dappMode:         "list",
+		selectedDappIdx:  0,
 		detailsInWallets: true, // Enable split panel view by default
 	}
 
@@ -457,7 +455,7 @@ func (m *model) loadSelectedWalletDetails() tea.Cmd {
 	if !m.detailsInWallets || len(m.accounts) == 0 {
 		return nil
 	}
-	
+
 	addr := m.accounts[m.selectedWallet].Address
 	// Check if we have cached details
 	cachedDetails, hasCached := m.detailsCache[strings.ToLower(addr)]
@@ -466,7 +464,7 @@ func (m *model) loadSelectedWalletDetails() tea.Cmd {
 		m.loading = false
 		return nil
 	}
-	
+
 	// Load fresh details
 	m.loading = true
 	m.details = walletDetails{Address: addr}
@@ -487,7 +485,24 @@ func (m *model) updateLogViewport() {
 	m.logViewport.GotoBottom()
 }
 
-
+func (m model) textInputActive() bool {
+	if m.adding {
+		return true
+	}
+	if m.showSendForm && m.sendForm != nil {
+		return true
+	}
+	if m.nicknaming && m.form != nil {
+		return true
+	}
+	if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
+		return true
+	}
+	if (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
+		return true
+	}
+	return false
+}
 
 func (m *model) createSendForm() {
 	tempSendToAddr = ""
@@ -741,7 +756,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sendForm = nil
 			return m, nil
 		}
-		
+
 		form, cmd := m.sendForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.sendForm = f
@@ -806,7 +821,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sendForm = nil
 			return m, nil
 		}
-		
+
 		form, cmd := m.sendForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.sendForm = f
@@ -838,7 +853,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = nil
 			return m, nil
 		}
-		
+
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
@@ -883,7 +898,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = nil
 			return m, nil
 		}
-		
+
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
@@ -929,7 +944,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = nil
 			return m, nil
 		}
-		
+
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
@@ -997,7 +1012,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			},
 		})
 		m.logReady = true
-		m.addLog("info", "Debug log enabled")
+		m.addLog("info", "Logger enabled")
 		return m, nil
 
 	case rpcConnectedMsg:
@@ -1026,7 +1041,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.logEnabled {
 			// Update log viewport dimensions
 			// Width accounts for border and padding
-			m.logViewport.Width = max(0, msg.Width - 6)
+			m.logViewport.Width = max(0, msg.Width-6)
 			// Height will be calculated dynamically in renderLogPanel
 			if m.logReady {
 				m.updateLogViewport()
@@ -1077,36 +1092,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		allowMenuHotkeys := !m.textInputActive()
 		// global keys
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
+		if allowMenuHotkeys {
+			switch msg.String() {
+			case "ctrl+c", "q":
+				return m, tea.Quit
 
-		case "l":
-			// Toggle debug log
-			m.logEnabled = !m.logEnabled
-			if m.logEnabled {
-				// Initialize viewport when enabling
-				if m.w > 0 {
-					m.logViewport.Width = m.w - 6
+			case "l":
+				// Toggle logger
+				m.logEnabled = !m.logEnabled
+				if m.logEnabled {
+					// Initialize viewport when enabling
+					if m.w > 0 {
+						m.logViewport.Width = m.w - 6
+					}
+					m.logReady = false
+					return m, tea.Batch(initLogViewport(), m.logSpinner.Tick)
 				}
+				// Clear logs and de-initialize when disabling
+				if m.logBuffer != nil {
+					m.logBuffer.Reset()
+				}
+				m.logger = nil
 				m.logReady = false
-				return m, tea.Batch(initLogViewport(), m.logSpinner.Tick)
-			}
-			// Clear logs and de-initialize when disabling
-			if m.logBuffer != nil {
-				m.logBuffer.Reset()
-			}
-			m.logger = nil
-			m.logReady = false
-			return m, nil
-		
-		case "pageup", "pagedown":
-			// Allow scrolling in log viewport when enabled
-			if m.logEnabled && m.logReady {
-				var cmd tea.Cmd
-				m.logViewport, cmd = m.logViewport.Update(msg)
-				return m, cmd
+				return m, nil
+
+			case "pageup", "pagedown":
+				// Allow scrolling in log viewport when enabled
+				if m.logEnabled && m.logReady {
+					var cmd tea.Cmd
+					m.logViewport, cmd = m.logViewport.Update(msg)
+					return m, cmd
+				}
 			}
 		}
 
@@ -1122,7 +1140,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Handle delete confirmation dialog
 			if m.showDeleteDialog {
 				switch msg.String() {
-				case "left", "right":
+				case "left", "right", "tab":
 					// Toggle between Yes and No buttons
 					m.deleteDialogYesSelected = !m.deleteDialogYesSelected
 					return m, nil
@@ -1190,13 +1208,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "tab":
 				// Don't allow tab navigation when send form or add wallet form is active
 				if m.showSendForm || m.adding {
+
+				} else {
+					// Only allow focusing send button if ETH balance > 0
+					if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+						m.sendButtonFocused = !m.sendButtonFocused
+					}
 					return m, nil
 				}
-				// Only allow focusing send button if ETH balance > 0
-				if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
-					m.sendButtonFocused = !m.sendButtonFocused
-				}
-				return m, nil
+
 			case "enter":
 				// Show send form when send button is focused
 				if m.sendButtonFocused && m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
@@ -1241,7 +1261,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					return m, nil
-				case "tab", "shift+tab":
+				case "shift+tab", "tab", "ctrl+i":
 					// Toggle between address and nickname fields
 					if m.focusedInput == 0 {
 						m.focusedInput = 1
@@ -1310,6 +1330,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						// Load details for the newly added wallet if split view is enabled
 						return m, m.loadSelectedWalletDetails()
+					} else {
+						m.addError = "Invalid Etherem Address"
+						m.addErrTime = time.Now()
+						m.input.SetValue("")
+						m.nicknameInput.SetValue("")
+						m.focusedInput = 0
+						m.input.Focus()
+						return m, nil
 					}
 					return m, nil
 				}
@@ -1360,7 +1388,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.activeAddress = m.accounts[m.selectedWallet].Address
 					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps})
 					m.addLog("info", fmt.Sprintf("Activated wallet `%s`", helpers.ShortenAddr(m.activeAddress)))
-					
+
 					// If split view is enabled, refresh details for the newly activated wallet
 					if m.detailsInWallets {
 						addr := m.accounts[m.selectedWallet].Address
@@ -1436,14 +1464,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
 
-				case "tab":
+				case "tab", "down", "right":
 					// Cycle to next dApp (wraps around)
 					if len(m.dapps) > 0 {
 						m.selectedDappIdx = (m.selectedDappIdx + 1) % len(m.dapps)
 					}
 					return m, nil
 
-				case "shift+tab":
+				case "shift+tab", "up", "left":
 					// Cycle to previous dApp (wraps around)
 					if len(m.dapps) > 0 {
 						m.selectedDappIdx--
@@ -1599,29 +1627,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) renderDeleteDialog() string {
 	var (
 		dialogBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#874BFD")).
-			Padding(1, 0).
-			BorderTop(true).
-			BorderLeft(true).
-			BorderRight(true).
-			BorderBottom(true)
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#874BFD")).
+				Padding(1, 0).
+				BorderTop(true).
+				BorderLeft(true).
+				BorderRight(true).
+				BorderBottom(true)
 
 		buttonStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFF7DB")).
-			Background(lipgloss.Color("#888B7E")).
-			Padding(0, 3).
-			MarginTop(1)
+				Foreground(lipgloss.Color("#FFF7DB")).
+				Background(lipgloss.Color("#888B7E")).
+				Padding(0, 3).
+				MarginTop(1)
 
 		activeButtonStyle = buttonStyle.Copy().
-			Foreground(lipgloss.Color("#FFF7DB")).
-			Background(lipgloss.Color("#F25D94")).
-			MarginRight(2).
-			Underline(true)
+					Foreground(lipgloss.Color("#FFF7DB")).
+					Background(lipgloss.Color("#F25D94")).
+					MarginRight(2).
+					Underline(true)
 	)
-	msg := helpers.FadeString("Are you sure you want to delete the account " + helpers.ShortenAddr(m.deleteDialogAddr) + "?", "#F25D94", "#EDFF82")
+	msg := helpers.FadeString("Are you sure you want to delete the account "+helpers.ShortenAddr(m.deleteDialogAddr)+"?", "#F25D94", "#EDFF82")
 	question := lipgloss.NewStyle().Width(50).Align(lipgloss.Center).Render(msg)
-	
+
 	// Apply active style to the selected button
 	var okButton, cancelButton string
 	if m.deleteDialogYesSelected {
@@ -1754,7 +1782,7 @@ func (m model) View() string {
 
 	case pageWallets:
 		walletsContent, _ := wallets.Render(m.accounts, m.selectedWallet, m.addError)
-		
+
 		// Show add wallet form if in adding mode
 		if m.adding {
 			inputView := m.input.View() + "\n" + m.nicknameInput.View() + "\n" +
@@ -1774,7 +1802,7 @@ func (m model) View() string {
 				Render(inputView)
 			walletsContent += addBoxView
 		}
-		
+
 		// If detailsInWallets is enabled and we have a selected wallet, show split view
 		if m.detailsInWallets && len(m.accounts) > 0 {
 			// Convert local walletDetails to rpc.WalletDetails
@@ -1793,106 +1821,106 @@ func (m model) View() string {
 			}
 
 			detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
-			
-		// Show send form if active
-		// Show transaction result panel if active
-		if m.showTxResultPanel {
-			txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
-			if m.txResultPackaging {
-				txResultContent += m.spin.View() + " Packaging transaction..."
-			} else if m.txResultError != "" {
-				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
-				txResultContent += errorStyle.Render("Error: " + m.txResultError)
-				txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
-			} else {
-				// Generate and display QR code using EIP-4527 JSON format
-				qrCode := rpc.GenerateQRCode(m.txResultEIP681)
-				qrStyle := lipgloss.NewStyle()
-				txResultContent += qrStyle.Render(qrCode) + "\n"
-				
-				// Display the EIP-4527 JSON formatted transaction
-				txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("EIP-4527 Transaction JSON:") + "\n\n"
-				// Render JSON as plain text without styling to make it easily selectable
-				txResultContent += m.txResultHex
-				
-				txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
-				txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+
+			// Show send form if active
+			// Show transaction result panel if active
+			if m.showTxResultPanel {
+				txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
+				if m.txResultPackaging {
+					txResultContent += m.spin.View() + " Packaging transaction..."
+				} else if m.txResultError != "" {
+					errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
+					txResultContent += errorStyle.Render("Error: " + m.txResultError)
+					txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+				} else {
+					// Generate and display QR code using EIP-4527 JSON format
+					qrCode := rpc.GenerateQRCode(m.txResultEIP681)
+					qrStyle := lipgloss.NewStyle()
+					txResultContent += qrStyle.Render(qrCode) + "\n"
+
+					// Display the EIP-4527 JSON formatted transaction
+					txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("EIP-4527 Transaction JSON:") + "\n\n"
+					// Render JSON as plain text without styling to make it easily selectable
+					txResultContent += m.txResultHex
+
+					txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
+					txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+				}
+				detailsContent = txResultContent
+				// Show send form if active
+			} else if m.showSendForm && m.sendForm != nil {
+				sendFormContent := styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
+				detailsContent = sendFormContent
+			} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+				// Add send button if ETH balance > 0 and form is not active
+				var sendButtonStyle lipgloss.Style
+				if m.sendButtonFocused {
+					sendButtonStyle = lipgloss.NewStyle().
+						Foreground(lipgloss.Color("#FFF7DB")).
+						Background(lipgloss.Color("#F25D94")).
+						Padding(0, 3).
+						MarginTop(2).
+						Underline(true)
+				} else {
+					sendButtonStyle = lipgloss.NewStyle().
+						Foreground(lipgloss.Color("#FFF7DB")).
+						Background(lipgloss.Color("#888B7E")).
+						Padding(0, 3).
+						MarginTop(2)
+				}
+				sendButton := sendButtonStyle.Render("Send")
+				detailsContent += "\n\n" + sendButton
+
+				// Add hint text
+				if !m.sendButtonFocused {
+					hintText := lipgloss.NewStyle().
+						Foreground(lipgloss.Color("#666666")).
+						MarginTop(1).
+						Render("Press Tab to select")
+					detailsContent += "\n" + hintText
+				} else {
+					hintText := lipgloss.NewStyle().
+						Foreground(lipgloss.Color("#666666")).
+						MarginTop(1).
+						Render("Press Enter to send")
+					detailsContent += "\n" + hintText
+				}
 			}
-			detailsContent = txResultContent
-		// Show send form if active
-		} else if m.showSendForm && m.sendForm != nil {
-			sendFormContent := styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
-			detailsContent = sendFormContent
-		} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
-			// Add send button if ETH balance > 0 and form is not active
-			var sendButtonStyle lipgloss.Style
-			if m.sendButtonFocused {
-				sendButtonStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#FFF7DB")).
-					Background(lipgloss.Color("#F25D94")).
-					Padding(0, 3).
-					MarginTop(2).
-					Underline(true)
-			} else {
-				sendButtonStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#FFF7DB")).
-					Background(lipgloss.Color("#888B7E")).
-					Padding(0, 3).
-					MarginTop(2)
-			}
-			sendButton := sendButtonStyle.Render("Send")
-			detailsContent += "\n\n" + sendButton
-			
-			// Add hint text
-			if !m.sendButtonFocused {
-				hintText := lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#666666")).
-					MarginTop(1).
-					Render("Press Tab to select")
-				detailsContent += "\n" + hintText
-			} else {
-				hintText := lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#666666")).
-					MarginTop(1).
-					Render("Press Enter to send")
-				detailsContent += "\n" + hintText
-			}
+
+			// Calculate panel widths (split 40/60)
+			listWidth := max(0, (m.w*4)/10-2)
+			detailsWidth := max(0, (m.w*6)/10-2)
+
+			// Get the height of the left panel content to match it on the right
+			leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
+			leftPanelHeight := lipgloss.Height(leftPanel)
+
+			// Set the right panel to match the left panel height
+			rightPanel := panelStyle.
+				Width(detailsWidth + 1).
+				Height(leftPanelHeight - 2).
+				Render(detailsContent)
+
+			pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+		} else {
+			pageContent = panelStyle.Width(max(0, m.w-2)).Render(walletsContent)
 		}
-		
-		// Calculate panel widths (split 40/60)
-		listWidth := max(0, (m.w*4)/10-2)
-		detailsWidth := max(0, (m.w*6)/10-2)
-		
-		// Get the height of the left panel content to match it on the right
-		leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
-		leftPanelHeight := lipgloss.Height(leftPanel)
-		
-		// Set the right panel to match the left panel height
-		rightPanel := panelStyle.
-			Width(detailsWidth + 1).
-			Height(leftPanelHeight - 2).
-			Render(detailsContent)
-		
-		pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
-	} else {
-		pageContent = panelStyle.Width(max(0, m.w-2)).Render(walletsContent)
-	}
-	nav = wallets.Nav(m.w - 2)
-	
-	// Render delete confirmation dialog overlay
-	if m.showDeleteDialog {
-		// Dialog overlays the current view
-		return m.renderDeleteDialog()
-	}
+		nav = wallets.Nav(m.w - 2)
+
+		// Render delete confirmation dialog overlay
+		if m.showDeleteDialog {
+			// Dialog overlays the current view
+			return m.renderDeleteDialog()
+		}
 
 	case pageDappBrowser:
 		dappBrowserContent := dapps.Render(m.dapps, m.selectedDappIdx)
-		
+
 		// Show form if in add/edit mode
 		if (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
 			dappBrowserContent = styles.TitleStyle.Render("dApp Browser") + "\n\n" + m.form.View()
 		}
-		
+
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(dappBrowserContent)
 		nav = dapps.Nav(m.w-2, m.dappMode)
 
@@ -1914,16 +1942,16 @@ func (m model) View() string {
 
 		detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
-		nav = details.Nav(m.w - 2, m.nicknaming)
+		nav = details.Nav(m.w-2, m.nicknaming)
 
 	case pageSettings:
 		settingsContent := settings.Render(m.rpcURLs, m.selectedRPCIdx)
-		
+
 		// Show form if in add/edit mode
 		if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
 			settingsContent = styles.TitleStyle.Render("RPC Settings") + "\n\n" + m.form.View()
 		}
-		
+
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(settingsContent)
 		nav = settings.Nav(m.w-2, m.settingsMode)
 	}
@@ -1941,25 +1969,21 @@ func (m model) View() string {
 	return appStyle.Render(content)
 }
 
-
-
-
-
 func (m model) renderLogPanel() string {
 	title := lipgloss.NewStyle().
 		Foreground(cAccent2).
 		Bold(true).
-		Render("Debug Log")
+		Render("Log")
 
 	// Calculate available height for log panel
 	// Account for: header (3 lines), nav (1 line), title + borders (4 lines), margins (2 lines)
 	reservedHeight := 10
 	availableHeight := max(5, m.h-reservedHeight)
-	
+
 	// Limit max height to 1/3 of screen or 15 lines, whichever is smaller
 	maxLogHeight := min(m.h/3, 15)
 	logPanelHeight := min(availableHeight, maxLogHeight)
-	
+
 	// Update viewport height dynamically
 	m.logViewport.Height = logPanelHeight
 

@@ -45,7 +45,7 @@ func Nav(width int) string {
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " select",
 		styles.Key("Enter") + " go",
-		styles.Key("l") + " debug log",
+		styles.Key("l") + " logger",
 		styles.Key("Esc") + " quit",
 	}, "   ")
 
