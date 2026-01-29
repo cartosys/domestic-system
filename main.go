@@ -1024,12 +1024,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Only initialize viewport if log is enabled
 		if m.logEnabled {
-			// Reserve space for log panel (20 lines + borders)
-			logPanelHeight := 20
-
 			// Update log viewport dimensions
-			m.logViewport.Width = msg.Width - 4
-			m.logViewport.Height = logPanelHeight
+			// Width accounts for border and padding
+			m.logViewport.Width = max(0, msg.Width - 6)
+			// Height will be calculated dynamically in renderLogPanel
 			if m.logReady {
 				m.updateLogViewport()
 			}
@@ -1090,8 +1088,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.logEnabled {
 				// Initialize viewport when enabling
 				if m.w > 0 {
-					m.logViewport.Width = m.w - 4
-					m.logViewport.Height = 20
+					m.logViewport.Width = m.w - 6
 				}
 				m.logReady = false
 				return m, tea.Batch(initLogViewport(), m.logSpinner.Tick)
@@ -1103,6 +1100,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logger = nil
 			m.logReady = false
 			return m, nil
+		
+		case "pageup", "pagedown":
+			// Allow scrolling in log viewport when enabled
+			if m.logEnabled && m.logReady {
+				var cmd tea.Cmd
+				m.logViewport, cmd = m.logViewport.Update(msg)
+				return m, cmd
+			}
 		}
 
 		// page-specific behavior
@@ -1946,18 +1951,44 @@ func (m model) renderLogPanel() string {
 		Bold(true).
 		Render("Debug Log")
 
+	// Calculate available height for log panel
+	// Account for: header (3 lines), nav (1 line), title + borders (4 lines), margins (2 lines)
+	reservedHeight := 10
+	availableHeight := max(5, m.h-reservedHeight)
+	
+	// Limit max height to 1/3 of screen or 15 lines, whichever is smaller
+	maxLogHeight := min(m.h/3, 15)
+	logPanelHeight := min(availableHeight, maxLogHeight)
+	
+	// Update viewport height dynamically
+	m.logViewport.Height = logPanelHeight
+
 	border := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(cBorder).
 		Padding(0, 1).
-		Width(max(0, m.w-4))
+		Width(max(0, m.w-4)).
+		Height(logPanelHeight + 2) // +2 for title and spacing
 
 	if !m.logReady {
 		initMsg := "initializing...\n" + m.logSpinner.View()
 		return border.Render(title + "\n\n" + initMsg)
 	}
 
-	return border.Render(title + "\n\n" + m.logViewport.View())
+	// Show scrollbar info if content is larger than viewport
+	scrollInfo := ""
+	if m.logViewport.TotalLineCount() > 0 {
+		scrollPercent := int(m.logViewport.ScrollPercent() * 100)
+		if m.logViewport.TotalLineCount() > m.logViewport.Height {
+			scrollInfo = lipgloss.NewStyle().
+				Foreground(cMuted).
+				Render(fmt.Sprintf(" [%d%%]", scrollPercent))
+		}
+	}
+
+	titleWithScroll := title + scrollInfo
+
+	return border.Render(titleWithScroll + "\n\n" + m.logViewport.View())
 }
 
 func key(s string) string {
