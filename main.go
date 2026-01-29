@@ -25,8 +25,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lucasb-eyer/go-colorful"
@@ -177,9 +177,11 @@ type model struct {
 
 	// debug log panel
 	logEnabled  bool
-	logEntries  []string
+	logger      *log.Logger
+	logBuffer   *strings.Builder
 	logViewport viewport.Model
 	logReady    bool
+	logSpinner  spinner.Model
 
 	// split view flag for wallets page
 	detailsInWallets bool // when true, show details panel alongside wallet list
@@ -285,6 +287,11 @@ func newModel() model {
 		Foreground(cText).
 		Background(cPanel)
 
+	// Initialize log spinner
+	logSpin := spinner.New()
+	logSpin.Spinner = spinner.Dot
+	logSpin.Style = lipgloss.NewStyle().Foreground(cAccent2)
+
 	m := model{
 		activePage:     pageWallets,
 		accounts:       accounts,
@@ -301,7 +308,8 @@ func newModel() model {
 		selectedRPCIdx: 0,
 		configPath:     configPath,
 		logViewport:    vp,
-		logEntries:     []string{},
+		logBuffer:      &strings.Builder{},
+		logSpinner:     logSpin,
 		detailsCache:   make(map[string]walletDetails),
 		dapps:          cfg.Dapps,
 		dappMode:       "list",
@@ -420,33 +428,24 @@ func clearClipboardMsg() tea.Cmd {
 
 // addLog adds a log entry with timestamp and type
 func (m *model) addLog(logType, message string) {
-	if !m.logEnabled {
+	if !m.logEnabled || !m.logReady || m.logger == nil {
 		return
 	}
 
-	timestamp := time.Now().Format("15:04:05")
-	var icon string
+	// Use the logger to write messages
 	switch logType {
 	case "info":
-		icon = "ℹ️"
+		m.logger.Info(message)
 	case "success":
-		icon = "✅"
+		m.logger.Info("✓", "msg", message)
 	case "error":
-		icon = "❌"
+		m.logger.Error(message)
 	case "warning":
-		icon = "⚠️"
+		m.logger.Warn(message)
 	case "debug":
-		icon = "🔍"
+		m.logger.Debug(message)
 	default:
-		icon = "📝"
-	}
-
-	entry := fmt.Sprintf("**%s** `%s` %s", icon, timestamp, message)
-	m.logEntries = append(m.logEntries, entry)
-
-	// Keep only last 100 entries to avoid memory bloat
-	if len(m.logEntries) > 100 {
-		m.logEntries = m.logEntries[1:]
+		m.logger.Print(message)
 	}
 
 	// Update viewport content
@@ -475,33 +474,15 @@ func (m *model) loadSelectedWalletDetails() tea.Cmd {
 	return loadDetails(m.ethClient, ethAddr, m.tokenWatch)
 }
 
-// updateLogViewport refreshes the viewport content with rendered markdown
+// updateLogViewport refreshes the viewport content with log output
 func (m *model) updateLogViewport() {
-	if !m.logReady {
+	if !m.logReady || m.logBuffer == nil {
 		return
 	}
 
-	// Join all log entries with newlines
-	content := strings.Join(m.logEntries, "\n\n")
-
-	// Render with glamour
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(m.logViewport.Width-2),
-	)
-	if err != nil {
-		// Fallback to plain text if glamour fails
-		m.logViewport.SetContent(content)
-		return
-	}
-
-	rendered, err := renderer.Render(content)
-	if err != nil {
-		m.logViewport.SetContent(content)
-		return
-	}
-
-	m.logViewport.SetContent(rendered)
+	// Get content from log buffer
+	content := m.logBuffer.String()
+	m.logViewport.SetContent(content)
 	// Scroll to bottom to show latest entries
 	m.logViewport.GotoBottom()
 }
@@ -992,6 +973,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.logEnabled {
 			return m, nil
 		}
+		// Create logger that writes to our buffer
+		m.logger = log.NewWithOptions(m.logBuffer, log.Options{
+			ReportTimestamp: true,
+			TimeFormat:      "15:04:05",
+			Prefix:          "",
+		})
+		// Set log level and styling
+		m.logger.SetLevel(log.DebugLevel)
+		m.logger.SetStyles(&log.Styles{
+			Timestamp: lipgloss.NewStyle().Foreground(cMuted),
+			Caller:    lipgloss.NewStyle().Faint(true),
+			Prefix:    lipgloss.NewStyle().Bold(true).Foreground(cAccent2),
+			Message:   lipgloss.NewStyle().Foreground(cText),
+			Key:       lipgloss.NewStyle().Foreground(cAccent),
+			Value:     lipgloss.NewStyle().Foreground(cText),
+			Separator: lipgloss.NewStyle().Faint(true),
+			Levels: map[log.Level]lipgloss.Style{
+				log.DebugLevel: lipgloss.NewStyle().Foreground(cMuted).SetString("DEBUG"),
+				log.InfoLevel:  lipgloss.NewStyle().Foreground(cAccent2).SetString("INFO"),
+				log.WarnLevel:  lipgloss.NewStyle().Foreground(cWarn).SetString("WARN"),
+				log.ErrorLevel: lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).SetString("ERROR"),
+			},
+		})
 		m.logReady = true
 		m.addLog("info", "Debug log enabled")
 		return m, nil
@@ -1035,8 +1039,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
+		var cmds []tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
-		return m, cmd
+		cmds = append(cmds, cmd)
+		// Update log spinner too if log is enabled but not ready
+		if m.logEnabled && !m.logReady {
+			m.logSpinner, cmd = m.logSpinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 
 	case detailsLoadedMsg:
 		m.loading = false
@@ -1083,10 +1094,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.logViewport.Height = 20
 				}
 				m.logReady = false
-				return m, initLogViewport()
+				return m, tea.Batch(initLogViewport(), m.logSpinner.Tick)
 			}
 			// Clear logs and de-initialize when disabling
-			m.logEntries = []string{}
+			if m.logBuffer != nil {
+				m.logBuffer.Reset()
+			}
+			m.logger = nil
 			m.logReady = false
 			return m, nil
 		}
@@ -1939,7 +1953,8 @@ func (m model) renderLogPanel() string {
 		Width(max(0, m.w-4))
 
 	if !m.logReady {
-		return border.Render(title + "\n\n" + "initializing...")
+		initMsg := "initializing...\n" + m.logSpinner.View()
+		return border.Render(title + "\n\n" + initMsg)
 	}
 
 	return border.Render(title + "\n\n" + m.logViewport.View())
