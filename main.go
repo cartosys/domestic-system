@@ -1680,6 +1680,39 @@ func (m model) renderDeleteDialog() string {
 	)
 }
 
+func (m model) renderTxResultContent() string {
+	txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
+	if m.txResultPackaging {
+		txResultContent += m.spin.View() + " Packaging transaction..."
+	} else if m.txResultError != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
+		txResultContent += errorStyle.Render("Error: " + m.txResultError)
+		txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+	} else {
+		qrCode := rpc.GenerateQRCode(m.txResultEIP681)
+		qrStyle := lipgloss.NewStyle()
+		txResultContent += qrStyle.Render(qrCode) + "\n"
+
+		txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("EIP-4527 Transaction JSON:") + "\n\n"
+		txResultContent += m.txResultHex
+
+		txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
+		txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+	}
+	return txResultContent
+}
+
+func (m model) renderTxResultPanel() string {
+	contentWidth := max(0, m.w-8)
+	centeredContent := lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(m.renderTxResultContent())
+	content := panelStyle.Width(max(0, m.w-4)).Render(centeredContent)
+	return appStyle.Render(lipgloss.Place(
+		m.w, m.h,
+		lipgloss.Center, lipgloss.Center,
+		content,
+	))
+}
+
 func (m model) globalHeader() string {
 	// Active Address (the one marked with ★)
 	var addrDisplay string
@@ -1832,28 +1865,7 @@ func (m model) View() string {
 			// Show send form if active
 			// Show transaction result panel if active
 			if m.showTxResultPanel {
-				txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
-				if m.txResultPackaging {
-					txResultContent += m.spin.View() + " Packaging transaction..."
-				} else if m.txResultError != "" {
-					errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
-					txResultContent += errorStyle.Render("Error: " + m.txResultError)
-					txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
-				} else {
-					// Generate and display QR code using EIP-4527 JSON format
-					qrCode := rpc.GenerateQRCode(m.txResultEIP681)
-					qrStyle := lipgloss.NewStyle()
-					txResultContent += qrStyle.Render(qrCode) + "\n"
-
-					// Display the EIP-4527 JSON formatted transaction
-					txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("EIP-4527 Transaction JSON:") + "\n\n"
-					// Render JSON as plain text without styling to make it easily selectable
-					txResultContent += m.txResultHex
-
-					txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
-					txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
-				}
-				detailsContent = txResultContent
+				detailsContent = m.renderTxResultContent()
 				// Show send form if active
 			} else if m.showSendForm && m.sendForm != nil {
 				sendFormContent := styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
@@ -1918,6 +1930,10 @@ func (m model) View() string {
 		if m.showDeleteDialog {
 			// Dialog overlays the current view
 			return m.renderDeleteDialog()
+		}
+
+		if m.showTxResultPanel {
+			return m.renderTxResultPanel()
 		}
 
 	case pageDappBrowser:
