@@ -2014,7 +2014,7 @@ func (m model) renderLogPanel() string {
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(cBorder).
 		Padding(0, 1).
-		Width(max(0, m.w-4)).
+		Width(max(0, m.w-2)).
 		Height(logPanelHeight + 2) // +2 for title and spacing
 
 	if !m.logReady {
