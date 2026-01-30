@@ -49,9 +49,11 @@ func Render(details rpc.WalletDetails, wallets []config.WalletEntry, loading boo
 		}
 	}
 
-	// Make address clickable with underline hint
+	// Make address clickable with underline hint and hyperlink to Etherscan
+	etherscanURL := fmt.Sprintf("https://etherscan.io/address/%s", details.Address)
 	addrStyle := lipgloss.NewStyle().Foreground(styles.CMuted).Underline(true)
-	sub := addrStyle.Render(details.Address)
+	// Use OSC 8 hyperlink format: \x1b]8;;URL\x1b\\TEXT\x1b]8;;\x1b\\
+	sub := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", etherscanURL, addrStyle.Render(details.Address))
 
 	// Add nickname if it exists
 	if nickname != "" {
