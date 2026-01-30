@@ -121,12 +121,14 @@ type model struct {
 	selectedWallet int
 
 	// add-wallet input
-	adding        bool
-	input         textinput.Model // address input
-	nicknameInput textinput.Model // nickname input
-	focusedInput  int             // 0 = address, 1 = nickname
-	addError      string          // error message when adding wallet (e.g., duplicate)
-	addErrTime    time.Time       // time when error was shown
+	adding          bool
+	input           textinput.Model // address input
+	nicknameInput   textinput.Model // nickname input
+	focusedInput    int             // 0 = address, 1 = nickname
+	addError        string          // error message when adding wallet (e.g., duplicate)
+	addErrTime      time.Time       // time when error was shown
+	ensLookupActive bool            // true if ENS lookup is in progress
+	ensLookupAddr   string          // address being looked up
 
 	// details state
 	spin          spinner.Model
@@ -336,6 +338,13 @@ func (m model) Init() tea.Cmd {
 
 type clipboardCopiedMsg struct{}
 
+type ensLookupResultMsg struct {
+	address   string
+	ensName   string
+	err       error
+	debugInfo string
+}
+
 type logInitMsg struct{}
 
 type rpcConnectedMsg struct {
@@ -425,6 +434,23 @@ func clearClipboardMsg() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return struct{ clearClipboard bool }{true}
 	})
+}
+
+func lookupENS(client *rpc.Client, address string) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return ensLookupResultMsg{address: address, ensName: "", err: fmt.Errorf("no RPC client"), debugInfo: ""}
+		}
+		
+		// Perform ENS reverse lookup
+		result := helpers.LookupENS(address, client.URL)
+		return ensLookupResultMsg{
+			address:   address,
+			ensName:   result.Name,
+			err:       result.Error,
+			debugInfo: result.DebugInfo,
+		}
+	}
 }
 
 // -------------------- LOG FUNCTIONS --------------------
@@ -1256,6 +1282,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.nicknameInput.Blur()
 					m.focusedInput = 0
 					m.addError = ""
+					m.ensLookupActive = false
+					m.ensLookupAddr = ""
 					return m, nil
 				case "ctrl+v":
 					// Handle Ctrl+v paste explicitly to active input
@@ -1268,9 +1296,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					return m, nil
-				case "shift+tab", "tab", "ctrl+i":
+				case "shift+tab", "tab", "ctrl+i", "down":
 					// Toggle between address and nickname fields
 					if m.focusedInput == 0 {
+						val := strings.TrimSpace(m.input.Value())
+						// Trigger ENS lookup if valid address
+						if helpers.IsValidEthAddress(val) {
+							newAddr := common.HexToAddress(val).Hex()
+							// Trigger ENS lookup if connected and not already looking up this address
+							if m.ethClient != nil && (!m.ensLookupActive || m.ensLookupAddr != newAddr) {
+								m.ensLookupActive = true
+								m.ensLookupAddr = newAddr
+								m.focusedInput = 1
+								m.input.Blur()
+								m.nicknameInput.Focus()
+								return m, lookupENS(m.ethClient, newAddr)
+							}
+						}
 						m.focusedInput = 1
 						m.input.Blur()
 						m.nicknameInput.Focus()
@@ -1285,10 +1327,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.focusedInput == 0 {
 						val := strings.TrimSpace(m.input.Value())
 						if helpers.IsValidEthAddress(val) {
+							newAddr := common.HexToAddress(val).Hex()
 							// Move to nickname field
 							m.focusedInput = 1
 							m.input.Blur()
 							m.nicknameInput.Focus()
+							// Trigger ENS lookup if connected and not already looking up this address
+							if m.ethClient != nil && (!m.ensLookupActive || m.ensLookupAddr != newAddr) {
+								m.ensLookupActive = true
+								m.ensLookupAddr = newAddr
+								return m, lookupENS(m.ethClient, newAddr)
+							}
 							return m, nil
 						}
 						return m, nil
@@ -1617,6 +1666,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.copiedMsgTime = time.Now()
 		return m, clearClipboardMsg()
 
+	case ensLookupResultMsg:
+		m.ensLookupActive = false
+		// Always log debug info
+		if msg.debugInfo != "" {
+			m.addLog("info", fmt.Sprintf("ENS debug: %s", msg.debugInfo))
+		}
+		if msg.err == nil && msg.ensName != "" && msg.address == m.ensLookupAddr {
+			// Auto-populate nickname field if it's empty
+			if strings.TrimSpace(m.nicknameInput.Value()) == "" {
+				m.nicknameInput.SetValue(msg.ensName)
+			}
+			m.addLog("success", fmt.Sprintf("Found ENS name: %s", msg.ensName))
+		} else if msg.err != nil && msg.address == m.ensLookupAddr {
+			m.addLog("error", fmt.Sprintf("ENS lookup error: %v", msg.err))
+		} else if msg.address == m.ensLookupAddr {
+			m.addLog("info", "No ENS name found for address: " + helpers.FadeString(helpers.ShortenAddr(msg.address), "#F25D94", "#EDFF82"))
+		}
+		return m, nil
+		return m, nil
+
 	default:
 		// Clear clipboard message after timeout
 		if msg, ok := msg.(struct{ clearClipboard bool }); ok && msg.clearClipboard {
@@ -1825,8 +1894,14 @@ func (m model) View() string {
 
 		// Show add wallet form if in adding mode
 		if m.adding {
-			inputView := m.input.View() + "\n" + m.nicknameInput.View() + "\n" +
-				hotkeyStyle.Render("Tab") + " next field   " +
+			inputView := m.input.View() + "\n" + m.nicknameInput.View() + "\n"
+
+			// Show ENS lookup status
+			if m.ensLookupActive {
+				inputView += m.spin.View() + " ENS lookup…\n"
+			}
+
+			inputView += hotkeyStyle.Render("Tab") + " next field   " +
 				hotkeyStyle.Render("Enter") + " next/save   " +
 				hotkeyStyle.Render("Esc") + " cancel   " +
 				hotkeyStyle.Render("Ctrl+v") + " paste"

@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/muesli/gamut"
+	ens "github.com/wealdtech/go-ens/v3"
 )
 
 // ShortenAddr shortens an Ethereum address for display
@@ -94,4 +97,56 @@ func Contains(slice []string, val string) bool {
 func ToHex(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 	return fmt.Sprintf("#%02X%02X%02X", r>>8, g>>8, b>>8)
+}
+
+// ENSLookupResult contains the result and debug info from an ENS lookup
+type ENSLookupResult struct {
+	Name      string
+	DebugInfo string
+	Error     error
+}
+
+// LookupENS performs a reverse ENS lookup for an Ethereum address
+// Returns the ENS name if found, empty string otherwise, plus debug info
+func LookupENS(address, rpcURL string) ENSLookupResult {
+	var debugLines []string
+
+	if rpcURL == "" {
+		return ENSLookupResult{Error: fmt.Errorf("no RPC URL configured")}
+	}
+
+	// Connect to Ethereum client
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		debugLines = append(debugLines, fmt.Sprintf("Failed to dial RPC: %v", err))
+		return ENSLookupResult{Error: err, DebugInfo: strings.Join(debugLines, "\n")}
+	}
+	defer client.Close()
+	debugLines = append(debugLines, "Connected to RPC")
+
+	// Convert address to common.Address
+	addr := common.HexToAddress(address)
+	debugLines = append(debugLines, fmt.Sprintf("Lookup address: %s", addr.Hex()))
+
+	// Use go-ens library for reverse resolution
+	name, err := ens.ReverseResolve(client, addr)
+	if err != nil {
+		debugLines = append(debugLines, fmt.Sprintf("ENS reverse resolve error: %v", err))
+		// Don't return error for "not found" cases, just empty name
+		if strings.Contains(err.Error(), "no resolution") || 
+		   strings.Contains(err.Error(), "not found") ||
+		   strings.Contains(err.Error(), "no resolver") {
+			return ENSLookupResult{DebugInfo: strings.Join(debugLines, "\n")}
+		}
+		return ENSLookupResult{Error: err, DebugInfo: strings.Join(debugLines, "\n")}
+	}
+
+	debugLines = append(debugLines, fmt.Sprintf("Resolved name: '%s'", name))
+
+	if name == "" {
+		debugLines = append(debugLines, "Name is empty")
+		return ENSLookupResult{DebugInfo: strings.Join(debugLines, "\n")}
+	}
+
+	return ENSLookupResult{Name: name, DebugInfo: strings.Join(debugLines, "\n")}
 }
