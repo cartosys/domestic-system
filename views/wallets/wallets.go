@@ -23,7 +23,7 @@ func Nav(width int) string {
 		styles.Key("↑/↓") + " move",
 		styles.Key("Space") + " activate",
 		styles.Key("a") + " add",
-		styles.Key("d") + " delete",
+		styles.Key("del") + " delete",
 		styles.Key("h") + " home",
 		styles.Key("s") + " settings",
 		styles.Key("b") + " dApps",

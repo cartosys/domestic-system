@@ -18,6 +18,7 @@ import (
 	"charm-wallet-tui/views/details"
 	"charm-wallet-tui/views/home"
 	"charm-wallet-tui/views/settings"
+	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
 
 	"github.com/atotto/clipboard"
@@ -78,6 +79,7 @@ const (
 	pageDetails
 	pageSettings
 	pageDappBrowser
+	pageUniswap
 )
 
 // clickableArea represents a clickable region on screen for addresses
@@ -203,6 +205,17 @@ type model struct {
 	txResultHex       string
 	txResultEIP681    string
 	txResultError     string
+
+	// Uniswap swap state
+	uniswapFromTokenIdx    int    // index in available tokens
+	uniswapToTokenIdx      int    // index in available tokens
+	uniswapFromAmount      string // user input amount
+	uniswapToAmount        string // estimated output amount
+	uniswapFocusedField    int    // 0=from, 1=to, 2=swap button
+	uniswapShowingSelector bool   // true when showing token selector popup
+	uniswapSelectorFor     int    // 0=from, 1=to
+	uniswapSelectorIdx     int    // selected index in token selector
+	uniswapEstimating      bool   // true when estimating swap output
 }
 
 // -------------------- INIT --------------------
@@ -533,6 +546,31 @@ func (m model) textInputActive() bool {
 		return true
 	}
 	return false
+}
+
+// buildTokenList builds a list of available tokens from wallet details for Uniswap
+func (m model) buildTokenList() []uniswap.TokenOption {
+	var tokens []uniswap.TokenOption
+	
+	// Add ETH first
+	tokens = append(tokens, uniswap.TokenOption{
+		Symbol:   "ETH",
+		Balance:  m.details.EthWei,
+		Decimals: 18,
+		IsETH:    true,
+	})
+	
+	// Add tokens from watchlist that have balances
+	for _, token := range m.details.Tokens {
+		tokens = append(tokens, uniswap.TokenOption{
+			Symbol:   token.Symbol,
+			Balance:  token.Balance,
+			Decimals: token.Decimals,
+			IsETH:    false,
+		})
+	}
+	
+	return tokens
 }
 
 func (m *model) createSendForm() {
@@ -1474,7 +1512,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				return m, tea.Quit
 
-			case "d":
+			case "delete", "backspace":
 				// Show delete confirmation dialog
 				if len(m.accounts) == 0 {
 					return m, nil
@@ -1519,6 +1557,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.activePage = pageWallets
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
+
+				case "enter":
+					// Open Uniswap swap interface
+					m.activePage = pageUniswap
+					// Initialize Uniswap state with default values
+					m.uniswapFromTokenIdx = 0 // Default to first token (ETH)
+					m.uniswapToTokenIdx = 1   // Default to second token if available
+					m.uniswapFromAmount = ""
+					m.uniswapToAmount = ""
+					m.uniswapFocusedField = 0
+					m.uniswapShowingSelector = false
+					m.uniswapSelectorFor = 0
+					m.uniswapSelectorIdx = 0
+					m.uniswapEstimating = false
+					return m, nil
 
 				case "tab", "down", "right":
 					// Cycle to next dApp (wraps around)
@@ -1623,6 +1676,102 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, nil
 				}
+			}
+
+		case pageUniswap:
+			// Handle token selector popup first
+			if m.uniswapShowingSelector {
+				switch msg.String() {
+				case "esc":
+					m.uniswapShowingSelector = false
+					return m, nil
+				case "up", "k":
+					if m.uniswapSelectorIdx > 0 {
+						m.uniswapSelectorIdx--
+					}
+					return m, nil
+				case "down", "j":
+					// Build token list from wallet details
+					tokens := m.buildTokenList()
+					if m.uniswapSelectorIdx < len(tokens)-1 {
+						m.uniswapSelectorIdx++
+					}
+					return m, nil
+				case "enter":
+					// Select token and close selector
+					if m.uniswapSelectorFor == 0 {
+						m.uniswapFromTokenIdx = m.uniswapSelectorIdx
+					} else {
+						m.uniswapToTokenIdx = m.uniswapSelectorIdx
+					}
+					m.uniswapShowingSelector = false
+					return m, nil
+				}
+				return m, nil
+			}
+
+			// Main swap interface controls
+			switch msg.String() {
+			case "esc":
+				m.activePage = pageDappBrowser
+				return m, nil
+
+			case "up", "k":
+				// Navigate up through fields
+				if m.uniswapFocusedField > 0 {
+					m.uniswapFocusedField--
+				}
+				return m, nil
+
+			case "down", "j":
+				// Navigate down through fields
+				if m.uniswapFocusedField < 2 {
+					m.uniswapFocusedField++
+				}
+				return m, nil
+
+			case "tab":
+				// Cycle through fields
+				m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
+				return m, nil
+
+			case "enter":
+				if m.uniswapFocusedField == 0 {
+					// Open token selector for "from" field
+					m.uniswapShowingSelector = true
+					m.uniswapSelectorFor = 0
+					m.uniswapSelectorIdx = m.uniswapFromTokenIdx
+					return m, nil
+				} else if m.uniswapFocusedField == 1 {
+					// Open token selector for "to" field
+					m.uniswapShowingSelector = true
+					m.uniswapSelectorFor = 1
+					m.uniswapSelectorIdx = m.uniswapToTokenIdx
+					return m, nil
+				} else if m.uniswapFocusedField == 2 {
+					// Execute swap (placeholder for now)
+					m.addLog("info", "Swap functionality coming soon!")
+					return m, nil
+				}
+				return m, nil
+
+			case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".":
+				// Allow numeric input for amount when focused on from field
+				if m.uniswapFocusedField == 0 {
+					m.uniswapFromAmount += msg.String()
+					// TODO: Estimate output amount
+					m.uniswapEstimating = false
+					return m, nil
+				}
+				return m, nil
+
+			case "backspace":
+				// Delete last character from amount
+				if m.uniswapFocusedField == 0 && len(m.uniswapFromAmount) > 0 {
+					m.uniswapFromAmount = m.uniswapFromAmount[:len(m.uniswapFromAmount)-1]
+					return m, nil
+				}
+				return m, nil
 			}
 		}
 
@@ -2052,6 +2201,39 @@ func (m model) View() string {
 
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(settingsContent)
 		nav = settings.Nav(m.w-2, m.settingsMode)
+
+	case pageUniswap:
+		// Build token list from wallet details
+		tokens := m.buildTokenList()
+		
+		// If showing token selector, render popup
+		if m.uniswapShowingSelector {
+			uniswapView := uniswap.RenderTokenSelector(
+				m.w,
+				m.h-8, // Account for header and nav
+				tokens,
+				m.uniswapSelectorIdx,
+				m.uniswapSelectorFor == 0,
+			)
+			pageContent = uniswapView
+			nav = uniswap.Nav(m.w - 2)
+		} else {
+			// Render main swap interface
+			uniswapView := uniswap.Render(
+				m.w-2,
+				m.h-8, // Account for header and nav
+				tokens,
+				m.uniswapFromTokenIdx,
+				m.uniswapToTokenIdx,
+				m.uniswapFromAmount,
+				m.uniswapToAmount,
+				m.uniswapFocusedField,
+				m.uniswapEstimating,
+			)
+			// Wrap in panel style to constrain properly
+			pageContent = panelStyle.Width(max(0, m.w-2)).Render(uniswapView)
+			nav = uniswap.Nav(m.w - 2)
+		}
 	}
 
 	// Render log panel only if enabled
