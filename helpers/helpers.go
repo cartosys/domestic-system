@@ -1,3 +1,4 @@
+
 package helpers
 
 import (
@@ -104,6 +105,48 @@ type ENSLookupResult struct {
 	Name      string
 	DebugInfo string
 	Error     error
+}
+
+// ResolveENS performs a forward ENS lookup for an ENS name
+// Returns the Ethereum address if found, plus debug info
+func ResolveENS(ensName, rpcURL string) ENSLookupResult {
+	var debugLines []string
+
+	if rpcURL == "" {
+		return ENSLookupResult{Error: fmt.Errorf("no RPC URL configured")}
+	}
+
+	// Check if it's a .eth name
+	if !strings.HasSuffix(strings.ToLower(ensName), ".eth") {
+		return ENSLookupResult{Error: fmt.Errorf("not a valid .eth name")}
+	}
+
+	// Connect to Ethereum client
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		debugLines = append(debugLines, fmt.Sprintf("Failed to dial RPC: %v", err))
+		return ENSLookupResult{Error: err, DebugInfo: strings.Join(debugLines, "\n")}
+	}
+	defer client.Close()
+	debugLines = append(debugLines, "Connected to RPC")
+	debugLines = append(debugLines, fmt.Sprintf("Resolving ENS name: %s", ensName))
+
+	// Use go-ens library for forward resolution
+	addr, err := ens.Resolve(client, ensName)
+	if err != nil {
+		debugLines = append(debugLines, fmt.Sprintf("ENS resolve error: %v", err))
+		return ENSLookupResult{Error: err, DebugInfo: strings.Join(debugLines, "\n")}
+	}
+
+	if addr == (common.Address{}) {
+		debugLines = append(debugLines, "No address found for ENS name")
+		return ENSLookupResult{Error: fmt.Errorf("no address found"), DebugInfo: strings.Join(debugLines, "\n")}
+	}
+
+	resolvedAddr := addr.Hex()
+	debugLines = append(debugLines, fmt.Sprintf("Resolved address: %s", resolvedAddr))
+
+	return ENSLookupResult{Name: resolvedAddr, DebugInfo: strings.Join(debugLines, "\n")}
 }
 
 // LookupENS performs a reverse ENS lookup for an Ethereum address

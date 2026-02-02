@@ -364,6 +364,13 @@ type ensLookupResultMsg struct {
 	debugInfo string
 }
 
+type ensForwardResolveMsg struct {
+	ensName     string // The .eth name that was resolved
+	address     string // The resolved Ethereum address
+	err         error
+	debugInfo   string
+}
+
 type uniswapQuoteMsg struct {
 	quote *helpers.SwapQuote
 	err   error
@@ -563,6 +570,23 @@ func lookupENS(client *rpc.Client, address string) tea.Cmd {
 		return ensLookupResultMsg{
 			address:   address,
 			ensName:   result.Name,
+			err:       result.Error,
+			debugInfo: result.DebugInfo,
+		}
+	}
+}
+
+func resolveENS(client *rpc.Client, ensName string) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return ensForwardResolveMsg{ensName: ensName, address: "", err: fmt.Errorf("no RPC client"), debugInfo: ""}
+		}
+		
+		// Perform ENS forward resolution
+		result := helpers.ResolveENS(ensName, client.URL)
+		return ensForwardResolveMsg{
+			ensName:   ensName,
+			address:   result.Name, // Name field contains the resolved address
 			err:       result.Error,
 			debugInfo: result.DebugInfo,
 		}
@@ -1540,16 +1564,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, nil
 				case "enter":
-					// If on address field, move to nickname field
+					// If on address field, check for .eth name or valid address
 					if m.focusedInput == 0 {
 						val := strings.TrimSpace(m.input.Value())
+						
+						// Check if it's a .eth ENS name
+						if strings.HasSuffix(strings.ToLower(val), ".eth") {
+							// Trigger forward ENS resolution
+							if m.ethClient != nil {
+								m.ensLookupActive = true
+								m.ensLookupAddr = val // Store the ENS name being resolved
+								return m, resolveENS(m.ethClient, val)
+							}
+							return m, nil
+						}
+						
 						if helpers.IsValidEthAddress(val) {
 							newAddr := common.HexToAddress(val).Hex()
 							// Move to nickname field
 							m.focusedInput = 1
 							m.input.Blur()
 							m.nicknameInput.Focus()
-							// Trigger ENS lookup if connected and not already looking up this address
+							// Trigger ENS reverse lookup if connected and not already looking up this address
 							if m.ethClient != nil && (!m.ensLookupActive || m.ensLookupAddr != newAddr) {
 								m.ensLookupActive = true
 								m.ensLookupAddr = newAddr
@@ -2144,6 +2180,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addLog("info", "No ENS name found for address: " + helpers.FadeString(helpers.ShortenAddr(msg.address), "#F25D94", "#EDFF82"))
 		}
 		return m, nil
+
+	case ensForwardResolveMsg:
+		m.ensLookupActive = false
+		// Always log debug info
+		if msg.debugInfo != "" {
+			m.addLog("info", fmt.Sprintf("ENS resolve debug: %s", msg.debugInfo))
+		}
+		if msg.err == nil && msg.address != "" {
+			// Successfully resolved - populate address field with resolved address
+			m.input.SetValue(msg.address)
+			// Populate nickname field with the ENS name
+			if strings.TrimSpace(m.nicknameInput.Value()) == "" {
+				m.nicknameInput.SetValue(msg.ensName)
+			}
+			// Move to nickname field for confirmation
+			m.focusedInput = 1
+			m.input.Blur()
+			m.nicknameInput.Focus()
+			m.addLog("success", fmt.Sprintf("Resolved %s to %s", msg.ensName, helpers.ShortenAddr(msg.address)))
+		} else if msg.err != nil {
+			m.addLog("error", fmt.Sprintf("ENS resolution error: %v", msg.err))
+			m.addError = fmt.Sprintf("Failed to resolve %s", msg.ensName)
+			m.addErrTime = time.Now()
+		}
 		return m, nil
 
 	default:
