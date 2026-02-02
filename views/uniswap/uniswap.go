@@ -23,6 +23,7 @@ func Nav(width int) string {
 		styles.Key("↑/↓") + " navigate",
 		styles.Key("Tab") + " switch field",
 		styles.Key("Enter") + " select/swap",
+		styles.Key("m") + " max",
 		styles.Key("Esc") + " back",
 		styles.Key("l") + " logger",
 	}, "   ")
@@ -80,10 +81,13 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Foreground(styles.CMuted).
 		Render(fmt.Sprintf("Balance: %s", fromBalance))
 	
-	fromAmountDisplay := lipgloss.NewStyle().
+	fromAmountStyle := lipgloss.NewStyle().
 		Foreground(styles.CAccent2).
-		Width(containerWidth - 8).
-		Render(fromAmount)
+		Width(containerWidth - 8)
+	if focusedField == 1 {
+		fromAmountStyle = fromAmountStyle.Bold(true).Underline(true)
+	}
+	fromAmountDisplay := fromAmountStyle.Render(fromAmount)
 	
 	if fromAmount == "" {
 		fromAmountDisplay = lipgloss.NewStyle().
@@ -97,7 +101,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		fromAmountDisplay
 	
 	var fromBox string
-	if focusedField == 0 {
+	if focusedField == 0 || focusedField == 1 {
 		fromBox = tokenBoxFocusedStyle.Render(fromContent)
 	} else {
 		fromBox = tokenBoxStyle.Render(fromContent)
@@ -135,10 +139,13 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Foreground(styles.CMuted).
 		Render(fmt.Sprintf("Balance: %s", toBalance))
 	
-	toAmountDisplay := lipgloss.NewStyle().
+	toAmountStyle := lipgloss.NewStyle().
 		Foreground(styles.CAccent2).
-		Width(containerWidth - 8).
-		Render(toAmount)
+		Width(containerWidth - 8)
+	if focusedField == 3 {
+		toAmountStyle = toAmountStyle.Bold(true).Underline(true)
+	}
+	toAmountDisplay := toAmountStyle.Render(toAmount)
 	
 	if toAmount == "" || estimating {
 		displayText := "0.0"
@@ -156,7 +163,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		toAmountDisplay
 	
 	var toBox string
-	if focusedField == 1 {
+	if focusedField == 2 || focusedField == 3 {
 		toBox = tokenBoxFocusedStyle.Render(toContent)
 	} else {
 		toBox = tokenBoxStyle.Render(toContent)
@@ -179,7 +186,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Bold(true)
 	
 	var swapButton string
-	if focusedField == 2 {
+	if focusedField == 4 {
 		swapButton = swapButtonFocusedStyle.Render("Swap")
 	} else {
 		swapButton = swapButtonStyle.Render("Swap")
@@ -190,7 +197,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Foreground(styles.CMuted).
 		Width(containerWidth).
 		Align(lipgloss.Center).
-		Render("↑/↓ navigate • Tab switch • Enter select")
+		Render("↑/↓ navigate • Tab switch • Enter select • m max")
 	
 	// Combine all elements with minimal spacing
 	content := lipgloss.JoinVertical(

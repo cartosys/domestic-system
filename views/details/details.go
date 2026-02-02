@@ -24,7 +24,6 @@ func Nav(width int, nicknaming bool) string {
 			styles.Key("c") + " copy address",
 			styles.Key("n") + " nickname",
 			styles.Key("r") + " refresh",
-			styles.Key("h") + " home",
 			styles.Key("w") + " wallets",
 			styles.Key("s") + " settings",
 			styles.Key("b") + " dApps",

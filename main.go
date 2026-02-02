@@ -16,7 +16,6 @@ import (
 	// View packages - ready to use when delegating rendering
 	"charm-wallet-tui/views/dapps"
 	"charm-wallet-tui/views/details"
-	"charm-wallet-tui/views/home"
 	"charm-wallet-tui/views/settings"
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
@@ -74,8 +73,7 @@ var (
 )
 
 const (
-	pageHome page = iota
-	pageWallets
+	pageWallets page = iota
 	pageDetails
 	pageSettings
 	pageDappBrowser
@@ -162,9 +160,6 @@ type model struct {
 	dapps           []config.DApp
 	dappMode        string // "list", "add", "edit"
 	selectedDappIdx int
-
-	// home form
-	homeForm *huh.Form
 
 	// nickname editing
 	nicknaming bool
@@ -573,6 +568,15 @@ func (m model) buildTokenList() []uniswap.TokenOption {
 	return tokens
 }
 
+func formatTokenAmount(balance *big.Int, decimals uint8) string {
+	if balance == nil {
+		return "0"
+	}
+	divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
+	amount := new(big.Float).Quo(new(big.Float).SetInt(balance), divisor)
+	return amount.Text('f', 6)
+}
+
 func (m *model) createSendForm() {
 	tempSendToAddr = ""
 	tempSendAmount = ""
@@ -847,35 +851,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.sendForm.State == huh.StateAborted {
 				m.showSendForm = false
 				m.sendForm = nil
-				return m, nil
-			}
-		}
-		return m, cmd
-	}
-
-	if m.activePage == pageHome {
-		if m.homeForm == nil {
-			m.homeForm = home.CreateForm()
-		}
-		form, cmd := m.homeForm.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			m.homeForm = f
-
-			// Check if form is completed
-			if m.homeForm.State == huh.StateCompleted {
-				switch home.TempSelection {
-				case "accounts":
-					m.activePage = pageWallets
-					// Load details for selected wallet if split view enabled
-					return m, m.loadSelectedWalletDetails()
-				case "settings":
-					m.activePage = pageSettings
-					m.settingsMode = "list"
-				case "dapps":
-					m.activePage = pageDappBrowser
-					m.dappMode = "list"
-				}
-				m.homeForm = nil
 				return m, nil
 			}
 		}
@@ -1202,11 +1177,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// page-specific behavior
 		switch m.activePage {
 
-		case pageHome:
-			// Home page - form handles its own keys
-			// No additional key handling needed
-			return m, nil
-
 		case pageWallets:
 			// Handle delete confirmation dialog
 			if m.showDeleteDialog {
@@ -1504,11 +1474,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dappMode = "list"
 				return m, nil
 
-			case "h":
-				m.activePage = pageHome
-				m.homeForm = nil
-				return m, nil
-
 			case "esc":
 				return m, tea.Quit
 
@@ -1701,8 +1666,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Select token and close selector
 					if m.uniswapSelectorFor == 0 {
 						m.uniswapFromTokenIdx = m.uniswapSelectorIdx
+						m.uniswapFocusedField = 1
 					} else {
 						m.uniswapToTokenIdx = m.uniswapSelectorIdx
+						m.uniswapFocusedField = 3
 					}
 					m.uniswapShowingSelector = false
 					return m, nil
@@ -1725,14 +1692,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "down", "j":
 				// Navigate down through fields
-				if m.uniswapFocusedField < 2 {
+				if m.uniswapFocusedField < 4 {
 					m.uniswapFocusedField++
 				}
 				return m, nil
 
 			case "tab":
 				// Cycle through fields
-				m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
+				m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 5
 				return m, nil
 
 			case "enter":
@@ -1742,13 +1709,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.uniswapSelectorFor = 0
 					m.uniswapSelectorIdx = m.uniswapFromTokenIdx
 					return m, nil
-				} else if m.uniswapFocusedField == 1 {
+				} else if m.uniswapFocusedField == 2 {
 					// Open token selector for "to" field
 					m.uniswapShowingSelector = true
 					m.uniswapSelectorFor = 1
 					m.uniswapSelectorIdx = m.uniswapToTokenIdx
 					return m, nil
-				} else if m.uniswapFocusedField == 2 {
+				} else if m.uniswapFocusedField == 4 {
 					// Execute swap (placeholder for now)
 					m.addLog("info", "Swap functionality coming soon!")
 					return m, nil
@@ -1756,19 +1723,44 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 
 			case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".":
-				// Allow numeric input for amount when focused on from field
-				if m.uniswapFocusedField == 0 {
+				// Allow numeric input for amount when focused on amount fields
+				if m.uniswapFocusedField == 1 {
 					m.uniswapFromAmount += msg.String()
 					// TODO: Estimate output amount
 					m.uniswapEstimating = false
+					return m, nil
+				}
+				if m.uniswapFocusedField == 3 {
+					m.uniswapToAmount += msg.String()
 					return m, nil
 				}
 				return m, nil
 
 			case "backspace":
 				// Delete last character from amount
-				if m.uniswapFocusedField == 0 && len(m.uniswapFromAmount) > 0 {
+				if m.uniswapFocusedField == 1 && len(m.uniswapFromAmount) > 0 {
 					m.uniswapFromAmount = m.uniswapFromAmount[:len(m.uniswapFromAmount)-1]
+					return m, nil
+				}
+				if m.uniswapFocusedField == 3 && len(m.uniswapToAmount) > 0 {
+					m.uniswapToAmount = m.uniswapToAmount[:len(m.uniswapToAmount)-1]
+					return m, nil
+				}
+				return m, nil
+
+			case "m":
+				tokens := m.buildTokenList()
+				if m.uniswapFocusedField == 1 {
+					if m.uniswapFromTokenIdx >= 0 && m.uniswapFromTokenIdx < len(tokens) {
+						m.uniswapFromAmount = formatTokenAmount(tokens[m.uniswapFromTokenIdx].Balance, tokens[m.uniswapFromTokenIdx].Decimals)
+						m.uniswapEstimating = false
+					}
+					return m, nil
+				}
+				if m.uniswapFocusedField == 3 {
+					if m.uniswapToTokenIdx >= 0 && m.uniswapToTokenIdx < len(tokens) {
+						m.uniswapToAmount = formatTokenAmount(tokens[m.uniswapToTokenIdx].Balance, tokens[m.uniswapToTokenIdx].Decimals)
+					}
 					return m, nil
 				}
 				return m, nil
@@ -2030,14 +2022,6 @@ func (m model) View() string {
 	var nav string
 
 	switch m.activePage {
-	case pageHome:
-		if m.homeForm == nil {
-			m.homeForm = home.CreateForm()
-		}
-		homeContent := home.Render(m.homeForm)
-		pageContent = panelStyle.Width(max(0, m.w-2)).Render(homeContent)
-		nav = home.Nav(m.w - 2)
-
 	case pageWallets:
 		walletsContent, _ := wallets.Render(m.accounts, m.selectedWallet, m.addError)
 
