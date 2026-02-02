@@ -22,8 +22,8 @@ func Nav(width int) string {
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " navigate",
 		styles.Key("Tab") + " switch field",
-		styles.Key("Enter") + " select/swap",
 		styles.Key("m") + " max",
+		styles.Key("Enter") + " select/swap",
 		styles.Key("Esc") + " back",
 		styles.Key("l") + " logger",
 	}, "   ")
@@ -32,7 +32,7 @@ func Nav(width int) string {
 }
 
 // Render renders the Uniswap swap interface
-func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating bool) string {
+func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating bool, priceImpactWarn string) string {
 	// Create the main swap container
 	containerWidth := min(80, width-4)
 	
@@ -81,13 +81,10 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Foreground(styles.CMuted).
 		Render(fmt.Sprintf("Balance: %s", fromBalance))
 	
-	fromAmountStyle := lipgloss.NewStyle().
+	fromAmountDisplay := lipgloss.NewStyle().
 		Foreground(styles.CAccent2).
-		Width(containerWidth - 8)
-	if focusedField == 1 {
-		fromAmountStyle = fromAmountStyle.Bold(true).Underline(true)
-	}
-	fromAmountDisplay := fromAmountStyle.Render(fromAmount)
+		Width(containerWidth - 8).
+		Render(fromAmount)
 	
 	if fromAmount == "" {
 		fromAmountDisplay = lipgloss.NewStyle().
@@ -101,7 +98,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		fromAmountDisplay
 	
 	var fromBox string
-	if focusedField == 0 || focusedField == 1 {
+	if focusedField == 0 {
 		fromBox = tokenBoxFocusedStyle.Render(fromContent)
 	} else {
 		fromBox = tokenBoxStyle.Render(fromContent)
@@ -139,13 +136,10 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Foreground(styles.CMuted).
 		Render(fmt.Sprintf("Balance: %s", toBalance))
 	
-	toAmountStyle := lipgloss.NewStyle().
+	toAmountDisplay := lipgloss.NewStyle().
 		Foreground(styles.CAccent2).
-		Width(containerWidth - 8)
-	if focusedField == 3 {
-		toAmountStyle = toAmountStyle.Bold(true).Underline(true)
-	}
-	toAmountDisplay := toAmountStyle.Render(toAmount)
+		Width(containerWidth - 8).
+		Render(toAmount)
 	
 	if toAmount == "" || estimating {
 		displayText := "0.0"
@@ -163,10 +157,20 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		toAmountDisplay
 	
 	var toBox string
-	if focusedField == 2 || focusedField == 3 {
+	if focusedField == 1 {
 		toBox = tokenBoxFocusedStyle.Render(toContent)
 	} else {
 		toBox = tokenBoxStyle.Render(toContent)
+	}
+	
+	// Price impact warning (if any)
+	var warningDisplay string
+	if priceImpactWarn != "" {
+		warningStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF8C00")). // Orange color
+			Width(containerWidth).
+			Align(lipgloss.Center)
+		warningDisplay = warningStyle.Render(priceImpactWarn)
 	}
 	
 	// Swap button
@@ -186,7 +190,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Bold(true)
 	
 	var swapButton string
-	if focusedField == 4 {
+	if focusedField == 2 {
 		swapButton = swapButtonFocusedStyle.Render("Swap")
 	} else {
 		swapButton = swapButtonStyle.Render("Swap")
@@ -197,20 +201,22 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Foreground(styles.CMuted).
 		Width(containerWidth).
 		Align(lipgloss.Center).
-		Render("↑/↓ navigate • Tab switch • Enter select • m max")
+		Render("↑/↓ navigate • Tab switch • Enter select")
 	
 	// Combine all elements with minimal spacing
+	var contentParts []string
+	contentParts = append(contentParts, title, "", fromBox, swapArrow, toBox)
+	
+	// Add warning if present
+	if warningDisplay != "" {
+		contentParts = append(contentParts, "", warningDisplay)
+	}
+	
+	contentParts = append(contentParts, "", swapButton, "", infoText)
+	
 	content := lipgloss.JoinVertical(
 		lipgloss.Center,
-		title,
-		"",
-		fromBox,
-		swapArrow,
-		toBox,
-		"",
-		swapButton,
-		"",
-		infoText,
+		contentParts...,
 	)
 	
 	// Center horizontally only, let panel handle vertical spacing

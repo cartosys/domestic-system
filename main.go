@@ -73,7 +73,8 @@ var (
 )
 
 const (
-	pageWallets page = iota
+	pageHome page = iota
+	pageWallets
 	pageDetails
 	pageSettings
 	pageDappBrowser
@@ -161,6 +162,9 @@ type model struct {
 	dappMode        string // "list", "add", "edit"
 	selectedDappIdx int
 
+	// home form
+	homeForm *huh.Form
+
 	// nickname editing
 	nicknaming bool
 
@@ -211,6 +215,13 @@ type model struct {
 	uniswapSelectorFor     int    // 0=from, 1=to
 	uniswapSelectorIdx     int    // selected index in token selector
 	uniswapEstimating      bool   // true when estimating swap output
+	uniswapQuote           *helpers.SwapQuote // current swap quote
+	uniswapQuoteError      string             // error from quote fetch
+	uniswapPriceImpactWarn string             // warning message for high price impact
+	// Track last quote parameters to avoid unnecessary fetches
+	lastQuoteFromAmount   string // last amount used for quote
+	lastQuoteFromTokenIdx int    // last from token index used for quote
+	lastQuoteToTokenIdx   int    // last to token index used for quote
 }
 
 // -------------------- INIT --------------------
@@ -353,6 +364,11 @@ type ensLookupResultMsg struct {
 	debugInfo string
 }
 
+type uniswapQuoteMsg struct {
+	quote *helpers.SwapQuote
+	err   error
+}
+
 type logInitMsg struct{}
 
 type rpcConnectedMsg struct {
@@ -400,6 +416,98 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 		)
 
 		return packageTransactionMsg{pkg: pkg, err: err}
+	}
+}
+
+func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOption, amountIn string, amountOutMin *big.Int, rpcURL string) tea.Cmd {
+	return func() tea.Msg {
+		// For Uniswap V2, we need to call the router contract
+		// Router address on mainnet: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
+		routerAddr := "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+
+		// Convert amount to token's base unit
+		amountFloat := new(big.Float)
+		amountFloat.SetString(amountIn)
+		multiplier := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
+		amountInUnits := new(big.Float).Mul(amountFloat, multiplier)
+		amountInBig, _ := amountInUnits.Int(nil)
+
+		// Build transaction description
+		// For swaps, we create a transaction to the Uniswap router
+		// The user needs to:
+		// 1. Approve the token first (if not ETH)
+		// 2. Execute the swap
+
+		var txJSON string
+		var eip681 string
+
+		if fromToken.Symbol == "ETH" {
+			// ETH -> Token swap: swapExactETHForTokens
+			// For simplicity, create a transaction with the router address and value
+			txJSON = fmt.Sprintf(`{
+  "from": "%s",
+  "to": "%s",
+  "value": "0x%s",
+  "data": "SWAP: %s %s -> %s (min %s)",
+  "note": "Uniswap V2 Swap: %s %s to %s %s"
+}`,
+				fromAddr,
+				routerAddr,
+				amountInBig.Text(16),
+				amountIn, fromToken.Symbol,
+				toToken.Symbol,
+				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
+				amountIn, fromToken.Symbol,
+				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
+				toToken.Symbol,
+			)
+			eip681 = fmt.Sprintf("%s?value=%s", routerAddr, amountInBig.String())
+		} else if toToken.Symbol == "ETH" {
+			// Token -> ETH swap: swapExactTokensForETH
+			txJSON = fmt.Sprintf(`{
+  "from": "%s",
+  "to": "%s",
+  "value": "0x0",
+  "data": "SWAP: %s %s -> %s (min %s)",
+  "note": "Uniswap V2 Swap: %s %s to %s %s. IMPORTANT: Approve token first!"
+}`,
+				fromAddr,
+				routerAddr,
+				amountIn, fromToken.Symbol,
+				toToken.Symbol,
+				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
+				amountIn, fromToken.Symbol,
+				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
+				toToken.Symbol,
+			)
+			eip681 = routerAddr
+		} else {
+			// Token -> Token swap: swapExactTokensForTokens
+			txJSON = fmt.Sprintf(`{
+  "from": "%s",
+  "to": "%s",
+  "value": "0x0",
+  "data": "SWAP: %s %s -> %s (min %s)",
+  "note": "Uniswap V2 Swap: %s %s to %s %s. IMPORTANT: Approve token first!"
+}`,
+				fromAddr,
+				routerAddr,
+				amountIn, fromToken.Symbol,
+				toToken.Symbol,
+				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
+				amountIn, fromToken.Symbol,
+				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
+				toToken.Symbol,
+			)
+			eip681 = routerAddr
+		}
+
+		pkg := rpc.TransactionPackageEIP4527{
+			JSON:   txJSON,
+			QRData: eip681,
+		}
+
+		return packageTransactionMsg{pkg: pkg, err: nil}
 	}
 }
 
@@ -458,6 +566,17 @@ func lookupENS(client *rpc.Client, address string) tea.Cmd {
 			err:       result.Error,
 			debugInfo: result.DebugInfo,
 		}
+	}
+}
+
+func fetchUniswapQuote(client *rpc.Client, pairAddr, tokenInAddr common.Address, amountIn *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil || client.Client == nil {
+			return uniswapQuoteMsg{nil, fmt.Errorf("no RPC client")}
+		}
+
+		quote, err := helpers.GetSwapQuote(client.Client, pairAddr, tokenInAddr, amountIn)
+		return uniswapQuoteMsg{quote, err}
 	}
 }
 
@@ -568,13 +687,91 @@ func (m model) buildTokenList() []uniswap.TokenOption {
 	return tokens
 }
 
-func formatTokenAmount(balance *big.Int, decimals uint8) string {
-	if balance == nil {
-		return "0"
+// maybeRequestUniswapQuote triggers a swap quote fetch if conditions are met
+func (m *model) maybeRequestUniswapQuote() tea.Cmd {
+	// Check if we have valid inputs
+	if m.uniswapFromAmount == "" || m.uniswapFromAmount == "0" {
+		// Clear previous quote state when amount is cleared
+		m.uniswapToAmount = ""
+		m.uniswapQuote = nil
+		m.uniswapQuoteError = ""
+		m.uniswapPriceImpactWarn = ""
+		m.lastQuoteFromAmount = ""
+		return nil
 	}
-	divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
-	amount := new(big.Float).Quo(new(big.Float).SetInt(balance), divisor)
-	return amount.Text('f', 6)
+
+	tokens := m.buildTokenList()
+	if m.uniswapFromTokenIdx < 0 || m.uniswapFromTokenIdx >= len(tokens) {
+		return nil
+	}
+	if m.uniswapToTokenIdx < 0 || m.uniswapToTokenIdx >= len(tokens) {
+		return nil
+	}
+
+	fromToken := tokens[m.uniswapFromTokenIdx]
+	toToken := tokens[m.uniswapToTokenIdx]
+
+	// Can't swap same token
+	if fromToken.Symbol == toToken.Symbol {
+		return nil
+	}
+
+	// Check if anything has changed since last quote
+	if m.lastQuoteFromAmount == m.uniswapFromAmount &&
+		m.lastQuoteFromTokenIdx == m.uniswapFromTokenIdx &&
+		m.lastQuoteToTokenIdx == m.uniswapToTokenIdx &&
+		m.uniswapQuote != nil {
+		// Nothing changed and we already have a quote, no need to fetch again
+		return nil
+	}
+
+	// Parse amount
+	amountFloat := new(big.Float)
+	_, ok := amountFloat.SetString(m.uniswapFromAmount)
+	if !ok {
+		return nil
+	}
+
+	// Convert to token's base unit (e.g., wei for ETH, smallest unit for tokens)
+	multiplier := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
+	amountInTokenUnits := new(big.Float).Mul(amountFloat, multiplier)
+	amountIn, _ := amountInTokenUnits.Int(nil)
+
+	if amountIn == nil || amountIn.Sign() <= 0 {
+		return nil
+	}
+
+	// Determine pair address and token addresses
+	// For now, only support USDC <-> WETH swaps
+	var pairAddr, tokenInAddr common.Address
+	
+	// Map token symbols to addresses
+	if (fromToken.Symbol == "USDC" && toToken.Symbol == "ETH") || (fromToken.Symbol == "ETH" && toToken.Symbol == "USDC") {
+		pairAddr = helpers.USDCWETHPairAddress
+		if fromToken.Symbol == "USDC" {
+			tokenInAddr = helpers.USDCAddress
+		} else {
+			tokenInAddr = helpers.WETHAddress
+		}
+	} else {
+		// Unsupported pair
+		m.addLog("warn", fmt.Sprintf("Swap pair %s/%s not supported yet", fromToken.Symbol, toToken.Symbol))
+		return nil
+	}
+
+	// Update tracking state before fetching
+	m.lastQuoteFromAmount = m.uniswapFromAmount
+	m.lastQuoteFromTokenIdx = m.uniswapFromTokenIdx
+	m.lastQuoteToTokenIdx = m.uniswapToTokenIdx
+
+	// Clear previous quote state when fetching new quote
+	m.uniswapToAmount = ""
+	m.uniswapQuote = nil
+	m.uniswapQuoteError = ""
+	m.uniswapPriceImpactWarn = ""
+
+	m.uniswapEstimating = true
+	return fetchUniswapQuote(m.ethClient, pairAddr, tokenInAddr, amountIn)
 }
 
 func (m *model) createSendForm() {
@@ -855,6 +1052,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, cmd
+	}
+
+	if m.activePage == pageHome {
+		// TODO: home view not implemented yet
+		// Temporarily disabled until home view is created
+		m.activePage = pageWallets
+		return m, m.loadSelectedWalletDetails()
 	}
 
 	// Handle form updates first (before message switching)
@@ -1177,6 +1381,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// page-specific behavior
 		switch m.activePage {
 
+		case pageHome:
+			// Home page - form handles its own keys
+			// No additional key handling needed
+			return m, nil
+
 		case pageWallets:
 			// Handle delete confirmation dialog
 			if m.showDeleteDialog {
@@ -1474,6 +1683,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dappMode = "list"
 				return m, nil
 
+			case "h":
+				m.activePage = pageHome
+				m.homeForm = nil
+				return m, nil
+
 			case "esc":
 				return m, tea.Quit
 
@@ -1536,6 +1750,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.uniswapSelectorFor = 0
 					m.uniswapSelectorIdx = 0
 					m.uniswapEstimating = false
+					m.uniswapQuote = nil
+					m.uniswapQuoteError = ""
+					m.uniswapPriceImpactWarn = ""
+					// Reset tracking state
+					m.lastQuoteFromAmount = ""
+					m.lastQuoteFromTokenIdx = -1
+					m.lastQuoteToTokenIdx = -1
 					return m, nil
 
 				case "tab", "down", "right":
@@ -1644,7 +1865,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case pageUniswap:
-			// Handle token selector popup first
+			// Handle transaction result panel first
+			if m.showTxResultPanel {
+				switch msg.String() {
+				case "esc", "enter":
+					m.showTxResultPanel = false
+					m.txResultHex = ""
+					m.txResultEIP681 = ""
+					m.txResultError = ""
+					m.txResultPackaging = false
+					return m, nil
+				}
+				return m, nil
+			}
+
+			// Handle token selector popup
 			if m.uniswapShowingSelector {
 				switch msg.String() {
 				case "esc":
@@ -1666,13 +1901,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Select token and close selector
 					if m.uniswapSelectorFor == 0 {
 						m.uniswapFromTokenIdx = m.uniswapSelectorIdx
-						m.uniswapFocusedField = 1
 					} else {
 						m.uniswapToTokenIdx = m.uniswapSelectorIdx
-						m.uniswapFocusedField = 3
 					}
 					m.uniswapShowingSelector = false
-					return m, nil
+					// Trigger quote fetch since token selection changed
+					return m, m.maybeRequestUniswapQuote()
 				}
 				return m, nil
 			}
@@ -1692,76 +1926,113 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "down", "j":
 				// Navigate down through fields
-				if m.uniswapFocusedField < 4 {
+				if m.uniswapFocusedField < 2 {
+					// If leaving From field, trigger quote fetch
+					if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" {
+						m.uniswapFocusedField++
+						return m, m.maybeRequestUniswapQuote()
+					}
 					m.uniswapFocusedField++
 				}
 				return m, nil
 
 			case "tab":
 				// Cycle through fields
-				m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 5
+				// If leaving From field, trigger quote fetch
+				if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" {
+					m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
+					return m, m.maybeRequestUniswapQuote()
+				}
+				m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
 				return m, nil
 
 			case "enter":
 				if m.uniswapFocusedField == 0 {
+					// Trigger quote fetch before opening token selector if amount is entered
+					if m.uniswapFromAmount != "" {
+						cmd := m.maybeRequestUniswapQuote()
+						// Open token selector for "from" field
+						m.uniswapShowingSelector = true
+						m.uniswapSelectorFor = 0
+						m.uniswapSelectorIdx = m.uniswapFromTokenIdx
+						return m, cmd
+					}
 					// Open token selector for "from" field
 					m.uniswapShowingSelector = true
 					m.uniswapSelectorFor = 0
 					m.uniswapSelectorIdx = m.uniswapFromTokenIdx
 					return m, nil
-				} else if m.uniswapFocusedField == 2 {
+				} else if m.uniswapFocusedField == 1 {
 					// Open token selector for "to" field
 					m.uniswapShowingSelector = true
 					m.uniswapSelectorFor = 1
 					m.uniswapSelectorIdx = m.uniswapToTokenIdx
 					return m, nil
-				} else if m.uniswapFocusedField == 4 {
-					// Execute swap (placeholder for now)
-					m.addLog("info", "Swap functionality coming soon!")
-					return m, nil
+				} else if m.uniswapFocusedField == 2 {
+					// Execute swap - package transaction and show QR code
+					if m.uniswapFromAmount == "" || m.uniswapToAmount == "" {
+						m.addLog("error", "Please enter an amount and get a quote first")
+						return m, nil
+					}
+					if m.uniswapQuote == nil {
+						m.addLog("error", "Please get a swap quote first")
+						return m, nil
+					}
+
+					tokens := m.buildTokenList()
+					if m.uniswapFromTokenIdx < 0 || m.uniswapFromTokenIdx >= len(tokens) {
+						return m, nil
+					}
+					if m.uniswapToTokenIdx < 0 || m.uniswapToTokenIdx >= len(tokens) {
+						return m, nil
+					}
+
+					fromToken := tokens[m.uniswapFromTokenIdx]
+					toToken := tokens[m.uniswapToTokenIdx]
+
+					m.addLog("info", fmt.Sprintf("Packaging swap: %s %s → %s %s", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol))
+					m.showTxResultPanel = true
+					m.txResultPackaging = true
+					m.txResultHex = ""
+					m.txResultError = ""
+					return m, packageSwapTransaction(m.activeAddress, fromToken, toToken, m.uniswapFromAmount, m.uniswapQuote.AmountOut, m.rpcURL)
 				}
 				return m, nil
 
 			case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".":
-				// Allow numeric input for amount when focused on amount fields
-				if m.uniswapFocusedField == 1 {
+				// Allow numeric input for amount when focused on from field
+				if m.uniswapFocusedField == 0 {
 					m.uniswapFromAmount += msg.String()
-					// TODO: Estimate output amount
-					m.uniswapEstimating = false
-					return m, nil
-				}
-				if m.uniswapFocusedField == 3 {
-					m.uniswapToAmount += msg.String()
+					// Quote will be fetched when user leaves the field
 					return m, nil
 				}
 				return m, nil
 
 			case "backspace":
 				// Delete last character from amount
-				if m.uniswapFocusedField == 1 && len(m.uniswapFromAmount) > 0 {
+				if m.uniswapFocusedField == 0 && len(m.uniswapFromAmount) > 0 {
 					m.uniswapFromAmount = m.uniswapFromAmount[:len(m.uniswapFromAmount)-1]
-					return m, nil
-				}
-				if m.uniswapFocusedField == 3 && len(m.uniswapToAmount) > 0 {
-					m.uniswapToAmount = m.uniswapToAmount[:len(m.uniswapToAmount)-1]
+					// Quote will be fetched when user leaves the field
 					return m, nil
 				}
 				return m, nil
 
-			case "m":
-				tokens := m.buildTokenList()
-				if m.uniswapFocusedField == 1 {
+			case "m", "M":
+				// Max: populate From field with full balance
+				if m.uniswapFocusedField == 0 {
+					tokens := m.buildTokenList()
 					if m.uniswapFromTokenIdx >= 0 && m.uniswapFromTokenIdx < len(tokens) {
-						m.uniswapFromAmount = formatTokenAmount(tokens[m.uniswapFromTokenIdx].Balance, tokens[m.uniswapFromTokenIdx].Decimals)
-						m.uniswapEstimating = false
+						fromToken := tokens[m.uniswapFromTokenIdx]
+						if fromToken.Balance != nil && fromToken.Balance.Sign() > 0 {
+							// Convert balance to decimal string
+							divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
+							balanceFloat := new(big.Float).Quo(new(big.Float).SetInt(fromToken.Balance), divisor)
+							m.uniswapFromAmount = balanceFloat.Text('f', 6)
+							// Trigger quote fetch immediately for max
+							m.addLog("info", fmt.Sprintf("Max balance: %s %s", m.uniswapFromAmount, fromToken.Symbol))
+							return m, m.maybeRequestUniswapQuote()
+						}
 					}
-					return m, nil
-				}
-				if m.uniswapFocusedField == 3 {
-					if m.uniswapToTokenIdx >= 0 && m.uniswapToTokenIdx < len(tokens) {
-						m.uniswapToAmount = formatTokenAmount(tokens[m.uniswapToTokenIdx].Balance, tokens[m.uniswapToTokenIdx].Decimals)
-					}
-					return m, nil
 				}
 				return m, nil
 			}
@@ -1806,6 +2077,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.copiedMsg = "✓ Copied address to clipboard"
 		m.copiedMsgTime = time.Now()
 		return m, clearClipboardMsg()
+
+	case uniswapQuoteMsg:
+		m.uniswapEstimating = false
+		if msg.err != nil {
+			m.uniswapQuoteError = msg.err.Error()
+			m.uniswapQuote = nil
+			m.uniswapToAmount = ""
+			m.uniswapPriceImpactWarn = ""
+			m.addLog("error", fmt.Sprintf("Swap quote error: %v", msg.err))
+			return m, nil
+		}
+
+		m.uniswapQuoteError = ""
+		m.uniswapQuote = msg.quote
+		m.uniswapPriceImpactWarn = ""
+
+		if msg.quote != nil {
+			// Log detailed quote information
+			tokens := m.buildTokenList()
+			fromToken := tokens[m.uniswapFromTokenIdx]
+			toToken := tokens[m.uniswapToTokenIdx]
+
+			m.addLog("info", fmt.Sprintf("📊 Swap Quote: %s → %s", fromToken.Symbol, toToken.Symbol))
+			m.addLog("info", fmt.Sprintf("  Amount In: %s %s", m.uniswapFromAmount, fromToken.Symbol))
+			
+			// Calculate output amount with proper decimals
+			divisorOut := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))
+			amountOutFormatted := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.AmountOut), divisorOut)
+			m.uniswapToAmount = amountOutFormatted.Text('f', 6)
+
+			m.addLog("info", fmt.Sprintf("  Amount Out: %s %s", m.uniswapToAmount, toToken.Symbol))
+			m.addLog("info", fmt.Sprintf("  Price Impact: %.4f%%", msg.quote.PriceImpact))
+			
+			// Log reserves
+			divisor0 := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+			reserve0Fmt := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.Token0Reserve), divisor0)
+			reserve1Fmt := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.Token1Reserve), divisor0)
+			m.addLog("info", fmt.Sprintf("  Reserves: %s / %s", reserve0Fmt.Text('f', 2), reserve1Fmt.Text('f', 2)))
+
+			// Check for high price impact
+			if msg.quote.PriceImpact > 1.0 {
+				m.uniswapPriceImpactWarn = fmt.Sprintf("⚠ High price impact: %.2f%%", msg.quote.PriceImpact)
+				m.addLog("warn", m.uniswapPriceImpactWarn)
+			} else if msg.quote.PriceImpact > 0.5 {
+				m.uniswapPriceImpactWarn = fmt.Sprintf("⚠ Moderate price impact: %.2f%%", msg.quote.PriceImpact)
+			}
+		}
+		return m, nil
 
 	case ensLookupResultMsg:
 		m.ensLookupActive = false
@@ -2022,6 +2341,15 @@ func (m model) View() string {
 	var nav string
 
 	switch m.activePage {
+	case pageHome:
+		// TODO: home view not implemented yet
+		// if m.homeForm == nil {
+		// 	m.homeForm = home.CreateForm()
+		// }
+		// homeContent := home.Render(m.homeForm)
+		pageContent = panelStyle.Width(max(0, m.w-2)).Render("Home view not implemented")
+		nav = "" // home.Nav(m.w - 2)
+
 	case pageWallets:
 		walletsContent, _ := wallets.Render(m.accounts, m.selectedWallet, m.addError)
 
@@ -2213,10 +2541,16 @@ func (m model) View() string {
 				m.uniswapToAmount,
 				m.uniswapFocusedField,
 				m.uniswapEstimating,
+				m.uniswapPriceImpactWarn,
 			)
 			// Wrap in panel style to constrain properly
 			pageContent = panelStyle.Width(max(0, m.w-2)).Render(uniswapView)
 			nav = uniswap.Nav(m.w - 2)
+		}
+
+		// Show transaction result panel overlay if active
+		if m.showTxResultPanel {
+			return m.renderTxResultPanel()
 		}
 	}
 
