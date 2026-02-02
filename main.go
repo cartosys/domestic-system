@@ -2243,6 +2243,8 @@ func (m model) renderTxResultPanel() string {
 }
 
 func (m model) globalHeader() string {
+	availableWidth := max(0, m.w-8) // Account for panel padding
+	
 	// Active Address (the one marked with ★)
 	var addrDisplay string
 	if m.activeAddress != "" {
@@ -2293,26 +2295,41 @@ func (m model) globalHeader() string {
 		Bold(true).
 		Render(statusIcon + " " + statusText)
 
-	// Calculate spacing
-	availableWidth := max(0, m.w-8) // Account for panel padding
+	// Center title
+	titleStyle := lipgloss.NewStyle().
+		Foreground(cAccent).
+		Bold(true)
+	titleText := titleStyle.Render(helpers.FadeString("domestic system", "#7EE787", "#82CFFD"))
+	
+	// Calculate widths
 	addrWidth := lipgloss.Width(addrDisplay)
 	rpcWidth := lipgloss.Width(rpcDisplay)
-	spacerWidth := max(2, availableWidth-addrWidth-rpcWidth)
-
+	titleWidth := lipgloss.Width(titleText)
+	
+	// Calculate spacing to center the title
+	totalOtherWidth := addrWidth + rpcWidth + titleWidth
+	
 	var headerLine string
-	if spacerWidth < 2 {
+	if totalOtherWidth+4 > availableWidth {
 		// Not enough space, stack vertically
-		headerLine = addrDisplay + "\n" + rpcDisplay
+		headerLine = addrDisplay + "\n" + titleText + "\n" + rpcDisplay
 	} else {
-		// Layout horizontally: Address <space> RPC Status
-		spacer := strings.Repeat(" ", spacerWidth)
-		headerLine = addrDisplay + spacer + rpcDisplay
+		// Three-column layout: Address | Title (centered) | RPC
+		// Calculate how much space for padding
+		remainingSpace := availableWidth - totalOtherWidth
+		leftPadding := remainingSpace / 2
+		rightPadding := remainingSpace - leftPadding
+		
+		leftSpacer := strings.Repeat(" ", max(1, leftPadding))
+		rightSpacer := strings.Repeat(" ", max(1, rightPadding))
+		
+		headerLine = addrDisplay + leftSpacer + titleText + rightSpacer + rpcDisplay
 	}
 
 	// Add separator line
 	separator := lipgloss.NewStyle().
 		Foreground(cBorder).
-		Render(strings.Repeat("─", max(0, m.w-8)))
+		Render(strings.Repeat("─", availableWidth))
 
 	return headerLine + "\n" + separator
 }
