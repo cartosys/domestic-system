@@ -9,7 +9,7 @@ A beautiful, terminal-based Ethereum wallet browser built for sovereignty, secur
 ```
 
 
-![Domestic System Demo](https://lh3.googleusercontent.com/pw/AP1GczP1y7UAjU3r55R36F7scIQq0F8fj4TcvuigUPq3Umtzq8d_cmlJ2nGQf2lrwxYrKdUykmbfbhS7gIaUOb6VBgJXNJALJa5Y7BDbw6BwHA62w65ovXEJ4dZE2vuFiS_eFU0zwROGgv30T8ARXotfDqpa=w480-h270-s-no?authuser=0)
+![Domestic System Demo](https://lh3.googleusercontent.com/pw/AP1GczPWq0UoFHT5Dy9lw12W3U7MDkK6sz1ZvX_09IVedO_6a8cRcx4wQuHmuKLxIqW3IgbYfOhtPEEiMGlVh1RlFBhqQD5ZNUdkLcHUx9uqF8n2ShhstWR-UQOTzN7pTwU_PIydKTIBj4bk7iMfnNvK2Sgj=w480-h270-s-no?authuser=0)
 
 
 ## Overview
