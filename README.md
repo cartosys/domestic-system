@@ -9,6 +9,7 @@ A beautiful, terminal-based Ethereum wallet browser built for sovereignty, secur
 ```
 
 ![DS](https://lh3.googleusercontent.com/pw/AP1GczN-OIT9GnYXovQnMdtGj_i6kua5fLjydXPh6AtlG-APHU9XTf6KW7m_aNx0stoDKmy8DxaAsYqrwtRvwdoq4EBv0IZpnWy1jnAqhj0aCdCit8PC9UBZepGDaguewgSOITQ_CowCbiBkeBio6hUBVLKu=w720-h405-s-no?authuser=0)
+
 ## Overview
 
 The Domestic System is a terminal user interface (TUI) designed for browsing Ethereum (EVM) accounts and smart contracts. It brings together three core principles that make terminal-based blockchain interaction not just practical, but preferable.
