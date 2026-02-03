@@ -1,6 +1,6 @@
 # The Domestic System
 
-A beautiful, terminal-based Ethereum wallet browser built for sovereignty, security, and style.
+A beautiful, terminal-based Ethereum wallet and smart contract browser built for sovereignty, security, and style.
 
 ```
 ━━━━━━━━━━━━━━━━━━━━
