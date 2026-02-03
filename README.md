@@ -2,14 +2,13 @@
 
 A beautiful, terminal-based Ethereum wallet browser built for sovereignty, security, and style.
 
-![hippo](https://lh3.googleusercontent.com/pw/AP1GczPu_QmEzNx87zSl9Q9R34jYFwyaRVBfbOrrqZ1xSLSqrYGr8y0R__jwnEAaPQvRsMq0mdG_lodzI66308tvCoGq634qJuQtjZ8FsjrFQzIknLFZ2mHq5aTcaKB6kTHXeH2Kr4M0IdcI8ilPOMu97fvQ=w480-h270-s-no?authuser=0)
-
-
 ```
 ━━━━━━━━━━━━━━━━━━━━
  domestic system
 ━━━━━━━━━━━━━━━━━━━━
 ```
+
+![hippo](https://lh3.googleusercontent.com/pw/AP1GczPu_QmEzNx87zSl9Q9R34jYFwyaRVBfbOrrqZ1xSLSqrYGr8y0R__jwnEAaPQvRsMq0mdG_lodzI66308tvCoGq634qJuQtjZ8FsjrFQzIknLFZ2mHq5aTcaKB6kTHXeH2Kr4M0IdcI8ilPOMu97fvQ=w480-h270-s-no?authuser=0)
 
 ## Overview
 
