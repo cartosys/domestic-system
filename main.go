@@ -192,6 +192,10 @@ type model struct {
 	deleteDialogAddr        string
 	deleteDialogIdx         int
 	deleteDialogYesSelected bool // true = Yes button, false = No button
+	showRPCDeleteDialog        bool
+	deleteRPCDialogName        string
+	deleteRPCDialogIdx         int
+	deleteRPCDialogYesSelected bool
 
 	// send button state
 	sendButtonFocused bool
@@ -1840,10 +1844,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case pageSettings:
+			if m.showRPCDeleteDialog {
+				switch msg.String() {
+				case "left", "right", "tab":
+					m.deleteRPCDialogYesSelected = !m.deleteRPCDialogYesSelected
+					return m, nil
+				case "enter":
+					if m.deleteRPCDialogYesSelected {
+						idx := m.deleteRPCDialogIdx
+						deletedName := m.deleteRPCDialogName
+						if idx >= 0 && idx < len(m.rpcURLs) {
+							m.rpcURLs = append(m.rpcURLs[:idx], m.rpcURLs[idx+1:]...)
+							if m.selectedRPCIdx >= len(m.rpcURLs) && m.selectedRPCIdx > 0 {
+								m.selectedRPCIdx--
+							}
+							config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+							m.addLog("warning", fmt.Sprintf("Deleted RPC endpoint `%s`", deletedName))
+						}
+						m.showRPCDeleteDialog = false
+						return m, nil
+					}
+					m.showRPCDeleteDialog = false
+					return m, nil
+				case "esc":
+					m.showRPCDeleteDialog = false
+					return m, nil
+				}
+				return m, nil
+			}
 			// Only handle list mode controls here (form handled at top of Update)
 			if m.settingsMode == "list" {
 				switch msg.String() {
-				case "esc", "backspace":
+				case "esc":
 					m.activePage = pageWallets
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
@@ -1860,14 +1892,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, nil
 
-				case "d", "x":
-					// Delete selected RPC
+				case "delete", "backspace":
 					if len(m.rpcURLs) > 0 && m.selectedRPCIdx < len(m.rpcURLs) {
-						m.rpcURLs = append(m.rpcURLs[:m.selectedRPCIdx], m.rpcURLs[m.selectedRPCIdx+1:]...)
-						if m.selectedRPCIdx >= len(m.rpcURLs) && m.selectedRPCIdx > 0 {
-							m.selectedRPCIdx--
+						m.showRPCDeleteDialog = true
+						m.deleteRPCDialogYesSelected = true
+						m.deleteRPCDialogIdx = m.selectedRPCIdx
+						name := strings.TrimSpace(m.rpcURLs[m.selectedRPCIdx].Name)
+						if name == "" {
+							name = m.rpcURLs[m.selectedRPCIdx].URL
 						}
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+						m.deleteRPCDialogName = name
 					}
 					return m, nil
 
@@ -2269,6 +2303,53 @@ func (m model) renderDeleteDialog() string {
 	)
 }
 
+func (m model) renderRPCDeleteDialog() string {
+	var (
+		dialogBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#874BFD")).
+				Padding(1, 0).
+				BorderTop(true).
+				BorderLeft(true).
+				BorderRight(true).
+				BorderBottom(true)
+
+		buttonStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFF7DB")).
+				Background(lipgloss.Color("#888B7E")).
+				Padding(0, 3).
+				MarginTop(1)
+
+		activeButtonStyle = buttonStyle.Copy().
+				Foreground(lipgloss.Color("#FFF7DB")).
+				Background(lipgloss.Color("#F25D94")).
+				MarginRight(2).
+				Underline(true)
+	)
+	msg := helpers.FadeString("Are you sure you want to delete the RPC endpoint "+m.deleteRPCDialogName+"?", "#F25D94", "#EDFF82")
+	question := lipgloss.NewStyle().Width(50).Align(lipgloss.Center).Render(msg)
+
+	var okButton, cancelButton string
+	if m.deleteRPCDialogYesSelected {
+		okButton = activeButtonStyle.Render("Yes")
+		cancelButton = buttonStyle.Render("No")
+	} else {
+		okButton = buttonStyle.Copy().MarginRight(2).Render("Yes")
+		cancelButton = activeButtonStyle.Copy().MarginRight(0).Render("No")
+	}
+
+	buttons := lipgloss.JoinHorizontal(lipgloss.Top, okButton, cancelButton)
+	ui := lipgloss.JoinVertical(lipgloss.Center, question, buttons)
+
+	dialog := dialogBoxStyle.Render(ui)
+
+	return lipgloss.Place(
+		m.w, m.h,
+		lipgloss.Center, lipgloss.Center,
+		dialog,
+	)
+}
+
 func (m model) renderTxResultContent() string {
 	txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
 	if m.txResultPackaging {
@@ -2590,6 +2671,10 @@ func (m model) View() string {
 
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(settingsContent)
 		nav = settings.Nav(m.w-2, m.settingsMode)
+
+		if m.showRPCDeleteDialog {
+			return m.renderRPCDeleteDialog()
+		}
 
 	case pageUniswap:
 		// Build token list from wallet details
