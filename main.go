@@ -227,7 +227,8 @@ type model struct {
 	uniswapEditingFrom     bool               // true if user has been editing From field
 	uniswapEditingTo       bool               // true if user has been editing To field
 	// Track last quote parameters to avoid unnecessary fetches
-	lastQuoteFromAmount   string // last amount used for quote
+	lastQuoteFromAmount   string // last amount used for forward quote
+	lastQuoteToAmount     string // last amount used for reverse quote
 	lastQuoteFromTokenIdx int    // last from token index used for quote
 	lastQuoteToTokenIdx   int    // last to token index used for quote
 }
@@ -846,7 +847,8 @@ func (m *model) maybeRequestUniswapQuote() tea.Cmd {
 	if m.lastQuoteFromAmount == m.uniswapFromAmount &&
 		m.lastQuoteFromTokenIdx == m.uniswapFromTokenIdx &&
 		m.lastQuoteToTokenIdx == m.uniswapToTokenIdx &&
-		m.uniswapQuote != nil {
+		m.uniswapQuote != nil &&
+		m.uniswapToAmount != "" {
 		// Nothing changed and we already have a quote, no need to fetch again
 		return nil
 	}
@@ -928,6 +930,16 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 		return nil
 	}
 
+	// Check if anything has changed since last reverse quote
+	if m.lastQuoteToAmount == m.uniswapToAmount &&
+		m.lastQuoteFromTokenIdx == m.uniswapFromTokenIdx &&
+		m.lastQuoteToTokenIdx == m.uniswapToTokenIdx &&
+		m.uniswapQuote != nil &&
+		m.uniswapFromAmount != "" {
+		// Nothing changed and we already have a quote, no need to fetch again
+		return nil
+	}
+
 	// Parse desired output amount
 	amountOutFloat := new(big.Float)
 	_, ok := amountOutFloat.SetString(m.uniswapToAmount)
@@ -959,6 +971,11 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 		m.addLog("warn", fmt.Sprintf("Swap pair %s/%s not supported yet", fromToken.Symbol, toToken.Symbol))
 		return nil
 	}
+
+	// Update tracking state before fetching
+	m.lastQuoteToAmount = m.uniswapToAmount
+	m.lastQuoteFromTokenIdx = m.uniswapFromTokenIdx
+	m.lastQuoteToTokenIdx = m.uniswapToTokenIdx
 
 	// Clear previous from amount and quote state
 	m.uniswapFromAmount = ""
@@ -2321,12 +2338,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".":
 				// Allow numeric input for amount when focused on from field
 				if m.uniswapFocusedField == 0 {
-					m.uniswapFromAmount += msg.String()
+					char := msg.String()
+					// If not currently editing and field has a non-zero value, clear it first
+					if !m.uniswapEditingFrom && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
+						m.uniswapFromAmount = ""
+					}
+					// Prevent multiple decimal points
+					if char == "." && strings.Contains(m.uniswapFromAmount, ".") {
+						return m, nil
+					}
+					m.uniswapFromAmount += char
 					m.uniswapEditingFrom = true // Mark that user is actively editing
 					// Quote will be fetched when user leaves the field
 					return m, nil
 				} else if m.uniswapFocusedField == 1 {
-					m.uniswapToAmount += msg.String()
+					char := msg.String()
+					// If not currently editing and field has a non-zero value, clear it first
+					if !m.uniswapEditingTo && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
+						m.uniswapToAmount = ""
+					}
+					// Prevent multiple decimal points
+					if char == "." && strings.Contains(m.uniswapToAmount, ".") {
+						return m, nil
+					}
+					m.uniswapToAmount += char
 					m.uniswapEditingTo = true // Mark that user is actively editing
 					return m, nil
 				}
