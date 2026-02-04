@@ -39,6 +39,12 @@ type DApp struct {
 func Load(path string) Config {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		// If file doesn't exist, create default config
+		if os.IsNotExist(err) {
+			cfg := DefaultConfig()
+			Save(path, cfg)
+			return cfg
+		}
 		return Config{}
 	}
 
@@ -48,6 +54,35 @@ func Load(path string) Config {
 	}
 
 	return cfg
+}
+
+// DefaultConfig returns a new configuration with sensible defaults
+func DefaultConfig() Config {
+	return Config{
+		RPCURLs: []RPCUrl{
+			{
+				Name:   "Public Mainnet",
+				URL:    "https://ethereum-rpc.publicnode.com",
+				Active: true,
+			},
+		},
+		Wallets: []WalletEntry{
+			{
+				Name:    "vitalik.eth",
+				Address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+				Active:  true,
+			},
+		},
+		Dapps: []DApp{
+			{
+				Name:    "Uniswap v4",
+				Address: "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00",
+				Icon:    "🦄",
+				Network: "Mainnet",
+			},
+		},
+		Logger: true,
+	}
 }
 
 // Save writes the config to the specified path
