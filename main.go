@@ -255,9 +255,11 @@ func newModel() model {
 
 	// Find active wallet or default to first
 	selectedIdx := 0
+	activeAddr := ""
 	for i, w := range accounts {
 		if w.Active {
 			selectedIdx = i
+			activeAddr = w.Address
 			break
 		}
 	}
@@ -325,29 +327,31 @@ func newModel() model {
 	logSpin.Style = lipgloss.NewStyle().Foreground(cAccent2)
 
 	m := model{
-		activePage:       pageWallets,
-		accounts:         accounts,
-		selectedWallet:   selectedIdx,
-		adding:           false,
-		input:            in,
-		nicknameInput:    nicknameIn,
-		focusedInput:     0,
-		spin:             sp,
-		rpcURL:           activeRPC,
-		tokenWatch:       watch,
-		settingsMode:     "list",
-		rpcURLs:          cfg.RPCURLs,
-		selectedRPCIdx:   0,
-		configPath:       configPath,
-		logEnabled:       cfg.Logger,
-		logViewport:      vp,
-		logBuffer:        &strings.Builder{},
-		logSpinner:       logSpin,
-		detailsCache:     make(map[string]walletDetails),
-		dapps:            cfg.Dapps,
-		dappMode:         "list",
-		selectedDappIdx:  0,
-		detailsInWallets: true, // Enable split panel view by default
+		activePage:         pageWallets,
+		accounts:           accounts,
+		selectedWallet:     selectedIdx,
+		highlightedAddress: activeAddr,
+		activeAddress:      activeAddr,
+		adding:             false,
+		input:              in,
+		nicknameInput:      nicknameIn,
+		focusedInput:       0,
+		spin:               sp,
+		rpcURL:             activeRPC,
+		tokenWatch:         watch,
+		settingsMode:       "list",
+		rpcURLs:            cfg.RPCURLs,
+		selectedRPCIdx:     0,
+		configPath:         configPath,
+		logEnabled:         cfg.Logger,
+		logViewport:        vp,
+		logBuffer:          &strings.Builder{},
+		logSpinner:         logSpin,
+		detailsCache:       make(map[string]walletDetails),
+		dapps:              cfg.Dapps,
+		dappMode:           "list",
+		selectedDappIdx:    0,
+		detailsInWallets:   true, // Enable split panel view by default
 	}
 
 	return m
@@ -1714,17 +1718,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.showSendForm = true
 					m.sendButtonFocused = false
 					return m, nil
-				}
-			}
-			// Set initial highlighted address and active address
-			if len(m.accounts) > 0 {
-				m.highlightedAddress = m.accounts[m.selectedWallet].Address
-				// Find the active wallet (marked with ★)
-				for _, w := range m.accounts {
-					if w.Active {
-						m.activeAddress = w.Address
-						break
-					}
 				}
 			}
 			// adding flow
