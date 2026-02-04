@@ -1871,9 +1871,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 
-		case "a", "A":
+			case "a", "A":
+				m.adding = true
+				m.focusedInput = 0
+				m.input.SetValue("")
+				m.nicknameInput.SetValue("")
 				m.input.Focus()
 				m.nicknameInput.Blur()
+				m.addError = ""
+				m.ensLookupActive = false
+				m.ensLookupAddr = ""
 				return m, nil
 
 			case " ":
