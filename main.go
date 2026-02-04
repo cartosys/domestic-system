@@ -152,6 +152,10 @@ type model struct {
 	copiedMsgTime time.Time
 	addressLineY  int // Y position of the address line in details view
 
+	// transaction result panel copy feedback
+	txCopiedMsg     string
+	txCopiedMsgTime time.Time
+
 	// settings state
 	settingsMode   string // "list", "add", "edit"
 	rpcURLs        []config.RPCUrl
@@ -366,6 +370,8 @@ func (m model) Init() tea.Cmd {
 
 type clipboardCopiedMsg struct{}
 
+type txJsonCopiedMsg struct{}
+
 type ensLookupResultMsg struct {
 	address   string
 	ensName   string
@@ -557,6 +563,16 @@ func copyToClipboard(text string) tea.Cmd {
 		err := clipboard.WriteAll(text)
 		if err == nil {
 			return clipboardCopiedMsg{}
+		}
+		return nil
+	}
+}
+
+func copyTxJsonToClipboard(text string) tea.Cmd {
+	return func() tea.Msg {
+		err := clipboard.WriteAll(text)
+		if err == nil {
+			return txJsonCopiedMsg{}
 		}
 		return nil
 	}
@@ -1555,6 +1571,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle transaction result panel FIRST (before any other keys)
+		if m.showTxResultPanel {
+			switch msg.String() {
+			case "ctrl+c":
+				// Copy transaction JSON to clipboard
+				if m.txResultHex != "" {
+					m.addLog("info", "Copied transaction JSON to clipboard")
+					return m, copyTxJsonToClipboard(m.txResultHex)
+				}
+				return m, nil
+			case "esc", "enter":
+				m.showTxResultPanel = false
+				m.txResultHex = ""
+				m.txResultEIP681 = ""
+				m.txResultError = ""
+				m.txResultPackaging = false
+				m.txCopiedMsg = ""
+				return m, nil
+			}
+			return m, nil
+		}
+
 		allowMenuHotkeys := !m.textInputActive()
 		// global keys
 		if allowMenuHotkeys {
@@ -1656,19 +1694,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Handle send button focus toggle with Tab
 
-			// Handle transaction result panel
-			if m.showTxResultPanel {
-				switch msg.String() {
-				case "esc", "enter":
-					m.showTxResultPanel = false
-					m.txResultHex = ""
-					m.txResultEIP681 = ""
-					m.txResultError = ""
-					m.txResultPackaging = false
-					return m, nil
-				}
-				return m, nil
-			}
 			switch msg.String() {
 			case "tab":
 				// Don't allow tab navigation when send form or add wallet form is active
@@ -2427,6 +2452,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Handle click on transaction JSON in tx result panel
+			// Make the entire panel clickable (simpler than precise coordinate tracking)
+			if m.showTxResultPanel && m.txResultHex != "" {
+				m.addLog("info", "Copied transaction JSON to clipboard")
+				return m, copyTxJsonToClipboard(m.txResultHex)
+			}
+
 			// Legacy: handle address click on details page if no area matched
 			if m.activePage == pageDetails && m.details.Address != "" {
 				if msg.Y == m.addressLineY {
@@ -2438,6 +2470,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clipboardCopiedMsg:
 		m.copiedMsg = "✓ Copied address to clipboard"
 		m.copiedMsgTime = time.Now()
+		return m, clearClipboardMsg()
+
+	case txJsonCopiedMsg:
+		m.txCopiedMsg = "✓ Copied to clipboard"
+		m.txCopiedMsgTime = time.Now()
 		return m, clearClipboardMsg()
 
 	case uniswapQuoteMsg:
@@ -2555,6 +2592,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if time.Since(m.copiedMsgTime) >= 2*time.Second {
 				m.copiedMsg = ""
 			}
+			if time.Since(m.txCopiedMsgTime) >= 2*time.Second {
+				m.txCopiedMsg = ""
+			}
 		}
 	}
 
@@ -2659,8 +2699,9 @@ func (m model) renderRPCDeleteDialog() string {
 	)
 }
 
-func (m model) renderTxResultContent() string {
+func (m *model) renderTxResultContent() string {
 	txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
+	
 	if m.txResultPackaging {
 		txResultContent += m.spin.View() + " Packaging transaction..."
 	} else if m.txResultError != "" {
@@ -2676,12 +2717,17 @@ func (m model) renderTxResultContent() string {
 		txResultContent += m.txResultHex
 
 		txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
-		txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
+		txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Click anywhere or press Ctrl+C to copy • Press ESC or Enter to close")
+		
+		// Show copied message if present
+		if m.txCopiedMsg != "" {
+			txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true).Render(m.txCopiedMsg)
+		}
 	}
 	return txResultContent
 }
 
-func (m model) renderTxResultPanel() string {
+func (m *model) renderTxResultPanel() string {
 	contentWidth := max(0, m.w-8)
 	centeredContent := lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(m.renderTxResultContent())
 	content := panelStyle.Width(max(0, m.w-4)).Render(centeredContent)
