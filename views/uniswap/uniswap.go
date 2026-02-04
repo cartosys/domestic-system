@@ -21,7 +21,8 @@ type TokenOption struct {
 func Nav(width int) string {
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " navigate",
-		styles.Key("Tab") + " switch field",
+		styles.Key("Tab") + " next",
+		styles.Key("Shift+Tab") + " prev",
 		styles.Key("m") + " max",
 		styles.Key("Enter") + " select/swap",
 		styles.Key("Esc") + " back",

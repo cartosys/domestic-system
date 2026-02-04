@@ -222,6 +222,8 @@ type model struct {
 	uniswapQuote           *helpers.SwapQuote // current swap quote
 	uniswapQuoteError      string             // error from quote fetch
 	uniswapPriceImpactWarn string             // warning message for high price impact
+	uniswapEditingFrom     bool               // true if user has been editing From field
+	uniswapEditingTo       bool               // true if user has been editing To field
 	// Track last quote parameters to avoid unnecessary fetches
 	lastQuoteFromAmount   string // last amount used for quote
 	lastQuoteFromTokenIdx int    // last from token index used for quote
@@ -1991,6 +1993,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate up through fields
 				if m.uniswapFocusedField > 0 {
 					m.uniswapFocusedField--
+					// Reset editing flags when navigating to a field
+					if m.uniswapFocusedField == 0 {
+						m.uniswapEditingFrom = false
+					} else if m.uniswapFocusedField == 1 {
+						m.uniswapEditingTo = false
+					}
 				}
 				return m, nil
 
@@ -2000,9 +2008,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// If leaving From field, trigger quote fetch
 					if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" {
 						m.uniswapFocusedField++
+						if m.uniswapFocusedField == 1 {
+							m.uniswapEditingTo = false
+						}
 						return m, m.maybeRequestUniswapQuote()
 					}
 					m.uniswapFocusedField++
+					if m.uniswapFocusedField == 1 {
+						m.uniswapEditingTo = false
+					}
 				}
 				return m, nil
 
@@ -2011,29 +2025,70 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If leaving From field, trigger quote fetch
 				if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" {
 					m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
+					// Reset editing flags when entering a field
+					if m.uniswapFocusedField == 1 {
+						m.uniswapEditingTo = false
+					}
 					return m, m.maybeRequestUniswapQuote()
 				}
 				m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
+				// Reset editing flags when entering a field
+				if m.uniswapFocusedField == 0 {
+					m.uniswapEditingFrom = false
+				} else if m.uniswapFocusedField == 1 {
+					m.uniswapEditingTo = false
+				}
+				return m, nil
+
+			case "shift+tab":
+				// Cycle through fields in reverse
+				// If leaving From field, trigger quote fetch
+				if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" {
+					m.uniswapFocusedField = (m.uniswapFocusedField - 1 + 3) % 3
+					// Reset editing flags when entering a field
+					if m.uniswapFocusedField == 1 {
+						m.uniswapEditingTo = false
+					}
+					return m, m.maybeRequestUniswapQuote()
+				}
+				m.uniswapFocusedField = (m.uniswapFocusedField - 1 + 3) % 3
+				// Reset editing flags when entering a field
+				if m.uniswapFocusedField == 0 {
+					m.uniswapEditingFrom = false
+				} else if m.uniswapFocusedField == 1 {
+					m.uniswapEditingTo = false
+				}
 				return m, nil
 
 			case "enter":
 				if m.uniswapFocusedField == 0 {
-					// Trigger quote fetch before opening token selector if amount is entered
-					if m.uniswapFromAmount != "" {
-						cmd := m.maybeRequestUniswapQuote()
-						// Open token selector for "from" field
-						m.uniswapShowingSelector = true
-						m.uniswapSelectorFor = 0
-						m.uniswapSelectorIdx = m.uniswapFromTokenIdx
-						return m, cmd
+					// If user has been editing, move to next field instead of opening selector
+					if m.uniswapEditingFrom {
+						if m.uniswapFromAmount != "" {
+							m.uniswapFocusedField++
+							m.uniswapEditingTo = false
+							return m, m.maybeRequestUniswapQuote()
+						}
+						m.uniswapFocusedField++
+						m.uniswapEditingTo = false
+						return m, nil
 					}
-					// Open token selector for "from" field
+					// Otherwise, open token selector for "from" field
+					var cmd tea.Cmd
+					if m.uniswapFromAmount != "" {
+						cmd = m.maybeRequestUniswapQuote()
+					}
 					m.uniswapShowingSelector = true
 					m.uniswapSelectorFor = 0
 					m.uniswapSelectorIdx = m.uniswapFromTokenIdx
-					return m, nil
+					return m, cmd
 				} else if m.uniswapFocusedField == 1 {
-					// Open token selector for "to" field
+					// If user has been editing, move to next field instead of opening selector
+					if m.uniswapEditingTo {
+						m.uniswapFocusedField++
+						return m, nil
+					}
+					// Otherwise, open token selector for "to" field
 					m.uniswapShowingSelector = true
 					m.uniswapSelectorFor = 1
 					m.uniswapSelectorIdx = m.uniswapToTokenIdx
@@ -2073,7 +2128,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Allow numeric input for amount when focused on from field
 				if m.uniswapFocusedField == 0 {
 					m.uniswapFromAmount += msg.String()
+					m.uniswapEditingFrom = true // Mark that user is actively editing
 					// Quote will be fetched when user leaves the field
+					return m, nil
+				} else if m.uniswapFocusedField == 1 {
+					m.uniswapToAmount += msg.String()
+					m.uniswapEditingTo = true // Mark that user is actively editing
 					return m, nil
 				}
 				return m, nil
@@ -2082,7 +2142,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Delete last character from amount
 				if m.uniswapFocusedField == 0 && len(m.uniswapFromAmount) > 0 {
 					m.uniswapFromAmount = m.uniswapFromAmount[:len(m.uniswapFromAmount)-1]
+					m.uniswapEditingFrom = true // Mark that user is actively editing
 					// Quote will be fetched when user leaves the field
+					return m, nil
+				} else if m.uniswapFocusedField == 1 && len(m.uniswapToAmount) > 0 {
+					m.uniswapToAmount = m.uniswapToAmount[:len(m.uniswapToAmount)-1]
+					m.uniswapEditingTo = true // Mark that user is actively editing
 					return m, nil
 				}
 				return m, nil
@@ -2098,6 +2163,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
 							balanceFloat := new(big.Float).Quo(new(big.Float).SetInt(fromToken.Balance), divisor)
 							m.uniswapFromAmount = balanceFloat.Text('f', 6)
+							m.uniswapEditingFrom = true // Mark that user is actively editing
 							// Trigger quote fetch immediately for max
 							m.addLog("info", fmt.Sprintf("Max balance: %s %s", m.uniswapFromAmount, fromToken.Symbol))
 							return m, m.maybeRequestUniswapQuote()
