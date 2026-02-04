@@ -235,8 +235,8 @@ func newModel() model {
 	homeDir, _ := os.UserHomeDir()
 	configPath := filepath.Join(homeDir, ".charm-wallet-config.json")
 
-	// load config
-	cfg := config.Load(configPath)
+	// load or create config with defaults
+	cfg := config.LoadOrCreate(configPath)
 
 	// Load wallet entries from config
 	accounts := cfg.Wallets
