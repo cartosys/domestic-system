@@ -1562,7 +1562,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c", "q":
 				return m, tea.Quit
 
-			case "l":
+			case "l", "L":
 				// Toggle logger
 				m.logEnabled = !m.logEnabled
 				if m.logEnabled {
@@ -1871,9 +1871,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 
-			case "a":
-				m.adding = true
-				m.focusedInput = 0
+		case "a", "A":
 				m.input.Focus()
 				m.nicknameInput.Blur()
 				return m, nil
@@ -1900,20 +1898,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 
-			case "s":
-				m.activePage = pageSettings
-				m.settingsMode = "list"
-				return m, nil
+		case "s", "S":
+			m.activePage = pageSettings
+			m.settingsMode = "list"
+			return m, nil
 
-			case "b":
-				m.activePage = pageDappBrowser
-				m.dappMode = "list"
-				return m, nil
+		case "b", "B":
+			m.activePage = pageDappBrowser
+			m.dappMode = "list"
+			return m, nil
 
-			case "h":
-				m.activePage = pageHome
-				m.homeForm = nil
-				return m, nil
+		case "h", "H":
 
 			case "esc":
 				return m, tea.Quit
@@ -1940,14 +1935,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
 
-				case "r":
+				case "r", "R":
 					// refresh
 					addr := common.HexToAddress(m.details.Address)
 					m.loading = true
 					m.addLog("info", fmt.Sprintf("Refreshing details for `%s`", helpers.ShortenAddr(m.details.Address)))
 					return m, loadDetails(m.ethClient, addr, m.tokenWatch)
 
-				case "n":
+				case "n", "N":
 					// nickname
 					m.nicknaming = true
 					m.createNicknameForm()
@@ -2003,19 +1998,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, nil
 
-				case "a":
-					m.dappMode = "add"
-					m.createAddDappForm()
-					return m, nil
+			case "a", "A":
+				m.dappMode = "add"
+				m.createAddDappForm()
+				return m, nil
 
-				case "e":
-					if len(m.dapps) > 0 {
-						m.dappMode = "edit"
-						m.createEditDappForm(m.selectedDappIdx)
-					}
-					return m, nil
+			case "e", "E":
 
-				case "x", "d":
+				case "x", "X", "d", "D":
 					// Delete selected dApp
 					if len(m.dapps) > 0 && m.selectedDappIdx < len(m.dapps) {
 						deletedDapp := m.dapps[m.selectedDappIdx].Name
@@ -2067,12 +2057,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
 
-				case "a":
+				case "a", "A":
 					m.settingsMode = "add"
 					m.createAddRPCForm()
 					return m, nil
 
-				case "e":
+				case "e", "E":
 					if len(m.rpcURLs) > 0 {
 						m.settingsMode = "edit"
 						m.createEditRPCForm(m.selectedRPCIdx)
