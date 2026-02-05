@@ -23,7 +23,7 @@ func Nav(width int, dappMode string) string {
 			styles.Key("Enter") + " open",
 			styles.Key("a") + " add",
 			styles.Key("e") + " edit",
-			styles.Key("d") + " delete",
+			styles.Key("del") + " delete",
 			styles.Key("l") + " logger",
 			styles.Key("Esc") + " back",
 		}, "   ")

@@ -1979,7 +1979,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Only handle list mode controls here (form handled at top of Update)
 			if m.dappMode == "list" {
 				switch msg.String() {
-				case "esc", "backspace":
+				case "esc":
 					m.activePage = pageWallets
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
@@ -2030,18 +2030,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "e", "E":
 
-				case "x", "X", "d", "D":
-					// Delete selected dApp
-					if len(m.dapps) > 0 && m.selectedDappIdx < len(m.dapps) {
-						deletedDapp := m.dapps[m.selectedDappIdx].Name
-						m.dapps = append(m.dapps[:m.selectedDappIdx], m.dapps[m.selectedDappIdx+1:]...)
-						if m.selectedDappIdx >= len(m.dapps) && m.selectedDappIdx > 0 {
-							m.selectedDappIdx--
-						}
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
-						m.addLog("warning", fmt.Sprintf("Deleted dApp `%s`", deletedDapp))
+			case "delete", "backspace":
+				// Delete selected dApp
+				if len(m.dapps) > 0 && m.selectedDappIdx < len(m.dapps) {
+					deletedDapp := m.dapps[m.selectedDappIdx].Name
+					m.dapps = append(m.dapps[:m.selectedDappIdx], m.dapps[m.selectedDappIdx+1:]...)
+					if m.selectedDappIdx >= len(m.dapps) && m.selectedDappIdx > 0 {
+						m.selectedDappIdx--
 					}
-					return m, nil
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+					m.addLog("warning", fmt.Sprintf("Deleted dApp `%s`", deletedDapp))
+				}
+				return m, nil
 				}
 			}
 
@@ -2193,9 +2193,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate up through fields
 				if m.uniswapFocusedField > 0 {
 					// If leaving To field with value, trigger reverse quote
-					if m.uniswapFocusedField == 1 && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
+					if m.uniswapFocusedField == 1 && m.uniswapEditingTo && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
 						m.uniswapFocusedField--
 						m.uniswapEditingFrom = false
+						m.uniswapEditingTo = false
 						return m, m.maybeRequestReverseUniswapQuote()
 					}
 					m.uniswapFocusedField--
@@ -2212,7 +2213,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate down through fields
 				if m.uniswapFocusedField < 2 {
 					// If leaving From field, trigger forward quote
-					if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
+					if m.uniswapFocusedField == 0 && m.uniswapEditingFrom && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
 						m.uniswapFocusedField++
 						if m.uniswapFocusedField == 1 {
 							m.uniswapEditingTo = false
@@ -2220,8 +2221,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.maybeRequestUniswapQuote()
 					}
 					// If leaving To field, trigger reverse quote
-					if m.uniswapFocusedField == 1 && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
+					if m.uniswapFocusedField == 1 && m.uniswapEditingTo && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
 						m.uniswapFocusedField++
+						m.uniswapEditingTo = false
 						return m, m.maybeRequestReverseUniswapQuote()
 					}
 					m.uniswapFocusedField++
@@ -2234,7 +2236,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "tab":
 				// Cycle through fields
 				// If leaving From field, trigger forward quote
-				if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
+				if m.uniswapFocusedField == 0 && m.uniswapEditingFrom && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
 					m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
 					// Reset editing flags when entering a field
 					if m.uniswapFocusedField == 1 {
@@ -2243,8 +2245,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.maybeRequestUniswapQuote()
 				}
 				// If leaving To field, trigger reverse quote
-				if m.uniswapFocusedField == 1 && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
+				if m.uniswapFocusedField == 1 && m.uniswapEditingTo && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
 					m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
+					m.uniswapEditingTo = false
 					return m, m.maybeRequestReverseUniswapQuote()
 				}
 				m.uniswapFocusedField = (m.uniswapFocusedField + 1) % 3
@@ -2259,7 +2262,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "shift+tab":
 				// Cycle through fields in reverse
 				// If leaving From field, trigger forward quote
-				if m.uniswapFocusedField == 0 && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
+				if m.uniswapFocusedField == 0 && m.uniswapEditingFrom && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
 					m.uniswapFocusedField = (m.uniswapFocusedField - 1 + 3) % 3
 					// Reset editing flags when entering a field
 					if m.uniswapFocusedField == 1 {
@@ -2268,9 +2271,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.maybeRequestUniswapQuote()
 				}
 				// If leaving To field, trigger reverse quote
-				if m.uniswapFocusedField == 1 && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
+				if m.uniswapFocusedField == 1 && m.uniswapEditingTo && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
 					m.uniswapFocusedField = (m.uniswapFocusedField - 1 + 3) % 3
 					m.uniswapEditingFrom = false
+					m.uniswapEditingTo = false
 					return m, m.maybeRequestReverseUniswapQuote()
 				}
 				m.uniswapFocusedField = (m.uniswapFocusedField - 1 + 3) % 3
@@ -2309,9 +2313,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.uniswapEditingTo {
 						if m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
 							m.uniswapFocusedField++
+							m.uniswapEditingTo = false
 							return m, m.maybeRequestReverseUniswapQuote()
 						}
 						m.uniswapFocusedField++
+						m.uniswapEditingTo = false
 						return m, nil
 					}
 					// Otherwise, open token selector for "to" field
@@ -2500,6 +2506,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				divisorIn := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
 				amountInFormatted := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.AmountIn), divisorIn)
 				m.uniswapFromAmount = amountInFormatted.Text('f', 6)
+				m.uniswapEditingFrom = false
 
 				m.addLog("info", fmt.Sprintf("📊 Reverse Quote: %s → %s", fromToken.Symbol, toToken.Symbol))
 				m.addLog("info", fmt.Sprintf("  Amount In: %s %s", m.uniswapFromAmount, fromToken.Symbol))
