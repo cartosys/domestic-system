@@ -2512,11 +2512,64 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Log all clicks for debugging
 			m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr=%s, X=%d, Y=%d", msg.X, msg.Y, m.activeAddress != "", m.headerAddrX, m.headerAddrY))
+			m.addLog("debug", fmt.Sprintf("Registered %d clickable areas", len(m.clickableAreas)))
 			
 			// Check if click is on any registered clickable address
-			for _, area := range m.clickableAreas {
+			for idx, area := range m.clickableAreas {
 				if msg.X >= area.X && msg.X < area.X+area.Width &&
 					msg.Y >= area.Y && msg.Y < area.Y+area.Height {
+					m.addLog("debug", fmt.Sprintf("Click matched area %d: addr=%s at (%d,%d) size=%dx%d", idx, helpers.ShortenAddr(area.Address), area.X, area.Y, area.Width, area.Height))
+					
+					// Check if this is on the wallets page or popup - enable double-click activation
+					if m.activePage == pageWallets || m.showAccountListPopup {
+						now := time.Now()
+						// Check if this is a double-click
+						if now.Sub(m.lastClickTime) < 500*time.Millisecond &&
+							m.lastClickX == msg.X && m.lastClickY == msg.Y {
+							// Double-click detected on account in list - activate it
+							for i, w := range m.accounts {
+								if strings.EqualFold(w.Address, area.Address) {
+									// Mark all as inactive
+									for j := range m.accounts {
+										m.accounts[j].Active = false
+									}
+									// Mark selected as active
+									m.accounts[i].Active = true
+									m.activeAddress = area.Address
+									m.highlightedAddress = area.Address
+									m.selectedWallet = i
+									// Save config
+									config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+									m.addLog("success", fmt.Sprintf("Activated account: %s", helpers.ShortenAddr(area.Address)))
+									// Close popup if it was open
+									if m.showAccountListPopup {
+										m.showAccountListPopup = false
+									}
+									// Load details for newly activated wallet
+									return m, m.loadSelectedWalletDetails()
+								}
+							}
+							return m, nil
+						}
+						// Single click - update tracking and select the wallet
+						m.lastClickTime = now
+						m.lastClickX = msg.X
+						m.lastClickY = msg.Y
+						// Update selected wallet index for highlighting
+						for i, w := range m.accounts {
+							if strings.EqualFold(w.Address, area.Address) {
+								m.selectedWallet = i
+								m.highlightedAddress = area.Address
+								if m.showAccountListPopup {
+									m.accountListSelectedIdx = i
+								}
+								break
+							}
+						}
+						m.addLog("debug", "Single click on account - waiting for double-click to activate")
+						return m, nil
+					}
+					
 					// If on details page and clicking same address, copy to clipboard
 					if m.activePage == pageDetails && area.Address == m.details.Address {
 						return m, copyToClipboard(area.Address)
@@ -2786,7 +2839,7 @@ func (m model) renderRPCDeleteDialog() string {
 	)
 }
 
-func (m model) renderAccountListPopup() string {
+func (m *model) renderAccountListPopup() string {
 	var (
 		dialogBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
@@ -2993,7 +3046,19 @@ func (m *model) View() string {
 		nav = "" // home.Nav(m.w - 2)
 
 	case pageWallets:
-		walletsContent, _ := wallets.Render(m.accounts, m.selectedWallet, m.addError)
+		walletsContent, walletsClickableAreas := wallets.Render(m.accounts, m.selectedWallet, m.addError)
+		
+		// Register clickable areas from wallets view
+		// Adjust Y coordinates to account for header and panel borders
+		for _, area := range walletsClickableAreas {
+			m.clickableAreas = append(m.clickableAreas, clickableArea{
+				X:       area.X,
+				Y:       area.Y + 1, // Minimal offset for panel border
+				Width:   area.Width,
+				Height:  area.Height,
+				Address: area.Address,
+			})
+		}
 
 		// Show add wallet form if in adding mode
 		if m.adding {
@@ -3222,6 +3287,30 @@ func (m *model) View() string {
 	
 	// Show account list popup overlay if active
 	if m.showAccountListPopup {
+		// Register clickable areas for popup before rendering
+		accountList, popupClickableAreas, _ := wallets.RenderList(m.accounts, m.accountListSelectedIdx)
+		
+		// Calculate popup position (centered)
+		dialogHeight := len(m.accounts)*3 + 8 // Approximate dialog height
+		dialogWidth := 74 // Width including border and padding
+		popupStartX := (m.w - dialogWidth) / 2
+		popupStartY := (m.h - dialogHeight) / 2
+		
+		// Clear and register clickable areas for popup
+		m.clickableAreas = nil
+		for _, area := range popupClickableAreas {
+			m.clickableAreas = append(m.clickableAreas, clickableArea{
+				X:       popupStartX + area.X, // popup X + area X (content is left-aligned in popup)
+				Y:       popupStartY + area.Y, // popup Y + area Y
+				Width:   area.Width,
+				Height:  area.Height,
+				Address: area.Address,
+			})
+		}
+		
+		// Suppress unused variable warning
+		_ = accountList
+		
 		popup := m.renderAccountListPopup()
 		return popup // Popup uses lipgloss.Place internally, so just return it
 	}
