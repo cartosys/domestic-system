@@ -3298,14 +3298,32 @@ func (m *model) View() string {
 		
 		// Clear and register clickable areas for popup
 		m.clickableAreas = nil
-		for _, area := range popupClickableAreas {
+		
+		// RenderList returns areas with Y starting at 9 (for main panel)
+		// and X starting at 4 (for indentation)
+		// In popup we need to:
+		// - Subtract the base offsets from RenderList (9 for Y, 4 for X)
+		// - Add popup position + border (1) + padding (1 top, 2 left) + title lines (2)
+		const renderListBaseY = 9
+		const renderListBaseX = 4
+		popupContentStartX := popupStartX + 1 + 2 // border + padding left
+		popupContentStartY := popupStartY + 1 + 1 + 2 // border + padding top + title + blank line
+		
+		m.addLog("debug", fmt.Sprintf("Popup position: (%d,%d), content starts at: (%d,%d)", popupStartX, popupStartY, popupContentStartX, popupContentStartY))
+		
+		for i, area := range popupClickableAreas {
+			adjustedX := popupContentStartX + (area.X - renderListBaseX)
+			adjustedY := popupContentStartY + (area.Y - renderListBaseY)
 			m.clickableAreas = append(m.clickableAreas, clickableArea{
-				X:       popupStartX + area.X, // popup X + area X (content is left-aligned in popup)
-				Y:       popupStartY + area.Y, // popup Y + area Y
+				X:       adjustedX,
+				Y:       adjustedY,
 				Width:   area.Width,
 				Height:  area.Height,
 				Address: area.Address,
 			})
+			if i == 0 {
+				m.addLog("debug", fmt.Sprintf("First area: orig=(%d,%d) adjusted=(%d,%d) addr=%s", area.X, area.Y, adjustedX, adjustedY, helpers.ShortenAddr(area.Address)))
+			}
 		}
 		
 		// Suppress unused variable warning

@@ -82,12 +82,13 @@ func RenderList(wallets []config.WalletEntry, selectedIdx int) (string, []Clicka
 		currentY++
 
 		// Register clickable area for full address line (second line)
-		// Full address is rendered with "  " prefix, making actual width = 2 + address width
-		fullAddrWidth := lipgloss.Width(wallet.Address) + 2 // 2 spaces prefix + address
+		// Full address is rendered with "  " prefix + styled address
+		// Use the actual visual width of the styled full address
+		fullAddrVisualWidth := lipgloss.Width(fullAddr) + 2 // 2 spaces prefix + styled address
 		clickableAreas = append(clickableAreas, ClickableArea{
 			X:       4,
 			Y:       currentY,
-			Width:   fullAddrWidth,
+			Width:   fullAddrVisualWidth,
 			Height:  1,
 			Address: wallet.Address,
 		})
