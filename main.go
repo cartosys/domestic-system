@@ -235,6 +235,18 @@ type model struct {
 	lastQuoteToAmount     string // last amount used for reverse quote
 	lastQuoteFromTokenIdx int    // last from token index used for quote
 	lastQuoteToTokenIdx   int    // last to token index used for quote
+
+	// Double-click detection for header address
+	lastClickTime time.Time
+	lastClickX    int
+	lastClickY    int
+
+	// Account list popup (shown on double-click of active address in header)
+	showAccountListPopup    bool
+	accountListSelectedIdx  int
+	headerAddrX             int // X position of active address in header
+	headerAddrY             int // Y position of active address in header
+	headerAddrWidth         int // Width of active address display in header
 }
 
 // -------------------- INIT --------------------
@@ -357,7 +369,7 @@ func newModel() model {
 	return m
 }
 
-func (m model) Init() tea.Cmd {
+func (m *model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spin.Tick}
 	if m.logEnabled {
 		cmds = append(cmds, initLogViewport(), m.logSpinner.Tick)
@@ -1250,7 +1262,7 @@ func (m *model) createEditDappForm(idx int) {
 
 // -------------------- UPDATE --------------------
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	// Handle send form updates first
@@ -1597,6 +1609,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle account list popup
+		if m.showAccountListPopup {
+			switch msg.String() {
+			case "up", "k":
+				if m.accountListSelectedIdx > 0 {
+					m.accountListSelectedIdx--
+				}
+				return m, nil
+			case "down", "j":
+				if m.accountListSelectedIdx < len(m.accounts)-1 {
+					m.accountListSelectedIdx++
+				}
+				return m, nil
+			case "enter":
+				// Activate the selected account
+				if m.accountListSelectedIdx >= 0 && m.accountListSelectedIdx < len(m.accounts) {
+					selectedAddr := m.accounts[m.accountListSelectedIdx].Address
+					// Mark all as inactive
+					for i := range m.accounts {
+						m.accounts[i].Active = false
+					}
+					// Mark selected as active
+					m.accounts[m.accountListSelectedIdx].Active = true
+					m.activeAddress = selectedAddr
+					m.highlightedAddress = selectedAddr
+					m.selectedWallet = m.accountListSelectedIdx
+					// Save config
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+					m.addLog("success", fmt.Sprintf("Activated account: %s", helpers.ShortenAddr(selectedAddr)))
+					// Close popup
+					m.showAccountListPopup = false
+					// Load details for newly activated wallet
+					return m, m.loadSelectedWalletDetails()
+				}
+				return m, nil
+			case "esc":
+				m.showAccountListPopup = false
+				return m, nil
+			}
+			return m, nil
+		}
+
 		allowMenuHotkeys := !m.textInputActive()
 		// global keys
 		if allowMenuHotkeys {
@@ -1901,7 +1955,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensLookupAddr = ""
 				return m, nil
 
-			case " ":
+			case "enter":
 				// Set selected wallet as active
 				if len(m.accounts) > 0 {
 					for i := range m.accounts {
@@ -2426,6 +2480,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		if msg.Type == tea.MouseLeft {
+			// Check for double-click on header active address
+			if m.activeAddress != "" && m.headerAddrX > 0 {
+				if msg.X >= m.headerAddrX && msg.X < m.headerAddrX+m.headerAddrWidth &&
+					msg.Y == m.headerAddrY {
+					// Check if this is a double-click (within 500ms)
+					now := time.Now()
+					m.addLog("debug", fmt.Sprintf("Click on header address at (%d,%d), expected (%d,%d), width=%d", msg.X, msg.Y, m.headerAddrX, m.headerAddrY, m.headerAddrWidth))
+					if now.Sub(m.lastClickTime) < 500*time.Millisecond &&
+						m.lastClickX == msg.X && m.lastClickY == msg.Y {
+						// Double-click detected - show account list popup
+						m.showAccountListPopup = true
+						// Find index of current active address in accounts list
+						m.accountListSelectedIdx = 0
+						for i, w := range m.accounts {
+							if strings.EqualFold(w.Address, m.activeAddress) {
+								m.accountListSelectedIdx = i
+								break
+							}
+						}
+						m.addLog("info", "Opening account list popup")
+						return m, nil
+					}
+					// Single click - update last click tracking
+					m.lastClickTime = now
+					m.lastClickX = msg.X
+					m.lastClickY = msg.Y
+					m.addLog("debug", fmt.Sprintf("Single click registered, waiting for double-click"))
+					return m, nil
+				}
+			}
+			// Log all clicks for debugging
+			m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr=%s, X=%d, Y=%d", msg.X, msg.Y, m.activeAddress != "", m.headerAddrX, m.headerAddrY))
+			
 			// Check if click is on any registered clickable address
 			for _, area := range m.clickableAreas {
 				if msg.X >= area.X && msg.X < area.X+area.Width &&
@@ -2699,6 +2786,48 @@ func (m model) renderRPCDeleteDialog() string {
 	)
 }
 
+func (m model) renderAccountListPopup() string {
+	var (
+		dialogBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#874BFD")).
+				Padding(1, 2).
+				BorderTop(true).
+				BorderLeft(true).
+				BorderRight(true).
+				BorderBottom(true).
+				Background(cPanel)
+	)
+
+	title := lipgloss.NewStyle().
+		Foreground(cAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(70).
+		Render("Select Account")
+
+	// Use the wallets view to render the account list
+	accountList, _, _ := wallets.RenderList(m.accounts, m.accountListSelectedIdx)
+
+	help := lipgloss.NewStyle().
+		Foreground(cMuted).
+		Align(lipgloss.Center).
+		Width(70).
+		MarginTop(1).
+		Render("↑/↓: Navigate • Enter: Select • Esc: Cancel")
+
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", accountList, help)
+
+	dialog := dialogBoxStyle.Render(ui)
+
+	// Center the dialog on screen
+	return lipgloss.Place(
+		m.w, m.h,
+		lipgloss.Center, lipgloss.Center,
+		dialog,
+	)
+}
+
 func (m *model) renderTxResultContent() string {
 	txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
 	
@@ -2738,7 +2867,7 @@ func (m *model) renderTxResultPanel() string {
 	))
 }
 
-func (m model) globalHeader() string {
+func (m *model) globalHeader() string {
 	availableWidth := max(0, m.w-8) // Account for panel padding
 	
 	// Active Address (the one marked with ★)
@@ -2748,10 +2877,20 @@ func (m model) globalHeader() string {
 			Foreground(cAccent2).
 			Bold(true).
 			Render("Active Address: " + helpers.FadeString(helpers.ShortenAddr(m.activeAddress), "#F25D94", "#EDFF82"))
+		
+		// Track header address position for double-click detection
+		// X position: 3 (panel left border + padding) + length of "Active Address: "
+		// Y position: 2 (accounting for panel top border + padding = row 1, but 0-indexed)
+		m.headerAddrX = 3 + len("Active Address: ")
+		m.headerAddrY = 2
+		m.headerAddrWidth = len(helpers.ShortenAddr(m.activeAddress))
 	} else {
 		addrDisplay = lipgloss.NewStyle().
 			Foreground(cMuted).
 			Render("Active Address: No selection")
+		m.headerAddrX = 0
+		m.headerAddrY = 0
+		m.headerAddrWidth = 0
 	}
 
 	// RPC Status with green dot
@@ -2830,7 +2969,7 @@ func (m model) globalHeader() string {
 	return headerLine + "\n" + separator
 }
 
-func (m model) View() string {
+func (m *model) View() string {
 	// Clear clickable areas for fresh render
 	m.clickableAreas = nil
 
@@ -2838,17 +2977,7 @@ func (m model) View() string {
 	globalHdr := m.globalHeader()
 	headerPanel := panelStyle.Width(max(0, m.w-2)).Render(globalHdr)
 
-	// Register global header address as clickable (approximate position)
-	if m.activeAddress != "" {
-		// Header address is at approximately (4, 1) accounting for panel padding
-		m.clickableAreas = append(m.clickableAreas, clickableArea{
-			X:       4,
-			Y:       1,
-			Width:   42, // Ethereum address length
-			Height:  1,
-			Address: m.activeAddress,
-		})
-	}
+	// Note: Header address clickable area coordinates are set in globalHeader()
 
 	var pageContent string
 	var nav string
@@ -3076,12 +3205,28 @@ func (m model) View() string {
 	if m.logEnabled {
 		logPanel = m.renderLogPanel()
 		content := lipgloss.JoinVertical(lipgloss.Left, headerPanel, pageContent, nav, logPanel)
-		return appStyle.Render(content)
+		baseView := appStyle.Render(content)
+		
+		// Show account list popup overlay if active
+		if m.showAccountListPopup {
+			popup := m.renderAccountListPopup()
+			return popup // Popup uses lipgloss.Place internally, so just return it
+		}
+		
+		return baseView
 	}
 
 	// Use lipgloss to join sections vertically (without log panel)
 	content := lipgloss.JoinVertical(lipgloss.Left, headerPanel, pageContent, nav)
-	return appStyle.Render(content)
+	baseView := appStyle.Render(content)
+	
+	// Show account list popup overlay if active
+	if m.showAccountListPopup {
+		popup := m.renderAccountListPopup()
+		return popup // Popup uses lipgloss.Place internally, so just return it
+	}
+	
+	return baseView
 }
 
 func (m model) renderLogPanel() string {
@@ -3171,7 +3316,7 @@ func max(a, b int) int {
 
 func main() {
 	m := newModel()
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(&m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Println("error:", err)
 		os.Exit(1)

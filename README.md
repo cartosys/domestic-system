@@ -99,6 +99,7 @@ Customize which ERC-20 tokens to display by editing the token watchlist in `main
 - **Esc**: Go back / Cancel
 - **Tab**: Switch between input fields
 - **Ctrl+C**: Quit application
+- **Double-click**: Double-click on the active address in the header to open the account list popup and quickly switch between accounts
 
 ### Pages
 
@@ -115,6 +116,17 @@ Customize which ERC-20 tokens to display by editing the token watchlist in `main
 3. Enter an Ethereum address or ENS name
 4. Optionally provide a nickname
 5. Press Enter to save
+
+### Switching Accounts
+
+The active account (marked with ★) determines which wallet is used for transactions. To switch accounts:
+
+1. **Double-click** on the active address shown in the global header (works from any view)
+2. Use arrow keys (↑/↓) to select a different account
+3. Press Enter to activate the selected account
+4. Press Esc to cancel
+
+Alternatively, navigate to the Wallets page and press Enter on any wallet to view its details and activate it.
 
 ### Sending Transactions
 
