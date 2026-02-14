@@ -213,6 +213,7 @@ type model struct {
 	txResultPackaging bool
 	txResultHex       string
 	txResultEIP681    string
+	txResultFormat    string
 	txResultError     string
 
 	// Uniswap swap state
@@ -433,8 +434,10 @@ type detailsLoadedMsg struct {
 }
 
 type packageTransactionMsg struct {
-	pkg rpc.TransactionPackageEIP4527
-	err error
+	txDisplay string
+	qrData    string
+	format    string
+	err       error
 }
 
 func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string) tea.Cmd {
@@ -445,15 +448,15 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 		weiFloat := new(big.Float).Mul(amountFloat, big.NewFloat(1e18))
 		amountWei, _ := weiFloat.Int(nil)
 
-		// Call RPC package function using EIP-4527 format
-		pkg, err := rpc.PackageTransactionEIP4527(
+		// Call RPC package function using EIP-681 format
+		pkg, err := rpc.PackageTransaction(
 			common.HexToAddress(fromAddr),
 			common.HexToAddress(toAddr),
 			amountWei,
 			rpcURL,
 		)
 
-		return packageTransactionMsg{pkg: pkg, err: err}
+		return packageTransactionMsg{txDisplay: pkg.EIP681, qrData: pkg.EIP681, format: "EIP-681", err: err}
 	}
 }
 
@@ -540,12 +543,7 @@ func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOpt
 			eip681 = routerAddr
 		}
 
-		pkg := rpc.TransactionPackageEIP4527{
-			JSON:   txJSON,
-			QRData: eip681,
-		}
-
-		return packageTransactionMsg{pkg: pkg, err: nil}
+		return packageTransactionMsg{txDisplay: txJSON, qrData: eip681, format: "EIP-4527", err: nil}
 	}
 }
 
@@ -1288,6 +1286,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.txResultPackaging = true
 				m.txResultHex = ""
 				m.txResultError = ""
+				m.txResultFormat = "EIP-681"
 				return m, packageTransaction(m.activeAddress, tempSendToAddr, tempSendAmount, m.rpcURL)
 			}
 
@@ -1580,9 +1579,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.txResultError = msg.err.Error()
 			m.addLog("error", "Transaction packaging failed: "+msg.err.Error())
 		} else {
-			m.txResultHex = msg.pkg.JSON
-			m.txResultEIP681 = msg.pkg.QRData
-			m.addLog("success", "Transaction packaged successfully (EIP-4527)")
+			m.txResultHex = msg.txDisplay
+			m.txResultEIP681 = msg.qrData
+			m.txResultFormat = msg.format
+			m.addLog("success", "Transaction packaged successfully ("+msg.format+")")
 		}
 		return m, nil
 
@@ -1593,7 +1593,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				// Copy transaction JSON to clipboard
 				if m.txResultHex != "" {
-					m.addLog("info", "Copied transaction JSON to clipboard")
+					if m.txResultFormat == "EIP-681" {
+						m.addLog("info", "Copied EIP-681 URL to clipboard")
+					} else {
+						m.addLog("info", "Copied transaction JSON to clipboard")
+					}
 					return m, copyTxJsonToClipboard(m.txResultHex)
 				}
 				return m, nil
@@ -1603,6 +1607,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.txResultEIP681 = ""
 				m.txResultError = ""
 				m.txResultPackaging = false
+				m.txResultFormat = ""
 				m.txCopiedMsg = ""
 				return m, nil
 			}
@@ -2406,6 +2411,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.txResultPackaging = true
 					m.txResultHex = ""
 					m.txResultError = ""
+					m.txResultFormat = "EIP-4527"
 					return m, packageSwapTransaction(m.activeAddress, fromToken, toToken, m.uniswapFromAmount, m.uniswapQuote.AmountOut, m.rpcURL)
 				}
 				return m, nil
@@ -2882,7 +2888,17 @@ func (m *model) renderAccountListPopup() string {
 }
 
 func (m *model) renderTxResultContent() string {
-	txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)") + "\n\n"
+	format := m.txResultFormat
+	if format == "" {
+		format = "EIP-4527"
+	}
+
+	label := "EIP-4527 Transaction JSON:"
+	if format == "EIP-681" {
+		label = "EIP-681 Transaction URL:"
+	}
+
+	txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign ("+format+")") + "\n\n"
 	
 	if m.txResultPackaging {
 		txResultContent += m.spin.View() + " Packaging transaction..."
@@ -2895,7 +2911,7 @@ func (m *model) renderTxResultContent() string {
 		qrStyle := lipgloss.NewStyle()
 		txResultContent += qrStyle.Render(qrCode) + "\n"
 
-		txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("EIP-4527 Transaction JSON:") + "\n\n"
+		txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render(label) + "\n\n"
 		txResultContent += m.txResultHex
 
 		txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
