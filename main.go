@@ -59,8 +59,6 @@ var (
 
 // -------------------- DATA TYPES --------------------
 
-type page int
-
 // Temporary form field storage (package-level to avoid pointer-to-copy issues)
 var (
 	tempRPCFormName   string
@@ -74,22 +72,8 @@ var (
 	tempSendAmount    string
 )
 
-const (
-	pageHome page = iota
-	pageWallets
-	pageDetails
-	pageSettings
-	pageDappBrowser
-	pageUniswap
-)
-
-// clickableArea represents a clickable region on screen for addresses
-type clickableArea struct {
-	X, Y          int    // top-left position
-	Width, Height int    // dimensions
-	Address       string // wallet address to navigate to
-}
-
+// walletItem is a list item for the bubble-tea list component
+// It has methods so it must stay in main.go
 type walletItem struct {
 	addr string
 }
@@ -98,26 +82,12 @@ func (w walletItem) Title() string       { return helpers.ShortenAddr(w.addr) }
 func (w walletItem) Description() string { return w.addr }
 func (w walletItem) FilterValue() string { return w.addr }
 
-type tokenBalance struct {
-	Symbol   string
-	Decimals uint8
-	Balance  *big.Int
-}
-
-type walletDetails struct {
-	Address    string
-	EthWei     *big.Int
-	Tokens     []tokenBalance
-	LoadedAt   time.Time
-	ErrMessage string
-}
-
 // -------------------- MODEL --------------------
 
 type model struct {
 	w, h int
 
-	activePage page
+	activePage config.Page
 
 	// main list
 	accounts       []config.WalletEntry
@@ -136,8 +106,8 @@ type model struct {
 	// details state
 	spin          spinner.Model
 	loading       bool
-	details       walletDetails
-	detailsCache  map[string]walletDetails // cache wallet details by address
+	details       config.WalletDetails
+	detailsCache  map[string]config.WalletDetails // cache wallet details by address
 	rpcURL        string
 	ethClient     *rpc.Client
 	rpcConnected  bool // true if RPC is successfully connected
@@ -180,7 +150,7 @@ type model struct {
 	activeAddress string
 
 	// clickable areas for mouse support
-	clickableAreas []clickableArea
+	clickableAreas []config.ClickableArea
 
 	// logger panel
 	logEnabled  bool
@@ -340,7 +310,7 @@ func newModel() model {
 	logSpin.Style = lipgloss.NewStyle().Foreground(cAccent2)
 
 	m := model{
-		activePage:         pageWallets,
+		activePage:         config.PageWallets,
 		accounts:           accounts,
 		selectedWallet:     selectedIdx,
 		highlightedAddress: activeAddr,
@@ -360,7 +330,7 @@ func newModel() model {
 		logViewport:        vp,
 		logBuffer:          &strings.Builder{},
 		logSpinner:         logSpin,
-		detailsCache:       make(map[string]walletDetails),
+		detailsCache:       make(map[string]config.WalletDetails),
 		dapps:              cfg.Dapps,
 		dappMode:           "list",
 		selectedDappIdx:    0,
@@ -429,7 +399,7 @@ func initLogViewport() tea.Cmd {
 }
 
 type detailsLoadedMsg struct {
-	d   walletDetails
+	d   config.WalletDetails
 	err error
 }
 
@@ -551,8 +521,8 @@ func loadDetails(client *rpc.Client, addr common.Address, watch []rpc.WatchedTok
 	return func() tea.Msg {
 		rpcDetails := rpc.LoadWalletDetails(client, addr, watch)
 
-		// Convert rpc.WalletDetails to our walletDetails type
-		d := walletDetails{
+		// Convert rpc.WalletDetails to our config.WalletDetails type
+		d := config.WalletDetails{
 			Address:    rpcDetails.Address,
 			EthWei:     rpcDetails.EthWei,
 			LoadedAt:   rpcDetails.LoadedAt,
@@ -561,7 +531,7 @@ func loadDetails(client *rpc.Client, addr common.Address, watch []rpc.WatchedTok
 
 		// Convert token balances
 		for _, t := range rpcDetails.Tokens {
-			d.Tokens = append(d.Tokens, tokenBalance{
+			d.Tokens = append(d.Tokens, config.TokenBalance{
 				Symbol:   t.Symbol,
 				Decimals: t.Decimals,
 				Balance:  t.Balance,
@@ -782,7 +752,7 @@ func (m *model) loadSelectedWalletDetails() tea.Cmd {
 
 	// Load fresh details
 	m.loading = true
-	m.details = walletDetails{Address: addr}
+	m.details = config.WalletDetails{Address: addr}
 	ethAddr := common.HexToAddress(addr)
 	return loadDetails(m.ethClient, ethAddr, m.tokenWatch)
 }
@@ -1264,7 +1234,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	// Handle send form updates first
-	if m.activePage == pageWallets && m.showSendForm && m.sendForm != nil {
+	if m.activePage == config.PageWallets && m.showSendForm && m.sendForm != nil {
 		// Intercept ESC key to cancel form
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 			m.showSendForm = false
@@ -1300,15 +1270,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	if m.activePage == pageHome {
+	if m.activePage == config.PageHome {
 		// TODO: home view not implemented yet
 		// Temporarily disabled until home view is created
-		m.activePage = pageWallets
+		m.activePage = config.PageWallets
 		return m, m.loadSelectedWalletDetails()
 	}
 
 	// Handle form updates first (before message switching)
-	if m.activePage == pageWallets && m.showSendForm && m.sendForm != nil {
+	if m.activePage == config.PageWallets && m.showSendForm && m.sendForm != nil {
 		// Intercept ESC key to cancel form
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 			m.showSendForm = false
@@ -1340,7 +1310,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle form updates first (before message switching)
-	if m.activePage == pageDetails && m.nicknaming && m.form != nil {
+	if m.activePage == config.PageDetails && m.nicknaming && m.form != nil {
 		// Intercept ESC key to cancel form
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 			m.nicknaming = false
@@ -1385,7 +1355,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	if (m.activePage == pageDetails || m.activePage == pageDappBrowser) && (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
+	if (m.activePage == config.PageDetails || m.activePage == config.PageDappBrowser) && (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
 		// Intercept ESC key to cancel form
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 			m.dappMode = "list"
@@ -1431,7 +1401,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	if m.activePage == pageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
+	if m.activePage == config.PageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
 		// Intercept ESC key to cancel form
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 			m.settingsMode = "list"
@@ -1522,7 +1492,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rpcConnected = true
 			m.addLog("success", fmt.Sprintf("RPC connected to `%s`", msg.client.URL))
 			// Load active account details automatically when on wallet page with split view
-			if m.activePage == pageWallets && m.detailsInWallets && len(m.accounts) > 0 {
+			if m.activePage == config.PageWallets && m.detailsInWallets && len(m.accounts) > 0 {
 				return m, m.loadSelectedWalletDetails()
 			}
 		}
@@ -1697,12 +1667,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// page-specific behavior
 		switch m.activePage {
 
-		case pageHome:
+		case config.PageHome:
 			// Home page - form handles its own keys
 			// No additional key handling needed
 			return m, nil
 
-		case pageWallets:
+		case config.PageWallets:
 			// Handle delete confirmation dialog
 			if m.showDeleteDialog {
 				switch msg.String() {
@@ -1975,7 +1945,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.detailsInWallets {
 						addr := m.accounts[m.selectedWallet].Address
 						m.loading = true
-						m.details = walletDetails{Address: addr}
+						m.details = config.WalletDetails{Address: addr}
 						ethAddr := common.HexToAddress(addr)
 						return m, loadDetails(m.ethClient, ethAddr, m.tokenWatch)
 					}
@@ -1983,12 +1953,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 
 		case "s", "S":
-			m.activePage = pageSettings
+			m.activePage = config.PageSettings
 			m.settingsMode = "list"
 			return m, nil
 
 		case "b", "B":
-			m.activePage = pageDappBrowser
+			m.activePage = config.PageDappBrowser
 			m.dappMode = "list"
 			return m, nil
 
@@ -2010,12 +1980,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case pageDetails:
+		case config.PageDetails:
 			// Don't handle keys if nicknaming form is active
 			if !m.nicknaming {
 				switch msg.String() {
 				case "esc", "backspace":
-					m.activePage = pageWallets
+					m.activePage = config.PageWallets
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
 
@@ -2034,18 +2004,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case pageDappBrowser:
+		case config.PageDappBrowser:
 			// Only handle list mode controls here (form handled at top of Update)
 			if m.dappMode == "list" {
 				switch msg.String() {
 				case "esc":
-					m.activePage = pageWallets
+					m.activePage = config.PageWallets
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
 
 				case "enter":
 					// Open Uniswap swap interface
-					m.activePage = pageUniswap
+					m.activePage = config.PageUniswap
 					// Initialize Uniswap state with default values
 					m.uniswapFromTokenIdx = 0 // Default to first token (ETH)
 					m.uniswapToTokenIdx = 1   // Default to second token if available
@@ -2104,7 +2074,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case pageSettings:
+		case config.PageSettings:
 			if m.showRPCDeleteDialog {
 				switch msg.String() {
 				case "left", "right", "tab":
@@ -2137,7 +2107,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.settingsMode == "list" {
 				switch msg.String() {
 				case "esc":
-					m.activePage = pageWallets
+					m.activePage = config.PageWallets
 					// Load details for selected wallet if split view enabled
 					return m, m.loadSelectedWalletDetails()
 
@@ -2195,7 +2165,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case pageUniswap:
+		case config.PageUniswap:
 			// Handle transaction result panel first
 			if m.showTxResultPanel {
 				switch msg.String() {
@@ -2245,7 +2215,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Main swap interface controls
 			switch msg.String() {
 			case "esc":
-				m.activePage = pageDappBrowser
+				m.activePage = config.PageDappBrowser
 				return m, nil
 
 			case "up", "k":
@@ -2517,7 +2487,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			// Log all clicks for debugging
-			m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr=%s, X=%d, Y=%d", msg.X, msg.Y, m.activeAddress != "", m.headerAddrX, m.headerAddrY))
+			m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr='%s', X=%d, Y=%d", msg.X, msg.Y, m.activeAddress, m.headerAddrX, m.headerAddrY))
 			m.addLog("debug", fmt.Sprintf("Registered %d clickable areas", len(m.clickableAreas)))
 			
 			// Check if click is on any registered clickable address
@@ -2527,7 +2497,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addLog("debug", fmt.Sprintf("Click matched area %d: addr=%s at (%d,%d) size=%dx%d", idx, helpers.ShortenAddr(area.Address), area.X, area.Y, area.Width, area.Height))
 					
 					// Check if this is on the wallets page or popup - enable double-click activation
-					if m.activePage == pageWallets || m.showAccountListPopup {
+					if m.activePage == config.PageWallets || m.showAccountListPopup {
 						now := time.Now()
 						// Check if this is a double-click
 						if now.Sub(m.lastClickTime) < 500*time.Millisecond &&
@@ -2577,7 +2547,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					
 					// If on details page and clicking same address, copy to clipboard
-					if m.activePage == pageDetails && area.Address == m.details.Address {
+					if m.activePage == config.PageDetails && area.Address == m.details.Address {
 						return m, copyToClipboard(area.Address)
 					}
 					// Otherwise navigate to wallet details
@@ -2589,9 +2559,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					m.highlightedAddress = area.Address
-					m.activePage = pageDetails
+					m.activePage = config.PageDetails
 					m.loading = true
-					m.details = walletDetails{Address: area.Address}
+					m.details = config.WalletDetails{Address: area.Address}
 					ethAddr := common.HexToAddress(area.Address)
 					return m, loadDetails(m.ethClient, ethAddr, m.tokenWatch)
 				}
@@ -2605,7 +2575,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Legacy: handle address click on details page if no area matched
-			if m.activePage == pageDetails && m.details.Address != "" {
+			if m.activePage == config.PageDetails && m.details.Address != "" {
 				if msg.Y == m.addressLineY {
 					return m, copyToClipboard(m.details.Address)
 				}
@@ -3052,7 +3022,7 @@ func (m *model) View() string {
 	var nav string
 
 	switch m.activePage {
-	case pageHome:
+	case config.PageHome:
 		// TODO: home view not implemented yet
 		// if m.homeForm == nil {
 		// 	m.homeForm = home.CreateForm()
@@ -3061,13 +3031,13 @@ func (m *model) View() string {
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render("Home view not implemented")
 		nav = "" // home.Nav(m.w - 2)
 
-	case pageWallets:
+	case config.PageWallets:
 		walletsContent, walletsClickableAreas := wallets.Render(m.accounts, m.selectedWallet, m.addError)
 		
 		// Register clickable areas from wallets view
 		// Adjust Y coordinates to account for header and panel borders
 		for _, area := range walletsClickableAreas {
-			m.clickableAreas = append(m.clickableAreas, clickableArea{
+			m.clickableAreas = append(m.clickableAreas, config.ClickableArea{
 				X:       area.X,
 				Y:       area.Y + 1, // Minimal offset for panel border
 				Width:   area.Width,
@@ -3104,7 +3074,7 @@ func (m *model) View() string {
 
 		// If detailsInWallets is enabled and we have a selected wallet, show split view
 		if m.detailsInWallets && len(m.accounts) > 0 {
-			// Convert local walletDetails to rpc.WalletDetails
+			// Convert local config.WalletDetails to rpc.WalletDetails
 			rpcDetails := rpc.WalletDetails{
 				Address:    m.details.Address,
 				EthWei:     m.details.EthWei,
@@ -3195,7 +3165,7 @@ func (m *model) View() string {
 			return m.renderTxResultPanel()
 		}
 
-	case pageDappBrowser:
+	case config.PageDappBrowser:
 		dappBrowserContent := dapps.Render(m.dapps, m.selectedDappIdx)
 
 		// Show form if in add/edit mode
@@ -3206,8 +3176,8 @@ func (m *model) View() string {
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(dappBrowserContent)
 		nav = dapps.Nav(m.w-2, m.dappMode)
 
-	case pageDetails:
-		// Convert local walletDetails to rpc.WalletDetails
+	case config.PageDetails:
+		// Convert local config.WalletDetails to rpc.WalletDetails
 		rpcDetails := rpc.WalletDetails{
 			Address:    m.details.Address,
 			EthWei:     m.details.EthWei,
@@ -3226,7 +3196,7 @@ func (m *model) View() string {
 		pageContent = panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
 		nav = details.Nav(m.w-2, m.nicknaming)
 
-	case pageSettings:
+	case config.PageSettings:
 		settingsContent := settings.Render(m.rpcURLs, m.selectedRPCIdx)
 
 		// Show form if in add/edit mode
@@ -3241,7 +3211,7 @@ func (m *model) View() string {
 			return m.renderRPCDeleteDialog()
 		}
 
-	case pageUniswap:
+	case config.PageUniswap:
 		// Build token list from wallet details
 		tokens := m.buildTokenList()
 		
@@ -3330,7 +3300,7 @@ func (m *model) View() string {
 		for i, area := range popupClickableAreas {
 			adjustedX := popupContentStartX + (area.X - renderListBaseX)
 			adjustedY := popupContentStartY + (area.Y - renderListBaseY)
-			m.clickableAreas = append(m.clickableAreas, clickableArea{
+			m.clickableAreas = append(m.clickableAreas, config.ClickableArea{
 				X:       adjustedX,
 				Y:       adjustedY,
 				Width:   area.Width,

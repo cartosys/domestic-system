@@ -2,7 +2,9 @@ package config
 
 import (
 	"encoding/json"
+	"math/big"
 	"os"
+	"time"
 )
 
 // Config represents the application configuration
@@ -34,6 +36,45 @@ type DApp struct {
 	Icon    string `json:"icon,omitempty"`
 	Network string `json:"network,omitempty"`
 }
+
+// -------------------- UI TYPE DEFINITIONS --------------------
+
+// Page represents a page/view in the application
+type Page int
+
+const (
+	PageHome Page = iota
+	PageWallets
+	PageDetails
+	PageSettings
+	PageDappBrowser
+	PageUniswap
+)
+
+// ClickableArea represents a clickable region on screen for addresses
+type ClickableArea struct {
+	X, Y          int    // top-left position
+	Width, Height int    // dimensions
+	Address       string // wallet address to navigate to
+}
+
+// TokenBalance represents an ERC20 token balance
+type TokenBalance struct {
+	Symbol   string
+	Decimals uint8
+	Balance  *big.Int
+}
+
+// WalletDetails contains all balance information for a wallet
+type WalletDetails struct {
+	Address    string
+	EthWei     *big.Int
+	Tokens     []TokenBalance
+	LoadedAt   time.Time
+	ErrMessage string
+}
+
+// -------------------- CONFIG MANAGEMENT --------------------
 
 // Load reads the config from the specified path
 func Load(path string) Config {
