@@ -24,7 +24,7 @@ import (
 
 // -------------------- VIEW --------------------
 
-func (m model) renderDeleteDialog() string {
+func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
 	var (
 		dialogBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
@@ -47,12 +47,10 @@ func (m model) renderDeleteDialog() string {
 				MarginRight(2).
 				Underline(true)
 	)
-	msg := helpers.FadeString("Are you sure you want to delete the account "+helpers.ShortenAddr(m.deleteDialogAddr)+"?", "#F25D94", "#EDFF82")
-	question := lipgloss.NewStyle().Width(50).Align(lipgloss.Center).Render(msg)
+	question := lipgloss.NewStyle().Width(50).Align(lipgloss.Center).Render(prompt)
 
-	// Apply active style to the selected button
 	var okButton, cancelButton string
-	if m.deleteDialogYesSelected {
+	if yesSelected {
 		okButton = activeButtonStyle.Render("Yes")
 		cancelButton = buttonStyle.Render("No")
 	} else {
@@ -65,7 +63,6 @@ func (m model) renderDeleteDialog() string {
 
 	dialog := dialogBoxStyle.Render(ui)
 
-	// Center the dialog on screen
 	return lipgloss.Place(
 		m.w, m.h,
 		lipgloss.Center, lipgloss.Center,
@@ -73,51 +70,14 @@ func (m model) renderDeleteDialog() string {
 	)
 }
 
+func (m model) renderDeleteDialog() string {
+	msg := helpers.FadeString("Are you sure you want to delete the account "+helpers.ShortenAddr(m.deleteDialogAddr)+"?", "#F25D94", "#EDFF82")
+	return m.renderConfirmDialog(msg, m.deleteDialogYesSelected)
+}
+
 func (m model) renderRPCDeleteDialog() string {
-	var (
-		dialogBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#874BFD")).
-				Padding(1, 0).
-				BorderTop(true).
-				BorderLeft(true).
-				BorderRight(true).
-				BorderBottom(true)
-
-		buttonStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFF7DB")).
-				Background(lipgloss.Color("#888B7E")).
-				Padding(0, 3).
-				MarginTop(1)
-
-		activeButtonStyle = buttonStyle.Copy().
-				Foreground(lipgloss.Color("#FFF7DB")).
-				Background(lipgloss.Color("#F25D94")).
-				MarginRight(2).
-				Underline(true)
-	)
 	msg := helpers.FadeString("Are you sure you want to delete the RPC endpoint "+m.deleteRPCDialogName+"?", "#F25D94", "#EDFF82")
-	question := lipgloss.NewStyle().Width(50).Align(lipgloss.Center).Render(msg)
-
-	var okButton, cancelButton string
-	if m.deleteRPCDialogYesSelected {
-		okButton = activeButtonStyle.Render("Yes")
-		cancelButton = buttonStyle.Render("No")
-	} else {
-		okButton = buttonStyle.Copy().MarginRight(2).Render("Yes")
-		cancelButton = activeButtonStyle.Copy().MarginRight(0).Render("No")
-	}
-
-	buttons := lipgloss.JoinHorizontal(lipgloss.Top, okButton, cancelButton)
-	ui := lipgloss.JoinVertical(lipgloss.Center, question, buttons)
-
-	dialog := dialogBoxStyle.Render(ui)
-
-	return lipgloss.Place(
-		m.w, m.h,
-		lipgloss.Center, lipgloss.Center,
-		dialog,
-	)
+	return m.renderConfirmDialog(msg, m.deleteRPCDialogYesSelected)
 }
 
 func (m *model) renderAccountListPopup() string {
@@ -201,9 +161,9 @@ func (m *model) renderTxResultContent() string {
 }
 
 func (m *model) renderTxResultPanel() string {
-	contentWidth := max(0, m.w-8)
+	contentWidth := helpers.Max(0, m.w-8)
 	centeredContent := lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(m.renderTxResultContent())
-	content := panelStyle.Width(max(0, m.w-4)).Render(centeredContent)
+	content := panelStyle.Width(helpers.Max(0, m.w-4)).Render(centeredContent)
 	return appStyle.Render(lipgloss.Place(
 		m.w, m.h,
 		lipgloss.Center, lipgloss.Center,
@@ -212,7 +172,7 @@ func (m *model) renderTxResultPanel() string {
 }
 
 func (m *model) globalHeader() string {
-	availableWidth := max(0, m.w-8) // Account for panel padding
+	availableWidth := helpers.Max(0, m.w-8) // Account for panel padding
 
 	// Active Address (the one marked with ★)
 	var addrDisplay string
@@ -299,8 +259,8 @@ func (m *model) globalHeader() string {
 		leftPadding := remainingSpace / 2
 		rightPadding := remainingSpace - leftPadding
 
-		leftSpacer := strings.Repeat(" ", max(1, leftPadding))
-		rightSpacer := strings.Repeat(" ", max(1, rightPadding))
+		leftSpacer := strings.Repeat(" ", helpers.Max(1, leftPadding))
+		rightSpacer := strings.Repeat(" ", helpers.Max(1, rightPadding))
 
 		headerLine = addrDisplay + leftSpacer + titleText + rightSpacer + rpcDisplay
 	}
@@ -319,7 +279,7 @@ func (m *model) View() string {
 
 	// Render global header outside of page content
 	globalHdr := m.globalHeader()
-	headerPanel := panelStyle.Width(max(0, m.w-2)).Render(globalHdr)
+	headerPanel := panelStyle.Width(helpers.Max(0, m.w-2)).Render(globalHdr)
 
 	// Note: Header address clickable area coordinates are set in globalHeader()
 
@@ -329,7 +289,7 @@ func (m *model) View() string {
 	switch m.activePage {
 	case config.PageHome:
 		// TODO: home view not implemented yet
-		pageContent = panelStyle.Width(max(0, m.w-2)).Render("Home view not implemented")
+		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render("Home view not implemented")
 		nav = ""
 
 	case config.PageWallets:
@@ -375,21 +335,7 @@ func (m *model) View() string {
 
 		// If detailsInWallets is enabled and we have a selected wallet, show split view
 		if m.detailsInWallets && len(m.accounts) > 0 {
-			// Convert local config.WalletDetails to rpc.WalletDetails
-			rpcDetails := rpc.WalletDetails{
-				Address:    m.details.Address,
-				EthWei:     m.details.EthWei,
-				LoadedAt:   m.details.LoadedAt,
-				ErrMessage: m.details.ErrMessage,
-			}
-			for _, t := range m.details.Tokens {
-				rpcDetails.Tokens = append(rpcDetails.Tokens, rpc.TokenBalance{
-					Symbol:   t.Symbol,
-					Decimals: t.Decimals,
-					Balance:  t.Balance,
-				})
-			}
-
+			rpcDetails := toRPCDetails(m.details)
 			detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
 
 			// Show transaction result panel if active
@@ -436,8 +382,8 @@ func (m *model) View() string {
 			}
 
 			// Calculate panel widths (split 40/60)
-			listWidth := max(0, (m.w*4)/10-2)
-			detailsWidth := max(0, (m.w*6)/10-2)
+			listWidth := helpers.Max(0, (m.w*4)/10-2)
+			detailsWidth := helpers.Max(0, (m.w*6)/10-2)
 
 			// Get the height of the left panel content to match it on the right
 			leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
@@ -451,7 +397,7 @@ func (m *model) View() string {
 
 			pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 		} else {
-			pageContent = panelStyle.Width(max(0, m.w-2)).Render(walletsContent)
+			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(walletsContent)
 		}
 		nav = wallets.Nav(m.w - 2)
 
@@ -473,27 +419,13 @@ func (m *model) View() string {
 			dappBrowserContent = styles.TitleStyle.Render("dApp Browser") + "\n\n" + m.form.View()
 		}
 
-		pageContent = panelStyle.Width(max(0, m.w-2)).Render(dappBrowserContent)
+		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(dappBrowserContent)
 		nav = dapps.Nav(m.w-2, m.dappMode)
 
 	case config.PageDetails:
-		// Convert local config.WalletDetails to rpc.WalletDetails
-		rpcDetails := rpc.WalletDetails{
-			Address:    m.details.Address,
-			EthWei:     m.details.EthWei,
-			LoadedAt:   m.details.LoadedAt,
-			ErrMessage: m.details.ErrMessage,
-		}
-		for _, t := range m.details.Tokens {
-			rpcDetails.Tokens = append(rpcDetails.Tokens, rpc.TokenBalance{
-				Symbol:   t.Symbol,
-				Decimals: t.Decimals,
-				Balance:  t.Balance,
-			})
-		}
-
+		rpcDetails := toRPCDetails(m.details)
 		detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
-		pageContent = panelStyle.Width(max(0, m.w-2)).Render(detailsContent)
+		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(detailsContent)
 		nav = details.Nav(m.w-2, m.nicknaming)
 
 	case config.PageSettings:
@@ -504,7 +436,7 @@ func (m *model) View() string {
 			settingsContent = styles.TitleStyle.Render("RPC Settings") + "\n\n" + m.form.View()
 		}
 
-		pageContent = panelStyle.Width(max(0, m.w-2)).Render(settingsContent)
+		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(settingsContent)
 		nav = settings.Nav(m.w-2, m.settingsMode)
 
 		if m.showRPCDeleteDialog {
@@ -541,7 +473,7 @@ func (m *model) View() string {
 				m.uniswapPriceImpactWarn,
 			)
 			// Wrap in panel style to constrain properly
-			pageContent = panelStyle.Width(max(0, m.w-2)).Render(uniswapView)
+			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(uniswapView)
 			nav = uniswap.Nav(m.w - 2)
 		}
 
@@ -556,9 +488,9 @@ func (m *model) View() string {
 	if m.logEnabled {
 		// Ensure viewport height stays in sync with the rendered panel
 		reservedHeight := 10
-		availableHeight := max(5, m.h-reservedHeight)
-		maxLogHeight := min(m.h/3, 15)
-		logPanelHeight := min(availableHeight, maxLogHeight)
+		availableHeight := helpers.Max(5, m.h-reservedHeight)
+		maxLogHeight := helpers.Min(m.h/3, 15)
+		logPanelHeight := helpers.Min(availableHeight, maxLogHeight)
 		m.logViewport.Height = logPanelHeight
 
 		logPanel = logview.Render(m.w, m.h, m.logReady, m.logSpinner.View(), m.logViewport)
@@ -629,6 +561,23 @@ func (m *model) View() string {
 	return baseView
 }
 
+func toRPCDetails(details config.WalletDetails) rpc.WalletDetails {
+	rpcDetails := rpc.WalletDetails{
+		Address:    details.Address,
+		EthWei:     details.EthWei,
+		LoadedAt:   details.LoadedAt,
+		ErrMessage: details.ErrMessage,
+	}
+	for _, t := range details.Tokens {
+		rpcDetails.Tokens = append(rpcDetails.Tokens, rpc.TokenBalance{
+			Symbol:   t.Symbol,
+			Decimals: t.Decimals,
+			Balance:  t.Balance,
+		})
+	}
+	return rpcDetails
+}
+
 func key(s string) string {
 	return hotkeyKeyStyle.Render(s)
 }
@@ -650,18 +599,4 @@ func rainbow(base lipgloss.Style, s string, colors []color.Color) string {
 		str = str + base.Foreground(lipgloss.Color(color.Hex())).Render(string(ss))
 	}
 	return str
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

@@ -1,6 +1,7 @@
 package uniswap
 
 import (
+	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/styles"
 	"fmt"
 	"math/big"
@@ -35,7 +36,7 @@ func Nav(width int) string {
 // Render renders the Uniswap swap interface
 func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating bool, priceImpactWarn string) string {
 	// Create the main swap container
-	containerWidth := min(80, width-4)
+	containerWidth := helpers.Min(80, width-4)
 	
 	// Title
 	titleStyle := lipgloss.NewStyle().
@@ -286,11 +287,4 @@ func RenderTokenSelector(width, height int, tokens []TokenOption, selectedIdx in
 		lipgloss.Center,
 		box,
 	)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -84,6 +84,14 @@ func Max(a, b int) int {
 	return b
 }
 
+// Min returns the minimum of two integers
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Contains checks if a string slice contains a value
 func Contains(slice []string, val string) bool {
 	for _, item := range slice {

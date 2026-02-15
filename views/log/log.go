@@ -1,6 +1,7 @@
 package log
 
 import (
+	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/styles"
 	"fmt"
 
@@ -18,11 +19,11 @@ func Render(width, height int, logReady bool, logSpinnerView string, vp viewport
 	// Calculate available height for log panel
 	// Account for: header (3 lines), nav (1 line), title + borders (4 lines), margins (2 lines)
 	reservedHeight := 10
-	availableHeight := max(5, height-reservedHeight)
+	availableHeight := helpers.Max(5, height-reservedHeight)
 
 	// Limit max height to 1/3 of screen or 15 lines, whichever is smaller
-	maxLogHeight := min(height/3, 15)
-	logPanelHeight := min(availableHeight, maxLogHeight)
+	maxLogHeight := helpers.Min(height/3, 15)
+	logPanelHeight := helpers.Min(availableHeight, maxLogHeight)
 
 	// Update viewport height dynamically
 	vp.Height = logPanelHeight
@@ -31,7 +32,7 @@ func Render(width, height int, logReady bool, logSpinnerView string, vp viewport
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(styles.CBorder).
 		Padding(0, 1).
-		Width(max(0, width-2)).
+		Width(helpers.Max(0, width-2)).
 		Height(logPanelHeight + 2) // +2 for title and spacing
 
 	if !logReady {
@@ -53,18 +54,4 @@ func Render(width, height int, logReady bool, logSpinnerView string, vp viewport
 	titleWithScroll := title + scrollInfo
 
 	return border.Render(titleWithScroll + "\n\n" + vp.View())
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
