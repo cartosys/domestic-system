@@ -14,6 +14,7 @@ import (
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -388,14 +389,53 @@ func (m *model) loadSelectedWalletDetails() tea.Cmd {
 	return loadDetails(m.ethClient, ethAddr, m.tokenWatch)
 }
 
+// colorizeLogContent applies color coding to log messages
+func colorizeLogContent(content string) string {
+	if content == "" {
+		return content
+	}
+
+	var result strings.Builder
+	lines := strings.Split(content, "\n")
+
+	// Define color styles for log levels
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F25D94")).Bold(true)
+	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7EE787")).Bold(true)
+	debugStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#79C0FF")).Bold(true)
+	checkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7EE787"))
+
+	for i, line := range lines {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+
+		// Color check marks
+		coloredLine := strings.ReplaceAll(line, "✓", checkStyle.Render("✓"))
+
+		// Color log level keywords (they appear after timestamp, like "15:04:05 INFO message")
+		if strings.Contains(coloredLine, " ERROR") {
+			coloredLine = strings.Replace(coloredLine, " ERROR", " "+errorStyle.Render("ERROR"), 1)
+		} else if strings.Contains(coloredLine, " INFO") {
+			coloredLine = strings.Replace(coloredLine, " INFO", " "+infoStyle.Render("INFO"), 1)
+		} else if strings.Contains(coloredLine, " DEBUG") {
+			coloredLine = strings.Replace(coloredLine, " DEBUG", " "+debugStyle.Render("DEBUG"), 1)
+		}
+
+		result.WriteString(coloredLine)
+	}
+
+	return result.String()
+}
+
 // updateLogViewport refreshes the viewport content with log output
 func (m *model) updateLogViewport() {
 	if !m.logReady || m.logBuffer == nil {
 		return
 	}
 
-	// Get content from log buffer
+	// Get content from log buffer and apply color coding
 	content := m.logBuffer.String()
+	content = colorizeLogContent(content)
 	m.logViewport.SetContent(content)
 	// Scroll to bottom to show latest entries
 	m.logViewport.GotoBottom()

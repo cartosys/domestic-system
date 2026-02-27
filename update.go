@@ -512,10 +512,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Value:     lipgloss.NewStyle().Foreground(cText),
 			Separator: lipgloss.NewStyle().Faint(true),
 			Levels: map[log.Level]lipgloss.Style{
-				log.DebugLevel: lipgloss.NewStyle().Foreground(cMuted).SetString("DEBUG"),
-				log.InfoLevel:  lipgloss.NewStyle().Foreground(cAccent2).SetString("INFO"),
-				log.WarnLevel:  lipgloss.NewStyle().Foreground(cWarn).SetString("WARN"),
-				log.ErrorLevel: lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).SetString("ERROR"),
+				log.DebugLevel: lipgloss.NewStyle().Foreground(lipgloss.Color("#874BFD")).Bold(true).SetString("DEBUG"),
+				log.InfoLevel:  lipgloss.NewStyle().Foreground(lipgloss.Color("#7EE787")).Bold(true).SetString("INFO"),
+				log.WarnLevel:  lipgloss.NewStyle().Foreground(cWarn).Bold(true).SetString("WARN"),
+				log.ErrorLevel: lipgloss.NewStyle().Foreground(lipgloss.Color("#F25D94")).Bold(true).SetString("ERROR"),
 			},
 		})
 		m.logReady = true

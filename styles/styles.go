@@ -12,6 +12,8 @@ var (
 	CAccent  = lipgloss.Color("#7EE787") // green-ish
 	CAccent2 = lipgloss.Color("#79C0FF") // blue-ish
 	CWarn    = lipgloss.Color("#FFA657") // orange
+	CError   = lipgloss.Color("#F25D94") // pink/red
+	CInfo    = lipgloss.Color("#FFF7DB") // light yellow
 )
 
 // Shared styles
