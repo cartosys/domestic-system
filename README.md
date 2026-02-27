@@ -149,6 +149,22 @@ Alternatively, navigate to the Wallets page and press Enter on any wallet to vie
 ```
 Your application, running on the app machine, can now access the Ethereum node's RPC via http://localhost:9545
 
+
+## Uniswap v4 listener as a runnable helper module at uniswap_v4_listener.go. You can now run it from the terminal with:
+
+go run helpers/uniswap_v4_listener.go -ws <wss-url> -poolmanager <address> [-from <block>]
+
+# Listen to new events only
+go run helpers/uniswap_v4_listener.go \
+  -ws wss://mainnet.infura.io/ws/v3/YOUR_KEY \
+  -poolmanager 0x1234567890abcdef1234567890abcdef12345678
+
+# With backfill from a specific block
+go run helpers/uniswap_v4_listener.go \
+  -ws wss://mainnet.infura.io/ws/v3/YOUR_KEY \
+  -poolmanager 0x1234567890abcdef1234567890abcdef12345678 \
+  -from 21000000
+
 ### Project Structure
 
 ```
