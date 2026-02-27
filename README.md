@@ -137,6 +137,18 @@ Alternatively, navigate to the Wallets page and press Enter on any wallet to vie
 
 ## Development
 
+## Accessing a remote node via SSH
+
+1. Ensure node is running. By default, the RPC port is often 8545. You can check this by running this on the node machine
+```bash
+    ss -ntlp | grep 8545 
+```
+2. On your application machine, create a persistent SSH tunnel to the node machine.
+```bash
+    ssh -N -L 9545:localhost:8545 user@node_machine_ip_address
+```
+Your application, running on the app machine, can now access the Ethereum node's RPC via http://localhost:9545
+
 ### Project Structure
 
 ```
