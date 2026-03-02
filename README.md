@@ -145,7 +145,7 @@ Alternatively, navigate to the Wallets page and press Enter on any wallet to vie
 ```
 2. On your application machine, create a persistent SSH tunnel to the node machine.
 ```bash
-    ssh -N -L 9545:localhost:8545 user@node_machine_ip_address
+    ssh -N -L 8545:localhost:8545 user@node_machine_ip_address
 ```
 Your application, running on the app machine, can now access the Ethereum node's RPC via http://localhost:9545
 
@@ -163,7 +163,7 @@ go run helpers/uniswap_v4_listener.go \
 go run helpers/uniswap_v4_listener.go \
   -ws wss://mainnet.infura.io/ws/v3/YOUR_KEY \
   -poolmanager 0x1234567890abcdef1234567890abcdef12345678 \
-  -from 21000000
+  -from 24000000
 
 ### Project Structure
 
