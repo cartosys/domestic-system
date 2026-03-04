@@ -145,9 +145,10 @@ Alternatively, navigate to the Wallets page and press Enter on any wallet to vie
 ```
 2. On your application machine, create a persistent SSH tunnel to the node machine.
 ```bash
-    ssh -N -L 8545:localhost:8545 user@node_machine_ip_address
+    ssh -N -L 8545:localhost:8545 user@node_machine_ip_address #for http
+    ssh -N -L 8546:localhost:8546 user@node_machine_ip_address #for ws websocket 
 ```
-Your application, running on the app machine, can now access the Ethereum node's RPC via http://localhost:9545
+Your application, running on the app machine, can now access the Ethereum node's RPC via http://localhost:8545
 
 
 ## Uniswap v4 listener as a runnable helper module at uniswap_v4_listener.go. You can now run it from the terminal with:
@@ -155,15 +156,15 @@ Your application, running on the app machine, can now access the Ethereum node's
 go run helpers/uniswap_v4_listener.go -ws <wss-url> -poolmanager <address> [-from <block>]
 
 # Listen to new events only
-go run helpers/uniswap_v4_listener.go \
-  -ws wss://mainnet.infura.io/ws/v3/YOUR_KEY \
-  -poolmanager 0x1234567890abcdef1234567890abcdef12345678
+go run /cmd/v4listener \
+  -ws ws://localhost:8546 \
+  -poolmanager 0x000000000004444c5dc75cB358380D2e3dE08A90
 
 # With backfill from a specific block
-go run helpers/uniswap_v4_listener.go \
-  -ws wss://mainnet.infura.io/ws/v3/YOUR_KEY \
-  -poolmanager 0x1234567890abcdef1234567890abcdef12345678 \
-  -from 24000000
+go run /cmd/v4listener \
+  -ws ws://localhost:8546 \ #or ws://mainnet.infura.io/ws/v3/YOUR_KEY \
+  -poolmanager 0x000000000004444c5dc75cB358380D2e3dE08A90 \
+  -from 21688000  
 
 ### Project Structure
 
