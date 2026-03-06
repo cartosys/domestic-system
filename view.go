@@ -413,7 +413,7 @@ func (m *model) View() string {
 		}
 
 	case config.PageDappBrowser:
-		dappBrowserContent := dapps.Render(m.dapps, m.selectedDappIdx)
+		dappBrowserContent := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx)
 		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(dappBrowserContent)
 		nav = dapps.Nav(m.w - 2)
 
@@ -483,10 +483,18 @@ func (m *model) View() string {
 			return terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
 		}
 
+		var terraNullDesc string
+		for _, d := range m.dapps {
+			if d.Name == "Terra Nullius" {
+				terraNullDesc = d.Description
+				break
+			}
+		}
 		terraView := terra.Render(
 			m.w-2,
 			m.h-8,
 			m.terraNullFocusedField,
+			terraNullDesc,
 			m.terraNullClaimsCount, m.terraNullClaimsLoading,
 			m.terraNullClaimInput, m.terraNullClaimQuerying,
 			m.terraNullLastQueriedIdx,

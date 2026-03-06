@@ -86,26 +86,19 @@ func renderDAppCard(dapp config.DApp, focused bool) string {
 }
 
 // Render renders the dApp browser view with grid layout
-func Render(dapps []config.DApp, selectedIdx int) string {
+func Render(width int, dapps []config.DApp, selectedIdx int) string {
 	h := styles.TitleStyle.Render("dApp Browser")
 
 	if len(dapps) == 0 {
 		emptyMsg := lipgloss.NewStyle().
 			Foreground(styles.CMuted).
 			Render("No dApps configured.")
-
-		helpMsg := lipgloss.NewStyle().
-			Foreground(styles.CMuted).
-			Render("Press ") + styles.Key("a") +
-			lipgloss.NewStyle().Foreground(styles.CMuted).Render(" to add your first dApp.")
-
-		return h + "\n\n" + emptyMsg + "\n\n" + helpMsg
+		return h + "\n\n" + emptyMsg
 	}
 
 	// Build grid of dApp cards
-	// Calculate grid layout (3 columns)
 	const columnsPerRow = 3
-	const horizontalSpacing = "  " // 2 spaces between cards
+	const horizontalSpacing = "  "
 	var rows []string
 
 	for i := 0; i < len(dapps); i += columnsPerRow {
@@ -116,18 +109,43 @@ func Render(dapps []config.DApp, selectedIdx int) string {
 			card := renderDAppCard(dapps[idx], focused)
 			rowCards = append(rowCards, card)
 
-			// Add spacing between cards (except after last card in row)
 			if j < columnsPerRow-1 && i+j+1 < len(dapps) {
 				rowCards = append(rowCards, horizontalSpacing)
 			}
 		}
-		// Join cards in this row horizontally
 		row := lipgloss.JoinHorizontal(lipgloss.Top, rowCards...)
 		rows = append(rows, row)
 	}
 
-	// Join all rows vertically with vertical spacing (1 line between rows)
 	grid := strings.Join(rows, "\n")
+	out := h + "\n\n" + grid
 
-	return h + "\n\n" + grid
+	// Description panel for the highlighted dapp
+	if selectedIdx >= 0 && selectedIdx < len(dapps) {
+		desc := dapps[selectedIdx].Description
+		if desc != "" {
+			descWidth := width - 4
+			headStyle := lipgloss.NewStyle().
+				Foreground(styles.CAccent2).
+				Width(descWidth).
+				Align(lipgloss.Center)
+			bodyStyle := lipgloss.NewStyle().
+				Foreground(styles.CMuted).
+				Width(descWidth).
+				Align(lipgloss.Center)
+
+			paragraphs := strings.Split(desc, "\n\n")
+			var descLines []string
+			for i, p := range paragraphs {
+				if i == 0 {
+					descLines = append(descLines, headStyle.Render(p))
+				} else {
+					descLines = append(descLines, bodyStyle.Render(p))
+				}
+			}
+			out += "\n\n" + strings.Join(descLines, "\n\n")
+		}
+	}
+
+	return out
 }

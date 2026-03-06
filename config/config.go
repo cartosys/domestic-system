@@ -30,10 +30,11 @@ type WalletEntry struct {
 
 // DApp represents a dApp in the config
 type DApp struct {
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	Icon    string `json:"icon,omitempty"`
-	Network string `json:"network,omitempty"`
+	Name        string `json:"name"`
+	Address     string `json:"address"`
+	Icon        string `json:"icon,omitempty"`
+	Network     string `json:"network,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // -------------------- UI TYPE DEFINITIONS --------------------
@@ -132,6 +133,9 @@ func DefaultDapps() []DApp {
 			Address: "0x6e38A457C722C6011B2DfA06d49240e797844d66",
 			Icon:    "🌵",
 			Network: "Mainnet",
+			Description: "The Ethereum Message Board from Block 49,880 (August 7, 2015) — Still Getting Claims in 2026\n\n" +
+				"Two weeks after Ethereum's genesis block, a Reddit user named \"Semiel\" deployed one of the earliest smart contracts on the network: TerraNullius.\n\n" +
+				"What it does: Anyone can \"claim\" a hex coordinate and attach a message to it — a permanent, uncensorable message board on the blockchain. No tokens, no governance, no economic incentive. Just messages, forever.",
 		},
 	}
 }

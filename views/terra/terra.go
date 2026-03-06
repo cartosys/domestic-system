@@ -26,6 +26,7 @@ func Nav(width int) string {
 func Render(
 	width, height int,
 	focusedField int,
+	description string,
 	claimsCount string, claimsLoading bool,
 	claimInput string, claimQuerying bool,
 	queriedIdx string,
@@ -46,6 +47,26 @@ func Render(
 
 	title := titleStyle.Render("🌵  Terra Nullius")
 	subtitle := subtitleStyle.Render(helpers.ShortenAddr(helpers.TerraContractAddress) + "  [Mainnet]")
+
+	var descLines []string
+	if description != "" {
+		descHeadStyle := lipgloss.NewStyle().
+			Foreground(styles.CAccent2).
+			Width(containerWidth).
+			Align(lipgloss.Center)
+		descBodyStyle := lipgloss.NewStyle().
+			Foreground(styles.CMuted).
+			Width(containerWidth).
+			Align(lipgloss.Center)
+		paragraphs := strings.Split(description, "\n\n")
+		for i, p := range paragraphs {
+			if i == 0 {
+				descLines = append(descLines, descHeadStyle.Render(p))
+			} else {
+				descLines = append(descLines, descBodyStyle.Render(p))
+			}
+		}
+	}
 
 	// --- Element 0: Number of Claims (display-only, unselectable) ---
 	countBoxStyle := lipgloss.NewStyle().
@@ -158,14 +179,15 @@ func Render(
 		Align(lipgloss.Center).
 		Render("↑/↓ navigate • Tab next • Enter select")
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		title, subtitle, "",
-		countBox, "",
-		claimsBox, "",
-		claimBox, "",
-		infoText,
-	)
+	headerParts := []string{title, subtitle}
+	if len(descLines) > 0 {
+		headerParts = append(headerParts, "")
+		headerParts = append(headerParts, descLines...)
+	}
+	headerParts = append(headerParts, "")
+
+	contentParts := append(headerParts, countBox, "", claimsBox, "", claimBox, "", infoText)
+	content := lipgloss.JoinVertical(lipgloss.Center, contentParts...)
 
 	return lipgloss.NewStyle().
 		Width(width).
