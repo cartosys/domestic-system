@@ -156,12 +156,12 @@ Your application, running on the app machine, can now access the Ethereum node's
 go run helpers/uniswap_v4_listener.go -ws <wss-url> -poolmanager <address> [-from <block>]
 
 # Listen to new events only
-go run /cmd/v4listener \
+go run ./cmd/v4listener \
   -ws ws://localhost:8546 \
   -poolmanager 0x000000000004444c5dc75cB358380D2e3dE08A90
 
 # With backfill from a specific block
-go run /cmd/v4listener \
+go run ./cmd/v4listener \
   -ws ws://localhost:8546 \ #or ws://mainnet.infura.io/ws/v3/YOUR_KEY \
   -poolmanager 0x000000000004444c5dc75cB358380D2e3dE08A90 \
   -from 21688000  

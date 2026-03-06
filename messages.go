@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math/big"
+
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
@@ -58,4 +60,16 @@ type packageTransactionMsg struct {
 	qrData    string
 	format    string
 	err       error
+}
+
+// terraNullClaimsCountMsg contains the result of a number_of_claims() call
+type terraNullClaimsCountMsg struct {
+	count *big.Int
+	err   error
+}
+
+// terraNullClaimQueryMsg contains the result of a claims(uint256) call
+type terraNullClaimQueryMsg struct {
+	result *helpers.TerraClaimResult
+	err    error
 }

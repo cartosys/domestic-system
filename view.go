@@ -15,6 +15,7 @@ import (
 	"charm-wallet-tui/views/details"
 	logview "charm-wallet-tui/views/log"
 	"charm-wallet-tui/views/settings"
+	"charm-wallet-tui/views/terra"
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
 
@@ -478,6 +479,27 @@ func (m *model) View() string {
 		}
 
 		// Show transaction result panel overlay if active
+		if m.showTxResultPanel {
+			return m.renderTxResultPanel()
+		}
+
+	case config.PageTerraNullius:
+		// Show claim popup overlay
+		if m.terraNullShowClaimForm {
+			return terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
+		}
+
+		terraView := terra.Render(
+			m.w-2,
+			m.h-8,
+			m.terraNullFocusedField,
+			m.terraNullClaimsCount, m.terraNullClaimsLoading,
+			m.terraNullClaimInput, m.terraNullClaimQuerying,
+			m.terraNullClaimResult, m.terraNullClaimResultErr,
+		)
+		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(terraView)
+		nav = terra.Nav(m.w - 2)
+
 		if m.showTxResultPanel {
 			return m.renderTxResultPanel()
 		}

@@ -146,6 +146,20 @@ type model struct {
 	lastQuoteFromTokenIdx int    // last from token index used for quote
 	lastQuoteToTokenIdx   int    // last to token index used for quote
 
+	// Terra Nullius dapp state
+	terraNullFocusedField   int                    // 1=Claims, 2=Claim
+	terraNullClaimsCount    string                 // display value from number_of_claims()
+	terraNullClaimsLoading  bool
+	terraNullClaimInput     string                 // typed index for claims() query
+	terraNullClaimResult    *helpers.TerraClaimResult
+	terraNullClaimQuerying  bool
+	terraNullClaimResultErr string
+	// Terra Nullius claim popup
+	terraNullShowClaimForm bool
+	terraNullMsgInput      textinput.Model
+	terraNullFormFocused   int    // 0=message input, 1=submit button
+	terraNullMsgError      string
+
 	// Double-click detection for header address
 	lastClickTime time.Time
 	lastClickX    int
@@ -248,6 +262,15 @@ func newModel() model {
 		{Symbol: "DAI", Decimals: 18, Address: common.HexToAddress("0x6B175474E89094C44Da98b954EedeAC495271d0F")},
 	}
 
+	// Terra Nullius message input (for claim popup)
+	terraNullInput := textinput.New()
+	terraNullInput.Placeholder = "Enter your message…"
+	terraNullInput.Prompt = ""
+	terraNullInput.TextStyle = lipgloss.NewStyle().Foreground(styles.CText)
+	terraNullInput.Cursor.Style = lipgloss.NewStyle().Foreground(styles.CAccent2)
+	terraNullInput.CharLimit = 256
+	terraNullInput.Width = 44
+
 	// Initialize log viewport
 	vp := viewport.New(0, 20) // Will be resized in Update on first WindowSizeMsg
 	vp.Style = lipgloss.NewStyle().
@@ -285,6 +308,9 @@ func newModel() model {
 		dappMode:           "list",
 		selectedDappIdx:    0,
 		detailsInWallets:   true, // Enable split panel view by default
+		terraNullFocusedField: 1,
+		terraNullClaimInput:   "1",
+		terraNullMsgInput:     terraNullInput,
 	}
 
 	return m

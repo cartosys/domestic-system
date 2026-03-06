@@ -338,6 +338,60 @@ func fetchReverseUniswapQuote(client *rpc.Client, pairAddr, tokenInAddr common.A
 	}
 }
 
+// fetchTerraNumberOfClaims fetches the total number of claims from Terra Nullius
+func fetchTerraNumberOfClaims(client *rpc.Client) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil || client.Client == nil {
+			return terraNullClaimsCountMsg{nil, fmt.Errorf("no RPC client")}
+		}
+		count, err := helpers.GetTerraNumberOfClaims(client.Client)
+		return terraNullClaimsCountMsg{count, err}
+	}
+}
+
+// fetchTerraClaim fetches a specific claim by index from Terra Nullius
+func fetchTerraClaim(client *rpc.Client, index *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil || client.Client == nil {
+			return terraNullClaimQueryMsg{nil, fmt.Errorf("no RPC client")}
+		}
+		result, err := helpers.GetTerraClaim(client.Client, index)
+		return terraNullClaimQueryMsg{result, err}
+	}
+}
+
+// packageTerraClaimTx packages a Terra Nullius claim transaction for QR display
+func packageTerraClaimTx(fromAddr, message string) tea.Cmd {
+	return func() tea.Msg {
+		calldata := helpers.BuildTerraClaimCalldata(message)
+
+		calldataHex := "0x"
+		for _, b := range calldata {
+			calldataHex += fmt.Sprintf("%02x", b)
+		}
+
+		txJSON := fmt.Sprintf(`{
+  "from": "%s",
+  "to": "%s",
+  "value": "0x0",
+  "data": "%s",
+  "note": "Terra Nullius claim: %s"
+}`,
+			fromAddr,
+			helpers.TerraContractAddress,
+			calldataHex,
+			message,
+		)
+
+		return packageTransactionMsg{
+			txDisplay: txJSON,
+			qrData:    helpers.TerraContractAddress,
+			format:    "EIP-4527",
+			err:       nil,
+		}
+	}
+}
+
 // -------------------- MODEL HELPER METHODS --------------------
 // These methods help with state management and command generation
 
@@ -456,6 +510,9 @@ func (m model) textInputActive() bool {
 		return true
 	}
 	if (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
+		return true
+	}
+	if m.terraNullShowClaimForm {
 		return true
 	}
 	return false
