@@ -152,6 +152,7 @@ type model struct {
 	terraNullClaimInput     string                 // typed index for claims() query
 	terraNullClaimResult    *helpers.TerraClaimResult
 	terraNullClaimQuerying  bool
+	terraNullLastQueriedIdx string // index used for the current/last result
 	terraNullClaimResultErr string
 	// Terra Nullius claim popup
 	terraNullShowClaimForm bool

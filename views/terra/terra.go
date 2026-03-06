@@ -28,6 +28,7 @@ func Render(
 	focusedField int,
 	claimsCount string, claimsLoading bool,
 	claimInput string, claimQuerying bool,
+	queriedIdx string,
 	claimResult *helpers.TerraClaimResult, claimResultErr string,
 ) string {
 	containerWidth := helpers.Min(80, width-4)
@@ -104,9 +105,12 @@ func Render(
 		etherscanURL := fmt.Sprintf("https://etherscan.io/address/%s", claimResult.Claimant)
 		rainbowAddr := helpers.FadeString(claimResult.Claimant, "#F25D94", "#79C0FF")
 		claimantDisplay := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", etherscanURL, rainbowAddr)
-		blockDisplay := lipgloss.NewStyle().Foreground(styles.CMuted).Render("Block " + claimResult.BlockNumber.String())
+		rainbowBlock := helpers.FadeString(claimResult.BlockNumber.String(), "#F25D94", "#79C0FF")
+		muted := lipgloss.NewStyle().Foreground(styles.CMuted)
+		idxDisplay := muted.Render("#" + queriedIdx + " sent by")
+		atDisplay := muted.Render("at Block")
 		msgDisplay := lipgloss.NewStyle().Foreground(styles.CText).Render(`"` + claimResult.Message + `"`)
-		resultContent = claimantDisplay + "  " + blockDisplay + "\n" + msgDisplay
+		resultContent = idxDisplay + " " + claimantDisplay + " " + atDisplay + " " + rainbowBlock + "\n" + msgDisplay
 	}
 
 	claimsContent := claimsLabel + "\n" + inputDisplay

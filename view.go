@@ -489,6 +489,7 @@ func (m *model) View() string {
 			m.terraNullFocusedField,
 			m.terraNullClaimsCount, m.terraNullClaimsLoading,
 			m.terraNullClaimInput, m.terraNullClaimQuerying,
+			m.terraNullLastQueriedIdx,
 			m.terraNullClaimResult, m.terraNullClaimResultErr,
 		)
 		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(terraView)
