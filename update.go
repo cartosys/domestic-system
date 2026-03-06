@@ -1472,6 +1472,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.terraNullClaimResult = nil
 				m.terraNullClaimResultErr = ""
 				m.addLog("info", fmt.Sprintf("Terra Nullius: querying claim #%s", m.terraNullClaimInput))
+				m.terraNullClaimInput = new(big.Int).Add(idx, big.NewInt(1)).String()
 				return m, fetchTerraClaim(m.ethClient, idx)
 			} else if m.terraNullFocusedField == 2 {
 				// Open claim popup
