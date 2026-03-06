@@ -127,13 +127,14 @@ func DefaultDapps() []DApp {
 			Address: "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00",
 			Icon:    "🦄",
 			Network: "Mainnet",
+			Description: "Uniswap is a leading decentralized cryptocurrency exchange (DEX) on the Ethereum blockchain that utilizes an automated market maker (AMM) system to allow users to swap tokens directly from their wallets without intermediaries. It enables anyone to provide liquidity to pools, earning fees in a non-custodial manner.",
 		},
 		{
 			Name:    "Terra Nullius",
 			Address: "0x6e38A457C722C6011B2DfA06d49240e797844d66",
 			Icon:    "🌵",
 			Network: "Mainnet",
-			Description: "The Ethereum Message Board from Block 49,880 (August 7, 2015) — Still Getting Claims in 2026\n\n" +
+			Description: "The Ethereum Message Board from Block 49,880 (August 7, 2015) — Still Getting Claims\n\n" +
 				"Two weeks after Ethereum's genesis block, a Reddit user named \"Semiel\" deployed one of the earliest smart contracts on the network: TerraNullius.\n\n" +
 				"What it does: Anyone can \"claim\" a hex coordinate and attach a message to it — a permanent, uncensorable message board on the blockchain. No tokens, no governance, no economic incentive. Just messages, forever.",
 		},
