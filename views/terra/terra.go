@@ -41,7 +41,7 @@ func Render(
 		Align(lipgloss.Center).
 		Width(containerWidth)
 
-	title := titleStyle.Render("🏜️  Terra Nullius")
+	title := titleStyle.Render("🌵  Terra Nullius")
 	subtitle := subtitleStyle.Render(helpers.ShortenAddr(helpers.TerraContractAddress) + "  [Mainnet]")
 
 	// --- Element 0: Number of Claims (display-only, unselectable) ---
@@ -239,7 +239,7 @@ func RenderClaimPopup(width, height int, inputView, inputErr string, formFocused
 		Background(styles.CPanel)
 
 	var uiParts []string
-	uiParts = append(uiParts, titleStyle.Render("🏜️  Terra Nullius"))
+	uiParts = append(uiParts, titleStyle.Render("🌵  Terra Nullius"))
 	uiParts = append(uiParts, "")
 	uiParts = append(uiParts, promptStyle.Render("Make a statement on the blockchain forever:"))
 	uiParts = append(uiParts, "")

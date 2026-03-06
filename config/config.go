@@ -95,14 +95,18 @@ func Load(path string) Config {
 		return Config{}
 	}
 
-	// Merge any missing default dapps into existing config
+	// Merge any missing default dapps into existing config, and fix known bad icon values
 	defaults := DefaultConfig()
 	changed := false
 	for _, def := range defaults.Dapps {
 		found := false
-		for _, d := range cfg.Dapps {
+		for i, d := range cfg.Dapps {
 			if d.Name == def.Name {
 				found = true
+				if d.Icon != def.Icon {
+					cfg.Dapps[i].Icon = def.Icon
+					changed = true
+				}
 				break
 			}
 		}
@@ -145,7 +149,7 @@ func DefaultConfig() Config {
 			{
 				Name:    "Terra Nullius",
 				Address: "0x6e38A457C722C6011B2DfA06d49240e797844d66",
-				Icon:    "🏜️",
+				Icon:    "🌵",
 				Network: "Mainnet",
 			},
 		},
