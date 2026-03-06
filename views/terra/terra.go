@@ -1,6 +1,8 @@
 package terra
 
 import (
+	"fmt"
+
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/styles"
 	"strings"
@@ -99,7 +101,9 @@ func Render(
 	} else if claimResultErr != "" {
 		resultContent = lipgloss.NewStyle().Foreground(styles.CError).Render(claimResultErr)
 	} else if claimResult != nil {
-		claimantDisplay := lipgloss.NewStyle().Foreground(styles.CAccent2).Render(helpers.ShortenAddr(claimResult.Claimant))
+		etherscanURL := fmt.Sprintf("https://etherscan.io/address/%s", claimResult.Claimant)
+		rainbowAddr := helpers.FadeString(claimResult.Claimant, "#F25D94", "#79C0FF")
+		claimantDisplay := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", etherscanURL, rainbowAddr)
 		blockDisplay := lipgloss.NewStyle().Foreground(styles.CMuted).Render("Block " + claimResult.BlockNumber.String())
 		msgDisplay := lipgloss.NewStyle().Foreground(styles.CText).Render(`"` + claimResult.Message + `"`)
 		resultContent = claimantDisplay + "  " + blockDisplay + "\n" + msgDisplay
