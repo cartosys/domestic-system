@@ -95,18 +95,14 @@ func Load(path string) Config {
 		return Config{}
 	}
 
-	// Merge any missing default dapps into existing config, and fix known bad icon values
+	// Merge any missing default dapps into existing config
 	defaults := DefaultConfig()
 	changed := false
 	for _, def := range defaults.Dapps {
 		found := false
-		for i, d := range cfg.Dapps {
+		for _, d := range cfg.Dapps {
 			if d.Name == def.Name {
 				found = true
-				if d.Icon != def.Icon {
-					cfg.Dapps[i].Icon = def.Icon
-					changed = true
-				}
 				break
 			}
 		}
