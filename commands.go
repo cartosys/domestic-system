@@ -509,10 +509,7 @@ func (m model) textInputActive() bool {
 	if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
 		return true
 	}
-	if (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
-		return true
-	}
-	if m.terraNullShowClaimForm {
+if m.terraNullShowClaimForm {
 		return true
 	}
 	return false

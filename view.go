@@ -414,14 +414,8 @@ func (m *model) View() string {
 
 	case config.PageDappBrowser:
 		dappBrowserContent := dapps.Render(m.dapps, m.selectedDappIdx)
-
-		// Show form if in add/edit mode
-		if (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
-			dappBrowserContent = styles.TitleStyle.Render("dApp Browser") + "\n\n" + m.form.View()
-		}
-
 		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(dappBrowserContent)
-		nav = dapps.Nav(m.w-2, m.dappMode)
+		nav = dapps.Nav(m.w - 2)
 
 	case config.PageDetails:
 		rpcDetails := toRPCDetails(m.details)

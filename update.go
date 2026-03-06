@@ -24,10 +24,6 @@ var (
 	tempRPCFormName   string
 	tempRPCFormURL    string
 	tempNicknameField string
-	tempDappName      string
-	tempDappAddress   string
-	tempDappIcon      string
-	tempDappNetwork   string
 	tempSendToAddr    string
 	tempSendAmount    string
 )
@@ -163,114 +159,6 @@ func (m *model) createNicknameForm() {
 	m.form.Init()
 }
 
-func (m *model) createAddDappForm() {
-	tempDappName = ""
-	tempDappAddress = ""
-	tempDappIcon = ""
-	tempDappNetwork = ""
-
-	// Build network options from RPC URLs
-	networkOptions := []huh.Option[string]{}
-	for _, rpcURL := range m.rpcURLs {
-		networkOptions = append(networkOptions, huh.NewOption(rpcURL.Name, rpcURL.Name))
-	}
-
-	// Find the active RPC URL name as default
-	defaultNetwork := ""
-	for _, rpcURL := range m.rpcURLs {
-		if rpcURL.Active {
-			defaultNetwork = rpcURL.Name
-			break
-		}
-	}
-	tempDappNetwork = defaultNetwork
-
-	m.form = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("dApp Name").
-				Description("A friendly name for this dApp").
-				Value(&tempDappName).
-				Placeholder("Uniswap"),
-
-			huh.NewInput().
-				Title("dApp Address").
-				Description("The URL or address of the dApp").
-				Value(&tempDappAddress).
-				Placeholder("https://app.uniswap.org"),
-
-			huh.NewInput().
-				Title("Icon").
-				Description("Icon or emoji for the dApp (optional)").
-				Value(&tempDappIcon).
-				Placeholder("🦄"),
-
-			huh.NewSelect[string]().
-				Options(networkOptions...).
-				Title("Network").
-				Description("Choose the network for this dApp").
-				Value(&tempDappNetwork),
-		),
-	).WithTheme(huh.ThemeCatppuccin())
-
-	m.form.Init()
-}
-
-func (m *model) createEditDappForm(idx int) {
-	if idx < 0 || idx >= len(m.dapps) {
-		return
-	}
-
-	dapp := m.dapps[idx]
-	tempDappName = dapp.Name
-	tempDappAddress = dapp.Address
-	tempDappIcon = dapp.Icon
-	tempDappNetwork = dapp.Network
-
-	// Build network options from RPC URLs
-	networkOptions := []huh.Option[string]{}
-	for _, rpcURL := range m.rpcURLs {
-		networkOptions = append(networkOptions, huh.NewOption(rpcURL.Name, rpcURL.Name))
-	}
-
-	// If current network is empty, use active RPC URL as default
-	if tempDappNetwork == "" {
-		for _, rpcURL := range m.rpcURLs {
-			if rpcURL.Active {
-				tempDappNetwork = rpcURL.Name
-				break
-			}
-		}
-	}
-
-	m.form = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("dApp Name").
-				Value(&tempDappName).
-				Placeholder("Uniswap"),
-
-			huh.NewInput().
-				Title("dApp Address").
-				Value(&tempDappAddress).
-				Placeholder("https://app.uniswap.org"),
-
-			huh.NewInput().
-				Title("Icon").
-				Value(&tempDappIcon).
-				Placeholder("🦄"),
-
-			huh.NewSelect[string]().
-				Options(networkOptions...).
-				Title("Network").
-				Description("Choose the network for this dApp").
-				Value(&tempDappNetwork),
-		),
-	).WithTheme(huh.ThemeCatppuccin())
-
-	m.form.Init()
-}
-
 // -------------------- UPDATE --------------------
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -382,7 +270,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
-				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 				m.nicknaming = false
 				m.form = nil
 				return m, nil
@@ -391,52 +279,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check if form was aborted (ESC pressed)
 			if m.form.State == huh.StateAborted {
 				m.nicknaming = false
-				m.form = nil
-				return m, nil
-			}
-		}
-		return m, cmd
-	}
-
-	if (m.activePage == config.PageDetails || m.activePage == config.PageDappBrowser) && (m.dappMode == "add" || m.dappMode == "edit") && m.form != nil {
-		// Intercept ESC key to cancel form
-		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
-			m.dappMode = "list"
-			m.form = nil
-			return m, nil
-		}
-
-		form, cmd := m.form.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			m.form = f
-
-			// Check if form is completed
-			if m.form.State == huh.StateCompleted {
-				if m.dappMode == "add" {
-					if tempDappName != "" && tempDappAddress != "" {
-						newDapp := config.DApp{Name: tempDappName, Address: tempDappAddress, Icon: tempDappIcon, Network: tempDappNetwork}
-						m.dapps = append(m.dapps, newDapp)
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
-						m.addLog("success", fmt.Sprintf("Added dApp: `%s`", tempDappName))
-					}
-				} else if m.dappMode == "edit" {
-					if m.selectedDappIdx >= 0 && m.selectedDappIdx < len(m.dapps) {
-						m.dapps[m.selectedDappIdx].Name = tempDappName
-						m.dapps[m.selectedDappIdx].Address = tempDappAddress
-						m.dapps[m.selectedDappIdx].Icon = tempDappIcon
-						m.dapps[m.selectedDappIdx].Network = tempDappNetwork
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
-						m.addLog("success", fmt.Sprintf("Updated dApp: `%s`", tempDappName))
-					}
-				}
-				m.dappMode = "list"
-				m.form = nil
-				return m, nil
-			}
-
-			// Check if form was aborted (ESC pressed)
-			if m.form.State == huh.StateAborted {
-				m.dappMode = "list"
 				m.form = nil
 				return m, nil
 			}
@@ -525,14 +367,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if tempRPCFormName != "" && tempRPCFormURL != "" {
 						newRPC := config.RPCUrl{Name: tempRPCFormName, URL: tempRPCFormURL, Active: false}
 						m.rpcURLs = append(m.rpcURLs, newRPC)
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 						m.addLog("success", fmt.Sprintf("Added RPC endpoint: `%s` (%s)", tempRPCFormName, tempRPCFormURL))
 					}
 				} else if m.settingsMode == "edit" {
 					if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
 						m.rpcURLs[m.selectedRPCIdx].Name = tempRPCFormName
 						m.rpcURLs[m.selectedRPCIdx].URL = tempRPCFormURL
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 						m.addLog("success", fmt.Sprintf("Updated RPC endpoint: `%s`", tempRPCFormName))
 					}
 				}
@@ -741,7 +583,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.highlightedAddress = selectedAddr
 					m.selectedWallet = m.accountListSelectedIdx
 					// Save config
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 					m.addLog("success", fmt.Sprintf("Activated account: %s", helpers.ShortenAddr(selectedAddr)))
 					// Close popup
 					m.showAccountListPopup = false
@@ -772,7 +614,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.logViewport.Width = m.w - 6
 					}
 					m.logReady = false
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 					return m, tea.Batch(initLogViewport(), m.logSpinner.Tick)
 				}
 				// Clear logs and de-initialize when disabling
@@ -781,7 +623,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.logger = nil
 				m.logReady = false
-				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 				return m, nil
 
 			case "pageup", "pagedown":
@@ -837,7 +679,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.activeAddress = ""
 						}
 						// Save wallets to config
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 						m.addLog("warning", fmt.Sprintf("Deleted wallet `%s`", helpers.ShortenAddr(deletedAddr)))
 						m.showDeleteDialog = false
 						// Load details for the newly selected wallet if split view is enabled
@@ -998,7 +840,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.focusedInput = 0
 						m.addError = ""
 						// Save wallets to config
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 						if nickname != "" {
 							m.addLog("success", fmt.Sprintf("Added wallet `%s` with nickname `%s`", helpers.ShortenAddr(newAddr), nickname))
 						} else {
@@ -1067,7 +909,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					// Update active address to the newly activated wallet
 					m.activeAddress = m.accounts[m.selectedWallet].Address
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 					m.addLog("info", fmt.Sprintf("Activated wallet `%s`", helpers.ShortenAddr(m.activeAddress)))
 
 					// If split view is enabled, refresh details for the newly activated wallet
@@ -1088,7 +930,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "b", "B":
 			m.activePage = config.PageDappBrowser
-			m.dappMode = "list"
 			return m, nil
 
 		case "h", "H":
@@ -1134,87 +975,59 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case config.PageDappBrowser:
-		// Only handle list mode controls here (form handled at top of Update)
-		if m.dappMode == "list" {
-			switch msg.String() {
-			case "esc":
-				m.activePage = config.PageWallets
-				// Load details for selected wallet if split view enabled
-				return m, m.loadSelectedWalletDetails()
+		switch msg.String() {
+		case "esc":
+			m.activePage = config.PageWallets
+			return m, m.loadSelectedWalletDetails()
 
-			case "enter":
-				if m.selectedDappIdx >= 0 && m.selectedDappIdx < len(m.dapps) &&
-					m.dapps[m.selectedDappIdx].Name == "Terra Nullius" {
-					m.activePage = config.PageTerraNullius
-					m.terraNullFocusedField = 1
-					m.terraNullClaimsCount = ""
-					m.terraNullClaimsLoading = true
-					m.terraNullClaimInput = "1"
-					m.terraNullClaimResult = nil
-					m.terraNullClaimQuerying = false
-					m.terraNullClaimResultErr = ""
-					m.terraNullShowClaimForm = false
-					m.addLog("info", "Terra Nullius: loading number of claims…")
-					return m, fetchTerraNumberOfClaims(m.ethClient)
-				}
-				// Default: open Uniswap interface
-				m.activePage = config.PageUniswap
-				// Initialize Uniswap state with default values
-				m.uniswapFromTokenIdx = 0 // Default to first token (ETH)
-				m.uniswapToTokenIdx = 1   // Default to second token if available
-				m.uniswapFromAmount = ""
-				m.uniswapToAmount = ""
-				m.uniswapFocusedField = 0
-				m.uniswapShowingSelector = false
-				m.uniswapSelectorFor = 0
-				m.uniswapSelectorIdx = 0
-				m.uniswapEstimating = false
-				m.uniswapQuote = nil
-				m.uniswapQuoteError = ""
-				m.uniswapPriceImpactWarn = ""
-				// Reset tracking state
-				m.lastQuoteFromAmount = ""
-				m.lastQuoteFromTokenIdx = -1
-				m.lastQuoteToTokenIdx = -1
-				return m, nil
-
-			case "tab", "down", "right":
-				// Cycle to next dApp (wraps around)
-				if len(m.dapps) > 0 {
-					m.selectedDappIdx = (m.selectedDappIdx + 1) % len(m.dapps)
-				}
-				return m, nil
-
-			case "shift+tab", "up", "left":
-				// Cycle to previous dApp (wraps around)
-				if len(m.dapps) > 0 {
-					m.selectedDappIdx--
-					if m.selectedDappIdx < 0 {
-						m.selectedDappIdx = len(m.dapps) - 1
-					}
-				}
-				return m, nil
-
-		case "a", "A":
-			m.dappMode = "add"
-			m.createAddDappForm()
+		case "enter":
+			if m.selectedDappIdx >= 0 && m.selectedDappIdx < len(m.dapps) &&
+				m.dapps[m.selectedDappIdx].Name == "Terra Nullius" {
+				m.activePage = config.PageTerraNullius
+				m.terraNullFocusedField = 1
+				m.terraNullClaimsCount = ""
+				m.terraNullClaimsLoading = true
+				m.terraNullClaimInput = "1"
+				m.terraNullClaimResult = nil
+				m.terraNullClaimQuerying = false
+				m.terraNullClaimResultErr = ""
+				m.terraNullShowClaimForm = false
+				m.addLog("info", "Terra Nullius: loading number of claims…")
+				return m, fetchTerraNumberOfClaims(m.ethClient)
+			}
+			// Default: open Uniswap interface
+			m.activePage = config.PageUniswap
+			m.uniswapFromTokenIdx = 0
+			m.uniswapToTokenIdx = 1
+			m.uniswapFromAmount = ""
+			m.uniswapToAmount = ""
+			m.uniswapFocusedField = 0
+			m.uniswapShowingSelector = false
+			m.uniswapSelectorFor = 0
+			m.uniswapSelectorIdx = 0
+			m.uniswapEstimating = false
+			m.uniswapQuote = nil
+			m.uniswapQuoteError = ""
+			m.uniswapPriceImpactWarn = ""
+			m.lastQuoteFromAmount = ""
+			m.lastQuoteFromTokenIdx = -1
+			m.lastQuoteToTokenIdx = -1
 			return m, nil
 
-		case "e", "E":
-
-		case "delete", "backspace":
-			// Delete selected dApp
-			if len(m.dapps) > 0 && m.selectedDappIdx < len(m.dapps) {
-				deletedDapp := m.dapps[m.selectedDappIdx].Name
-				m.dapps = append(m.dapps[:m.selectedDappIdx], m.dapps[m.selectedDappIdx+1:]...)
-				if m.selectedDappIdx >= len(m.dapps) && m.selectedDappIdx > 0 {
-					m.selectedDappIdx--
-				}
-				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
-				m.addLog("warning", fmt.Sprintf("Deleted dApp `%s`", deletedDapp))
+		case "tab", "down", "right":
+			if len(m.dapps) > 0 {
+				m.selectedDappIdx = (m.selectedDappIdx + 1) % len(m.dapps)
 			}
 			return m, nil
+
+		case "shift+tab", "up", "left":
+			if len(m.dapps) > 0 {
+				m.selectedDappIdx--
+				if m.selectedDappIdx < 0 {
+					m.selectedDappIdx = len(m.dapps) - 1
+				}
 			}
+			return m, nil
 		}
 
 	case config.PageSettings:
@@ -1232,7 +1045,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.selectedRPCIdx >= len(m.rpcURLs) && m.selectedRPCIdx > 0 {
 							m.selectedRPCIdx--
 						}
-						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 						m.addLog("warning", fmt.Sprintf("Deleted RPC endpoint `%s`", deletedName))
 					}
 					m.showRPCDeleteDialog = false
@@ -1298,7 +1111,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.rpcURLs[i].Active = (i == m.selectedRPCIdx)
 					}
 					m.rpcURL = m.rpcURLs[m.selectedRPCIdx].URL
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 					// Set connecting state and reconnect with new RPC
 					m.rpcConnecting = true
 					m.rpcConnected = false
@@ -1749,7 +1562,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.highlightedAddress = area.Address
 									m.selectedWallet = i
 									// Save config
-									config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Dapps: m.dapps, Logger: m.logEnabled})
+									config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 									m.addLog("success", fmt.Sprintf("Activated account: %s", helpers.ShortenAddr(area.Address)))
 									// Close popup if it was open
 									if m.showAccountListPopup {

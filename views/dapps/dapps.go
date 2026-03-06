@@ -10,24 +10,13 @@ import (
 )
 
 // Nav returns the navigation bar for dApp browser view
-func Nav(width int, dappMode string) string {
-	var left string
-	if dappMode == "add" || dappMode == "edit" {
-		left = strings.Join([]string{
-			styles.Key("l") + " logger",
-			styles.Key("Esc") + " cancel",
-		}, "   ")
-	} else {
-		left = strings.Join([]string{
-			styles.Key("Tab") + " select next",
-			styles.Key("Enter") + " open",
-			styles.Key("a") + " add",
-			styles.Key("e") + " edit",
-			styles.Key("del") + " delete",
-			styles.Key("l") + " logger",
-			styles.Key("Esc") + " back",
-		}, "   ")
-	}
+func Nav(width int) string {
+	left := strings.Join([]string{
+		styles.Key("Tab") + " select next",
+		styles.Key("Enter") + " open",
+		styles.Key("l") + " logger",
+		styles.Key("Esc") + " back",
+	}, "   ")
 
 	return styles.NavStyle.Width(width).Render(left)
 }

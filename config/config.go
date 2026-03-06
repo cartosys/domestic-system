@@ -11,7 +11,6 @@ import (
 type Config struct {
 	RPCURLs []RPCUrl      `json:"rpc_urls"`
 	Wallets []WalletEntry `json:"wallets"`
-	Dapps   []DApp        `json:"dapps"`
 	Logger  bool          `json:"logger"`
 }
 
@@ -95,26 +94,6 @@ func Load(path string) Config {
 		return Config{}
 	}
 
-	// Merge any missing default dapps into existing config
-	defaults := DefaultConfig()
-	changed := false
-	for _, def := range defaults.Dapps {
-		found := false
-		for _, d := range cfg.Dapps {
-			if d.Name == def.Name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			cfg.Dapps = append(cfg.Dapps, def)
-			changed = true
-		}
-	}
-	if changed {
-		Save(path, cfg)
-	}
-
 	return cfg
 }
 
@@ -135,21 +114,25 @@ func DefaultConfig() Config {
 				Active:  true,
 			},
 		},
-		Dapps: []DApp{
-			{
-				Name:    "Uniswap v4",
-				Address: "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00",
-				Icon:    "🦄",
-				Network: "Mainnet",
-			},
-			{
-				Name:    "Terra Nullius",
-				Address: "0x6e38A457C722C6011B2DfA06d49240e797844d66",
-				Icon:    "🌵",
-				Network: "Mainnet",
-			},
-		},
 		Logger: true,
+	}
+}
+
+// DefaultDapps returns the built-in dapp list. Dapps are managed here, not in the config file.
+func DefaultDapps() []DApp {
+	return []DApp{
+		{
+			Name:    "Uniswap v4",
+			Address: "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00",
+			Icon:    "🦄",
+			Network: "Mainnet",
+		},
+		{
+			Name:    "Terra Nullius",
+			Address: "0x6e38A457C722C6011B2DfA06d49240e797844d66",
+			Icon:    "🌵",
+			Network: "Mainnet",
+		},
 	}
 }
 

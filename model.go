@@ -74,7 +74,6 @@ type model struct {
 
 	// dApp browser state
 	dapps           []config.DApp
-	dappMode        string // "list", "add", "edit"
 	selectedDappIdx int
 
 	// home form
@@ -304,9 +303,8 @@ func newModel() model {
 		logBuffer:          &strings.Builder{},
 		logSpinner:         logSpin,
 		detailsCache:       make(map[string]config.WalletDetails),
-		dapps:              cfg.Dapps,
-		dappMode:           "list",
-		selectedDappIdx:    0,
+		dapps:           config.DefaultDapps(),
+		selectedDappIdx: 0,
 		detailsInWallets:   true, // Enable split panel view by default
 		terraNullFocusedField: 1,
 		terraNullClaimInput:   "1",
