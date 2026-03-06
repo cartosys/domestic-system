@@ -109,7 +109,7 @@ func Render(
 		muted := lipgloss.NewStyle().Foreground(styles.CMuted)
 		idxDisplay := muted.Render("#" + queriedIdx + " sent by")
 		atDisplay := muted.Render("at Block")
-		msgDisplay := lipgloss.NewStyle().Foreground(styles.CText).Render(`"` + claimResult.Message + `"`)
+		msgDisplay := lipgloss.NewStyle().Foreground(styles.CText).Width(containerWidth - 8).Align(lipgloss.Center).Render(`"` + claimResult.Message + `"`)
 		resultContent = idxDisplay + " " + claimantDisplay + " " + atDisplay + " " + rainbowBlock + "\n" + msgDisplay
 	}
 
