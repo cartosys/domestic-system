@@ -82,7 +82,7 @@ func Render(
 	claimsLabel := lipgloss.NewStyle().
 		Foreground(styles.CText).
 		Bold(true).
-		Render("Claims")
+		Render("Read Claims")
 
 	inputFieldStyle := lipgloss.NewStyle().
 		Foreground(styles.CAccent2).
