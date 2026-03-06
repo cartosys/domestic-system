@@ -307,7 +307,7 @@ func newModel() model {
 		selectedDappIdx: 0,
 		detailsInWallets:   true, // Enable split panel view by default
 		terraNullFocusedField: 1,
-		terraNullClaimInput:   "1",
+		terraNullClaimInput:   "0",
 		terraNullMsgInput:     terraNullInput,
 	}
 

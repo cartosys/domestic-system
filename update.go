@@ -987,7 +987,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.terraNullFocusedField = 1
 				m.terraNullClaimsCount = ""
 				m.terraNullClaimsLoading = true
-				m.terraNullClaimInput = "1"
+				m.terraNullClaimInput = "0"
 				m.terraNullClaimResult = nil
 				m.terraNullClaimQuerying = false
 				m.terraNullClaimResultErr = ""
