@@ -500,6 +500,8 @@ func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
 		m.emit("[PoolMonitor] ERROR: no RPC URL configured")
 		return
 	}
+	// Replace port 8545 with 8546 (standard WebSocket port for Ethereum nodes).
+	wsURL = strings.ReplaceAll(wsURL, ":8545", ":8546")
 	if !strings.HasPrefix(wsURL, "ws://") && !strings.HasPrefix(wsURL, "wss://") {
 		m.emit(fmt.Sprintf("[PoolMonitor] ERROR: WebSocket URL required (got %q). Set a wss:// RPC endpoint.", wsURL))
 		return
