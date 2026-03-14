@@ -528,6 +528,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case poolEventLineMsg:
+		if m.logBuffer != nil {
+			m.logBuffer.WriteString(msg.line + "\n")
+			if m.logReady {
+				m.updateLogViewport()
+			}
+		}
+		if m.poolEventMonitorActive && m.poolEventMonitor != nil {
+			return m, waitForPoolEvent(m.poolEventMonitor)
+		}
+		return m, nil
+
+	case poolEventMonitorStoppedMsg:
+		wasActive := m.poolEventMonitorActive
+		m.poolEventMonitorActive = false
+		m.poolEventMonitor = nil
+		if wasActive {
+			m.addLog("info", "Pool Event Monitor stopped")
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle transaction result panel FIRST (before any other keys)
 		if m.showTxResultPanel {
@@ -1171,6 +1192,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Main swap interface controls
 		switch msg.String() {
 		case "esc":
+			if m.poolEventMonitor != nil {
+				m.poolEventMonitor.Stop()
+				m.poolEventMonitor = nil
+				m.poolEventMonitorActive = false
+			}
 			m.activePage = config.PageDappBrowser
 			return m, nil
 
@@ -1405,6 +1431,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.maybeRequestUniswapQuote()
 					}
 				}
+			}
+			return m, nil
+
+		case "p", "P":
+			if m.poolEventMonitorActive {
+				// Stop the monitor
+				if m.poolEventMonitor != nil {
+					m.poolEventMonitor.Stop()
+					m.poolEventMonitor = nil
+				}
+				m.poolEventMonitorActive = false
+				m.addLog("info", "Pool Event Monitor stopped")
+			} else {
+				// Start the monitor
+				monitor := helpers.NewPoolEventMonitor()
+				monitor.Start(m.rpcURL)
+				m.poolEventMonitor = monitor
+				m.poolEventMonitorActive = true
+				m.addLog("info", "Pool Event Monitor starting… (requires wss:// RPC endpoint)")
+				return m, waitForPoolEvent(monitor)
 			}
 			return m, nil
 		}

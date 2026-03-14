@@ -1,0 +1,570 @@
+package helpers
+
+import (
+	"context"
+	"encoding/hex"
+	"fmt"
+	"math/big"
+	"strings"
+	"sync"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+)
+
+// V4PoolManagerAddress is the canonical Uniswap V4 PoolManager address on Ethereum mainnet.
+const V4PoolManagerAddress = "0x000000000004444c5dc75cB358380D2e3dE08A90"
+
+const poolManagerEventsABI = `[
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true,  "internalType": "bytes32", "name": "id",           "type": "bytes32"},
+      {"indexed": true,  "internalType": "address", "name": "currency0",    "type": "address"},
+      {"indexed": true,  "internalType": "address", "name": "currency1",    "type": "address"},
+      {"indexed": false, "internalType": "uint24",  "name": "fee",          "type": "uint24"},
+      {"indexed": false, "internalType": "int24",   "name": "tickSpacing",  "type": "int24"},
+      {"indexed": false, "internalType": "address", "name": "hooks",        "type": "address"},
+      {"indexed": false, "internalType": "uint160", "name": "sqrtPriceX96", "type": "uint160"},
+      {"indexed": false, "internalType": "int24",   "name": "tick",         "type": "int24"}
+    ],
+    "name": "Initialize",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true,  "internalType": "bytes32", "name": "id",             "type": "bytes32"},
+      {"indexed": true,  "internalType": "address", "name": "sender",         "type": "address"},
+      {"indexed": false, "internalType": "int24",   "name": "tickLower",      "type": "int24"},
+      {"indexed": false, "internalType": "int24",   "name": "tickUpper",      "type": "int24"},
+      {"indexed": false, "internalType": "int256",  "name": "liquidityDelta", "type": "int256"},
+      {"indexed": false, "internalType": "bytes32", "name": "salt",           "type": "bytes32"}
+    ],
+    "name": "ModifyLiquidity",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true,  "internalType": "bytes32", "name": "id",           "type": "bytes32"},
+      {"indexed": true,  "internalType": "address", "name": "sender",       "type": "address"},
+      {"indexed": false, "internalType": "int128",  "name": "amount0",      "type": "int128"},
+      {"indexed": false, "internalType": "int128",  "name": "amount1",      "type": "int128"},
+      {"indexed": false, "internalType": "uint160", "name": "sqrtPriceX96", "type": "uint160"},
+      {"indexed": false, "internalType": "uint128", "name": "liquidity",    "type": "uint128"},
+      {"indexed": false, "internalType": "int24",   "name": "tick",         "type": "int24"},
+      {"indexed": false, "internalType": "uint24",  "name": "fee",          "type": "uint24"}
+    ],
+    "name": "Swap",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true,  "internalType": "bytes32", "name": "id",      "type": "bytes32"},
+      {"indexed": true,  "internalType": "address", "name": "sender",  "type": "address"},
+      {"indexed": false, "internalType": "uint256", "name": "amount0", "type": "uint256"},
+      {"indexed": false, "internalType": "uint256", "name": "amount1", "type": "uint256"}
+    ],
+    "name": "Donate",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true,  "internalType": "address", "name": "owner",    "type": "address"},
+      {"indexed": true,  "internalType": "address", "name": "operator", "type": "address"},
+      {"indexed": false, "internalType": "bool",    "name": "approved", "type": "bool"}
+    ],
+    "name": "OperatorSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": false, "internalType": "address", "name": "caller", "type": "address"},
+      {"indexed": true,  "internalType": "address", "name": "from",   "type": "address"},
+      {"indexed": true,  "internalType": "address", "name": "to",     "type": "address"},
+      {"indexed": true,  "internalType": "uint256", "name": "id",     "type": "uint256"},
+      {"indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256"}
+    ],
+    "name": "Transfer",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true,  "internalType": "bytes32", "name": "id",          "type": "bytes32"},
+      {"indexed": false, "internalType": "uint24",  "name": "protocolFee", "type": "uint24"}
+    ],
+    "name": "ProtocolFeeUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true, "internalType": "address", "name": "protocolFeeController", "type": "address"}
+    ],
+    "name": "ProtocolFeeControllerUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true, "internalType": "address", "name": "previousOwner", "type": "address"},
+      {"indexed": true, "internalType": "address", "name": "newOwner",      "type": "address"}
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  }
+]`
+
+// ---- Event types ----
+
+type v4PoolKey struct {
+	Currency0   common.Address
+	Currency1   common.Address
+	Fee         uint32
+	TickSpacing int32
+	Hooks       common.Address
+}
+
+type v4InitializeEvent struct {
+	Id           common.Hash
+	Currency0    common.Address
+	Currency1    common.Address
+	Fee          *big.Int
+	TickSpacing  *big.Int
+	Hooks        common.Address
+	SqrtPriceX96 *big.Int
+	Tick         *big.Int
+}
+
+type v4ModifyLiquidityEvent struct {
+	Id             common.Hash
+	Sender         common.Address
+	TickLower      *big.Int
+	TickUpper      *big.Int
+	LiquidityDelta *big.Int
+	Salt           [32]byte
+}
+
+type v4SwapEvent struct {
+	Id           common.Hash
+	Sender       common.Address
+	Amount0      *big.Int
+	Amount1      *big.Int
+	SqrtPriceX96 *big.Int
+	Liquidity    *big.Int
+	Tick         *big.Int
+	Fee          *big.Int
+}
+
+type v4DonateEvent struct {
+	Id      common.Hash
+	Sender  common.Address
+	Amount0 *big.Int
+	Amount1 *big.Int
+}
+
+type v4OperatorSetEvent struct {
+	Owner    common.Address
+	Operator common.Address
+	Approved bool
+}
+
+type v4TransferEvent struct {
+	From   common.Address
+	To     common.Address
+	Id     *big.Int
+	Caller common.Address
+	Amount *big.Int
+}
+
+type v4ProtocolFeeUpdatedEvent struct {
+	Id          common.Hash
+	ProtocolFee *big.Int
+}
+
+// ---- Helpers ----
+
+func v4ShortAddr(a common.Address) string {
+	s := a.Hex()
+	if len(s) <= 10 {
+		return s
+	}
+	return s[:6] + "…" + s[len(s)-4:]
+}
+
+func v4ShortHash(h common.Hash) string {
+	s := h.Hex()
+	return s[:10] + "…" + s[len(s)-6:]
+}
+
+func v4SignedStr(x *big.Int) string {
+	if x == nil {
+		return "nil"
+	}
+	return x.String()
+}
+
+func v4CurrencyLabel(a common.Address) string {
+	if (a == common.Address{}) {
+		return "NATIVE"
+	}
+	return a.Hex()
+}
+
+func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id common.Hash) (pair, hooks string) {
+	mu.RLock()
+	key, ok := poolKeys[id]
+	mu.RUnlock()
+	if !ok {
+		return "UNKNOWN/UNKNOWN", "UNKNOWN"
+	}
+	if (key.Currency0 == common.Address{}) || (key.Currency1 == common.Address{}) {
+		pair = fmt.Sprintf("%s/%s", v4CurrencyLabel(key.Currency0), v4CurrencyLabel(key.Currency1))
+	} else {
+		pair = fmt.Sprintf("%s/%s", v4ShortAddr(key.Currency0), v4ShortAddr(key.Currency1))
+	}
+	return pair, v4ShortAddr(key.Hooks)
+}
+
+// ---- Per-event formatters (return line string) ----
+
+func v4FmtInitialize(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+	if len(lg.Topics) < 4 {
+		return "", fmt.Errorf("Initialize: want 4 topics, got %d", len(lg.Topics))
+	}
+	var ev v4InitializeEvent
+	ev.Id = lg.Topics[1]
+	ev.Currency0 = common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	ev.Currency1 = common.BytesToAddress(lg.Topics[3].Bytes()[12:])
+	if err := parsedABI.UnpackIntoInterface(&ev, "Initialize", lg.Data); err != nil {
+		return "", fmt.Errorf("unpack Initialize: %w (data=%s)", err, hex.EncodeToString(lg.Data))
+	}
+	mu.Lock()
+	poolKeys[ev.Id] = v4PoolKey{
+		Currency0:   ev.Currency0,
+		Currency1:   ev.Currency1,
+		Fee:         uint32(ev.Fee.Uint64()),
+		TickSpacing: int32(ev.TickSpacing.Int64()),
+		Hooks:       ev.Hooks,
+	}
+	mu.Unlock()
+	return fmt.Sprintf(
+		"[Initialize]         block=%d tx=%s poolId=%s c0=%s c1=%s fee=%s tickSpacing=%s hooks=%s sqrtPrice=%s tick=%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
+		v4CurrencyLabel(ev.Currency0), v4CurrencyLabel(ev.Currency1),
+		ev.Fee.String(), ev.TickSpacing.String(), v4ShortAddr(ev.Hooks),
+		ev.SqrtPriceX96.String(), ev.Tick.String(),
+	), nil
+}
+
+func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+	if len(lg.Topics) < 3 {
+		return "", fmt.Errorf("ModifyLiquidity: want 3 topics, got %d", len(lg.Topics))
+	}
+	var ev v4ModifyLiquidityEvent
+	ev.Id = lg.Topics[1]
+	ev.Sender = common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	if err := parsedABI.UnpackIntoInterface(&ev, "ModifyLiquidity", lg.Data); err != nil {
+		return "", fmt.Errorf("unpack ModifyLiquidity: %w (data=%s)", err, hex.EncodeToString(lg.Data))
+	}
+	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
+	action := "add"
+	if ev.LiquidityDelta != nil && ev.LiquidityDelta.Sign() < 0 {
+		action = "remove"
+	}
+	return fmt.Sprintf(
+		"[ModifyLiquidity]    block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s action=%s delta=%s tickLow=%s tickHigh=%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
+		pair, hooks, v4ShortAddr(ev.Sender),
+		action, v4SignedStr(ev.LiquidityDelta),
+		v4SignedStr(ev.TickLower), v4SignedStr(ev.TickUpper),
+	), nil
+}
+
+func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+	if len(lg.Topics) < 3 {
+		return "", fmt.Errorf("Swap: want 3 topics, got %d", len(lg.Topics))
+	}
+	var ev v4SwapEvent
+	ev.Id = lg.Topics[1]
+	ev.Sender = common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	if err := parsedABI.UnpackIntoInterface(&ev, "Swap", lg.Data); err != nil {
+		return "", fmt.Errorf("unpack Swap: %w (data=%s)", err, hex.EncodeToString(lg.Data))
+	}
+	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
+	dirHint := ""
+	if ev.Amount0 != nil && ev.Amount0.Sign() < 0 {
+		dirHint = " (token0 out)"
+	} else if ev.Amount1 != nil && ev.Amount1.Sign() < 0 {
+		dirHint = " (token1 out)"
+	}
+	return fmt.Sprintf(
+		"[Swap]               block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s tick=%s fee=%s%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
+		pair, hooks, v4ShortAddr(ev.Sender),
+		v4SignedStr(ev.Amount0), v4SignedStr(ev.Amount1),
+		v4SignedStr(ev.Tick), ev.Fee.String(), dirHint,
+	), nil
+}
+
+func v4FmtDonate(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+	if len(lg.Topics) < 3 {
+		return "", fmt.Errorf("Donate: want 3 topics, got %d", len(lg.Topics))
+	}
+	var ev v4DonateEvent
+	ev.Id = lg.Topics[1]
+	ev.Sender = common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	if err := parsedABI.UnpackIntoInterface(&ev, "Donate", lg.Data); err != nil {
+		return "", fmt.Errorf("unpack Donate: %w (data=%s)", err, hex.EncodeToString(lg.Data))
+	}
+	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
+	return fmt.Sprintf(
+		"[Donate]             block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
+		pair, hooks, v4ShortAddr(ev.Sender),
+		ev.Amount0.String(), ev.Amount1.String(),
+	), nil
+}
+
+func v4FmtOperatorSet(parsedABI *abi.ABI, lg types.Log) (string, error) {
+	if len(lg.Topics) < 3 {
+		return "", fmt.Errorf("OperatorSet: want 3 topics, got %d", len(lg.Topics))
+	}
+	var ev v4OperatorSetEvent
+	ev.Owner = common.BytesToAddress(lg.Topics[1].Bytes()[12:])
+	ev.Operator = common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	if err := parsedABI.UnpackIntoInterface(&ev, "OperatorSet", lg.Data); err != nil {
+		return "", fmt.Errorf("unpack OperatorSet: %w (data=%s)", err, hex.EncodeToString(lg.Data))
+	}
+	return fmt.Sprintf(
+		"[OperatorSet]        block=%d tx=%s owner=%s operator=%s approved=%v",
+		lg.BlockNumber, v4ShortHash(lg.TxHash),
+		v4ShortAddr(ev.Owner), v4ShortAddr(ev.Operator), ev.Approved,
+	), nil
+}
+
+func v4FmtTransfer(parsedABI *abi.ABI, lg types.Log) (string, error) {
+	if len(lg.Topics) < 4 {
+		return "", fmt.Errorf("Transfer: want 4 topics, got %d", len(lg.Topics))
+	}
+	var ev v4TransferEvent
+	ev.From = common.BytesToAddress(lg.Topics[1].Bytes()[12:])
+	ev.To = common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	ev.Id = new(big.Int).SetBytes(lg.Topics[3].Bytes())
+	if err := parsedABI.UnpackIntoInterface(&ev, "Transfer", lg.Data); err != nil {
+		return "", fmt.Errorf("unpack Transfer: %w (data=%s)", err, hex.EncodeToString(lg.Data))
+	}
+	return fmt.Sprintf(
+		"[Transfer]           block=%d tx=%s from=%s to=%s tokenId=%s amount=%s caller=%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash),
+		v4ShortAddr(ev.From), v4ShortAddr(ev.To),
+		ev.Id.String(), ev.Amount.String(), v4ShortAddr(ev.Caller),
+	), nil
+}
+
+func v4FmtProtocolFeeUpdated(parsedABI *abi.ABI, lg types.Log) (string, error) {
+	if len(lg.Topics) < 2 {
+		return "", fmt.Errorf("ProtocolFeeUpdated: want 2 topics, got %d", len(lg.Topics))
+	}
+	var ev v4ProtocolFeeUpdatedEvent
+	ev.Id = lg.Topics[1]
+	if err := parsedABI.UnpackIntoInterface(&ev, "ProtocolFeeUpdated", lg.Data); err != nil {
+		return "", fmt.Errorf("unpack ProtocolFeeUpdated: %w (data=%s)", err, hex.EncodeToString(lg.Data))
+	}
+	return fmt.Sprintf(
+		"[ProtocolFeeUpdated] block=%d tx=%s poolId=%s protocolFee=%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id), ev.ProtocolFee.String(),
+	), nil
+}
+
+func v4FmtProtocolFeeControllerUpdated(lg types.Log) (string, error) {
+	if len(lg.Topics) < 2 {
+		return "", fmt.Errorf("ProtocolFeeControllerUpdated: want 2 topics, got %d", len(lg.Topics))
+	}
+	controller := common.BytesToAddress(lg.Topics[1].Bytes()[12:])
+	return fmt.Sprintf(
+		"[FeeControllerUpd]   block=%d tx=%s newController=%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortAddr(controller),
+	), nil
+}
+
+func v4FmtOwnershipTransferred(lg types.Log) (string, error) {
+	if len(lg.Topics) < 3 {
+		return "", fmt.Errorf("OwnershipTransferred: want 3 topics, got %d", len(lg.Topics))
+	}
+	prev := common.BytesToAddress(lg.Topics[1].Bytes()[12:])
+	next := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	return fmt.Sprintf(
+		"[OwnershipXfer]      block=%d tx=%s from=%s to=%s",
+		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortAddr(prev), v4ShortAddr(next),
+	), nil
+}
+
+// v4FormatLog dispatches a log entry to the appropriate formatter and returns the line.
+func v4FormatLog(
+	parsedABI *abi.ABI,
+	lg types.Log,
+	eventNames map[common.Hash]string,
+	mu *sync.RWMutex,
+	poolKeys map[common.Hash]v4PoolKey,
+) (string, error) {
+	if len(lg.Topics) == 0 {
+		return "", nil
+	}
+	name, ok := eventNames[lg.Topics[0]]
+	if !ok {
+		return "", nil
+	}
+	switch name {
+	case "Initialize":
+		return v4FmtInitialize(parsedABI, lg, mu, poolKeys)
+	case "ModifyLiquidity":
+		return v4FmtModifyLiquidity(parsedABI, lg, mu, poolKeys)
+	case "Swap":
+		return v4FmtSwap(parsedABI, lg, mu, poolKeys)
+	case "Donate":
+		return v4FmtDonate(parsedABI, lg, mu, poolKeys)
+	case "OperatorSet":
+		return v4FmtOperatorSet(parsedABI, lg)
+	case "Transfer":
+		return v4FmtTransfer(parsedABI, lg)
+	case "ProtocolFeeUpdated":
+		return v4FmtProtocolFeeUpdated(parsedABI, lg)
+	case "ProtocolFeeControllerUpdated":
+		return v4FmtProtocolFeeControllerUpdated(lg)
+	case "OwnershipTransferred":
+		return v4FmtOwnershipTransferred(lg)
+	}
+	return "", nil
+}
+
+// ---- PoolEventMonitor ----
+
+// PoolEventMonitor subscribes to Uniswap V4 PoolManager events and streams
+// formatted event lines through a channel for display in the TUI log panel.
+type PoolEventMonitor struct {
+	lines  chan string
+	cancel context.CancelFunc
+}
+
+// NewPoolEventMonitor creates a new PoolEventMonitor ready to be started.
+func NewPoolEventMonitor() *PoolEventMonitor {
+	return &PoolEventMonitor{
+		lines: make(chan string, 512),
+	}
+}
+
+// Start dials the given WebSocket RPC URL and begins streaming pool events.
+// The WebSocket URL must use the wss:// or ws:// scheme for live subscriptions.
+// Events are available via Lines(). The goroutine exits when Stop() is called
+// or a fatal error occurs, after which the Lines() channel is closed.
+func (m *PoolEventMonitor) Start(wsURL string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	go m.run(ctx, wsURL)
+}
+
+// Stop cancels the monitor's context, causing the background goroutine to exit.
+func (m *PoolEventMonitor) Stop() {
+	if m.cancel != nil {
+		m.cancel()
+	}
+}
+
+// Lines returns the read-only channel of formatted event line strings.
+// The channel is closed when the monitor stops.
+func (m *PoolEventMonitor) Lines() <-chan string {
+	return m.lines
+}
+
+func (m *PoolEventMonitor) emit(line string) {
+	select {
+	case m.lines <- line:
+	default:
+		// Drop if buffer full to avoid blocking the subscription loop.
+	}
+}
+
+func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
+	defer close(m.lines)
+
+	if wsURL == "" {
+		m.emit("[PoolMonitor] ERROR: no RPC URL configured")
+		return
+	}
+	if !strings.HasPrefix(wsURL, "ws://") && !strings.HasPrefix(wsURL, "wss://") {
+		m.emit(fmt.Sprintf("[PoolMonitor] ERROR: WebSocket URL required (got %q). Set a wss:// RPC endpoint.", wsURL))
+		return
+	}
+
+	parsedABI, err := abi.JSON(strings.NewReader(poolManagerEventsABI))
+	if err != nil {
+		m.emit(fmt.Sprintf("[PoolMonitor] ERROR: parse ABI: %v", err))
+		return
+	}
+
+	eventNames := make(map[common.Hash]string, len(parsedABI.Events))
+	allSigs := make([]common.Hash, 0, len(parsedABI.Events))
+	for name, ev := range parsedABI.Events {
+		eventNames[ev.ID] = name
+		allSigs = append(allSigs, ev.ID)
+	}
+
+	client, err := ethclient.DialContext(ctx, wsURL)
+	if err != nil {
+		m.emit(fmt.Sprintf("[PoolMonitor] ERROR: dial %s: %v", wsURL, err))
+		return
+	}
+	defer client.Close()
+
+	poolManager := common.HexToAddress(V4PoolManagerAddress)
+
+	var (
+		mu       sync.RWMutex
+		poolKeys = make(map[common.Hash]v4PoolKey)
+	)
+
+	query := ethereum.FilterQuery{
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{allSigs},
+	}
+
+	logCh := make(chan types.Log, 1024)
+	sub, err := client.SubscribeFilterLogs(ctx, query, logCh)
+	if err != nil {
+		m.emit(fmt.Sprintf("[PoolMonitor] ERROR: subscribe: %v", err))
+		return
+	}
+
+	m.emit(fmt.Sprintf("[PoolMonitor] Listening… PoolManager=%s", poolManager.Hex()))
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case subErr, ok := <-sub.Err():
+			if !ok {
+				return
+			}
+			m.emit(fmt.Sprintf("[PoolMonitor] ERROR: subscription: %v", subErr))
+			return
+
+		case lg := <-logCh:
+			line, fmtErr := v4FormatLog(&parsedABI, lg, eventNames, &mu, poolKeys)
+			if fmtErr != nil {
+				m.emit(fmt.Sprintf("[PoolMonitor] decode error: %v", fmtErr))
+			} else if line != "" {
+				m.emit(line)
+			}
+		}
+	}
+}

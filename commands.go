@@ -360,6 +360,19 @@ func fetchTerraClaim(client *rpc.Client, index *big.Int) tea.Cmd {
 	}
 }
 
+// waitForPoolEvent blocks until the next line arrives from the pool event monitor channel.
+// Returns poolEventLineMsg when a line is received, or poolEventMonitorStoppedMsg when
+// the channel is closed (monitor stopped or error).
+func waitForPoolEvent(monitor *helpers.PoolEventMonitor) tea.Cmd {
+	return func() tea.Msg {
+		line, ok := <-monitor.Lines()
+		if !ok {
+			return poolEventMonitorStoppedMsg{}
+		}
+		return poolEventLineMsg{line: line}
+	}
+}
+
 // packageTerraClaimTx packages a Terra Nullius claim transaction for QR display
 func packageTerraClaimTx(fromAddr, message string) tea.Cmd {
 	return func() tea.Msg {

@@ -18,8 +18,18 @@ type TokenOption struct {
 	IsETH    bool
 }
 
-// Nav returns the navigation bar for Uniswap view
-func Nav(width int) string {
+// Nav returns the navigation bar for Uniswap view.
+// poolMonitorActive controls the color of the pool event monitor hotkey.
+func Nav(width int, poolMonitorActive bool) string {
+	var pItem string
+	if poolMonitorActive {
+		pKey := lipgloss.NewStyle().Foreground(styles.CError).Bold(true).Render("p")
+		pLabel := lipgloss.NewStyle().Foreground(styles.CWarn).Render("pool event monitor")
+		pItem = pKey + " " + pLabel
+	} else {
+		pItem = styles.Key("p") + " pool event monitor"
+	}
+
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " navigate",
 		styles.Key("Tab") + " next",
@@ -28,6 +38,7 @@ func Nav(width int) string {
 		styles.Key("Enter") + " select/swap",
 		styles.Key("Esc") + " back",
 		styles.Key("l") + " logger",
+		pItem,
 	}, "   ")
 
 	return styles.NavStyle.Width(width).Render(left)

@@ -73,3 +73,11 @@ type terraNullClaimQueryMsg struct {
 	result *helpers.TerraClaimResult
 	err    error
 }
+
+// poolEventLineMsg carries a single formatted pool event line for the log panel
+type poolEventLineMsg struct {
+	line string
+}
+
+// poolEventMonitorStoppedMsg signals that the pool event monitor has stopped
+type poolEventMonitorStoppedMsg struct{}

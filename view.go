@@ -452,7 +452,7 @@ func (m *model) View() string {
 				m.uniswapSelectorFor == 0,
 			)
 			pageContent = uniswapView
-			nav = uniswap.Nav(m.w - 2)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive)
 		} else {
 			// Render main swap interface
 			uniswapView := uniswap.Render(
@@ -469,7 +469,7 @@ func (m *model) View() string {
 			)
 			// Wrap in panel style to constrain properly
 			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(uniswapView)
-			nav = uniswap.Nav(m.w - 2)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive)
 		}
 
 		// Show transaction result panel overlay if active

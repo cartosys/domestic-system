@@ -160,6 +160,10 @@ type model struct {
 	terraNullFormFocused   int    // 0=message input, 1=submit button
 	terraNullMsgError      string
 
+	// Pool Event Monitor state
+	poolEventMonitorActive bool
+	poolEventMonitor       *helpers.PoolEventMonitor
+
 	// Double-click detection for header address
 	lastClickTime time.Time
 	lastClickX    int
