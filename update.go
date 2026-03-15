@@ -1581,14 +1581,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			// If the click lands inside the log viewport content rows, try to open
-			// the first OSC 8 URL found on that line in the system browser.
+			// If the click lands inside the log viewport content rows, resolve which
+			// OSC 8 hyperlink (if any) was clicked and open it in the browser.
+			// Log panel content starts at X=2 (1 border + 1 padding from logview.Render).
 			if m.logEnabled && m.logReady && m.logPanelTop > 0 && m.logBuffer != nil {
 				lines := strings.Split(m.logBuffer.String(), "\n")
 				viewportLine := msg.Y - m.logPanelTop
 				absoluteLine := viewportLine + m.logViewport.YOffset
 				if viewportLine >= 0 && absoluteLine < len(lines) {
-					if url := extractOSC8URL(lines[absoluteLine]); url != "" {
+					lineCol := msg.X - 2 // subtract border(1) + padding(1)
+					if url := urlAtCol(lines[absoluteLine], lineCol); url != "" {
 						return m, openInBrowser(url)
 					}
 				}

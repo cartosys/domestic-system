@@ -16,6 +16,7 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -361,27 +362,82 @@ func fetchTerraClaim(client *rpc.Client, index *big.Int) tea.Cmd {
 	}
 }
 
-// extractOSC8URL returns the first non-empty URL from an OSC 8 hyperlink sequence
-// in s. Format: ESC]8;;URL BEL ... ESC]8;; BEL
-func extractOSC8URL(s string) string {
-	const prefix = "\x1b]8;;"
-	search := s
+// logLinkRegion describes the visual column range [startCol, endCol) of a single
+// OSC 8 hyperlink within a log line and the URL it points to.
+type logLinkRegion struct {
+	startCol int
+	endCol   int
+	url      string
+}
+
+// parseOSC8Links walks a raw log buffer line and returns the visual column
+// range for every OSC 8 hyperlink found in it. Column positions are computed
+// using ansi.StringWidth so that ANSI SGR colour codes are treated as
+// zero-width, matching what the terminal actually renders.
+func parseOSC8Links(line string) []logLinkRegion {
+	const osc8Prefix = "\x1b]8;;"
+	var regions []logLinkRegion
+	visualCol := 0  // accumulated visual width of text already consumed
+	remaining := line
+
 	for {
-		idx := strings.Index(search, prefix)
+		idx := strings.Index(remaining, osc8Prefix)
 		if idx < 0 {
-			return ""
+			break
 		}
-		rest := search[idx+len(prefix):]
-		end := strings.IndexByte(rest, '\x07')
-		if end < 0 {
-			return ""
+		// Add visual width of plain text (and any other escape sequences) before this link.
+		visualCol += ansi.StringWidth(remaining[:idx])
+		after := remaining[idx+len(osc8Prefix):]
+
+		// Read URL up to BEL.
+		belIdx := strings.IndexByte(after, '\x07')
+		if belIdx < 0 {
+			break
 		}
-		url := rest[:end]
-		if url != "" {
-			return url
+		url := after[:belIdx]
+		afterBEL := after[belIdx+1:]
+
+		if url == "" {
+			// This is a reset sequence — skip it and continue scanning.
+			remaining = afterBEL
+			continue
 		}
-		search = rest[end+1:]
+
+		// Find the matching reset (next OSC 8 sequence).
+		resetIdx := strings.Index(afterBEL, osc8Prefix)
+		if resetIdx < 0 {
+			break
+		}
+		displayText := afterBEL[:resetIdx]
+		displayWidth := ansi.StringWidth(displayText)
+
+		regions = append(regions, logLinkRegion{
+			startCol: visualCol,
+			endCol:   visualCol + displayWidth,
+			url:      url,
+		})
+		visualCol += displayWidth
+
+		// Skip past the reset sequence (OSC 8 ;; BEL).
+		afterDisplay := afterBEL[resetIdx+len(osc8Prefix):]
+		resetBEL := strings.IndexByte(afterDisplay, '\x07')
+		if resetBEL < 0 {
+			break
+		}
+		remaining = afterDisplay[resetBEL+1:]
 	}
+	return regions
+}
+
+// urlAtCol returns the URL of whichever OSC 8 hyperlink occupies visual column
+// col in line, or "" if col does not land on any hyperlink.
+func urlAtCol(line string, col int) string {
+	for _, r := range parseOSC8Links(line) {
+		if col >= r.startCol && col < r.endCol {
+			return r.url
+		}
+	}
+	return ""
 }
 
 // openInBrowser opens url in the system default browser (macOS: open, Linux: xdg-open).
