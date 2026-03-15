@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -192,12 +193,6 @@ type v4ProtocolFeeUpdatedEvent struct {
 
 // ---- Helpers ----
 
-// osc8Link wraps text in an OSC 8 terminal hyperlink escape sequence.
-// Supported by iTerm2, kitty, Windows Terminal, and most modern terminals.
-func osc8Link(url, text string) string {
-	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
-}
-
 func v4ShortAddr(a common.Address) string {
 	s := a.Hex()
 	if len(s) <= 10 {
@@ -211,16 +206,18 @@ func v4ShortHash(h common.Hash) string {
 	return s[:10] + "…" + s[len(s)-6:]
 }
 
-// v4HyperAddr returns a terminal hyperlink to the Etherscan address page,
-// displaying the shortened address as the visible text.
+// v4HyperAddr returns a FadeString-coloured, OSC 8 hyperlinked short address
+// pointing to the Etherscan address page.
 func v4HyperAddr(a common.Address) string {
-	return osc8Link("https://etherscan.io/address/"+a.Hex(), v4ShortAddr(a))
+	display := FadeString(v4ShortAddr(a), "#F25D94", "#EDFF82")
+	return ansi.SetHyperlink("https://etherscan.io/address/"+a.Hex()) + display + ansi.ResetHyperlink()
 }
 
-// v4HyperTxHash returns a terminal hyperlink to the Etherscan transaction page,
-// displaying the shortened hash as the visible text.
+// v4HyperTxHash returns a FadeString-coloured, OSC 8 hyperlinked short hash
+// pointing to the Etherscan transaction page.
 func v4HyperTxHash(h common.Hash) string {
-	return osc8Link("https://etherscan.io/tx/"+h.Hex(), v4ShortHash(h))
+	display := FadeString(v4ShortHash(h), "#F25D94", "#EDFF82")
+	return ansi.SetHyperlink("https://etherscan.io/tx/"+h.Hex()) + display + ansi.ResetHyperlink()
 }
 
 func v4SignedStr(x *big.Int) string {
@@ -230,13 +227,14 @@ func v4SignedStr(x *big.Int) string {
 	return x.String()
 }
 
-// v4CurrencyLabel returns "NATIVE" for the zero address, or a hyperlinked
-// full address for any real ERC-20 token.
+// v4CurrencyLabel returns "NATIVE" for the zero address, or a FadeString-coloured
+// OSC 8 hyperlinked full address for any real ERC-20 token.
 func v4CurrencyLabel(a common.Address) string {
 	if (a == common.Address{}) {
 		return "NATIVE"
 	}
-	return osc8Link("https://etherscan.io/address/"+a.Hex(), a.Hex())
+	display := FadeString(a.Hex(), "#F25D94", "#EDFF82")
+	return ansi.SetHyperlink("https://etherscan.io/address/"+a.Hex()) + display + ansi.ResetHyperlink()
 }
 
 func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id common.Hash) (pair, hooks string) {
