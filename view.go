@@ -280,25 +280,21 @@ func (m *model) renderPoolInfoPopup() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#874BFD")).
 		Padding(1, 2).
-		Width(60)
+		Width(72)
 
 	// Title
 	title := lipgloss.NewStyle().
 		Foreground(cAccent2).
 		Bold(true).
 		Align(lipgloss.Center).
-		Width(56).
+		Width(68).
 		Render("Pool Info")
 
-	// Pool ID (shortened, FadeString)
-	shortID := m.poolInfoID
-	if len(shortID) > 16 {
-		shortID = shortID[:10] + "…" + shortID[len(shortID)-6:]
-	}
+	// Pool ID (full, FadeString)
 	poolIDLine := lipgloss.NewStyle().
 		Align(lipgloss.Center).
-		Width(56).
-		Render(helpers.FadeString(shortID, "#7EE787", "#82CFFD"))
+		Width(68).
+		Render(helpers.FadeString(m.poolInfoID, "#7EE787", "#82CFFD"))
 
 	// Body
 	var body string
@@ -324,7 +320,7 @@ func (m *model) renderPoolInfoPopup() string {
 		Underline(true).
 		Render("OK")
 
-	okRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(56).Render(okButton)
+	okRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(okButton)
 
 	ui := lipgloss.JoinVertical(lipgloss.Center, title, poolIDLine, "", body, okRow)
 	dialog := dialogBoxStyle.Render(ui)
