@@ -596,14 +596,13 @@ func (m *model) View() string {
 	// Render log panel only if enabled
 	var logPanel string
 	if m.logEnabled {
-		// Ensure viewport height stays in sync with the rendered panel
-		reservedHeight := 10
-		availableHeight := helpers.Max(5, m.h-reservedHeight)
-		maxLogHeight := helpers.Min(m.h/3, 15)
-		logPanelHeight := helpers.Min(availableHeight, maxLogHeight)
-		m.logViewport.Height = logPanelHeight
+		// Give the log panel all remaining vertical space.
+		// Total log panel height = viewportHeight + 4 (border top/bottom + title + blank line).
+		usedHeight := lipgloss.Height(headerPanel) + lipgloss.Height(pageContent) + lipgloss.Height(nav)
+		viewportHeight := helpers.Max(3, m.h-usedHeight-4)
+		m.logViewport.Height = viewportHeight
 
-		logPanel = logview.Render(m.w, m.h, m.logReady, m.logSpinner.View(), m.logViewport)
+		logPanel = logview.Render(m.w, viewportHeight, m.logReady, m.logSpinner.View(), m.logViewport)
 		// Record where the log viewport content rows start (used for click-to-open-URL).
 		// Layout: top border(1) + title(1) + blank(1) = 3 rows into the log panel.
 		m.logPanelTop = lipgloss.Height(headerPanel) + lipgloss.Height(pageContent) + lipgloss.Height(nav) + 3

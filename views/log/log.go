@@ -9,21 +9,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Render renders the log panel with dynamic height calculation
-func Render(width, height int, logReady bool, logSpinnerView string, vp viewport.Model) string {
+// Render renders the log panel.
+// viewportHeight is the number of content lines the viewport should display;
+// the caller is responsible for computing this from available screen space.
+func Render(width, viewportHeight int, logReady bool, logSpinnerView string, vp viewport.Model) string {
 	title := lipgloss.NewStyle().
 		Foreground(styles.CAccent2).
 		Bold(true).
 		Render("Log")
 
-	// Calculate available height for log panel
-	// Account for: header (3 lines), nav (1 line), title + borders (4 lines), margins (2 lines)
-	reservedHeight := 10
-	availableHeight := helpers.Max(5, height-reservedHeight)
-
-	// Limit max height to 1/3 of screen or 15 lines, whichever is smaller
-	maxLogHeight := helpers.Min(height/3, 15)
-	logPanelHeight := helpers.Min(availableHeight, maxLogHeight)
+	logPanelHeight := helpers.Max(3, viewportHeight)
 
 	// Update viewport height dynamically
 	vp.Height = logPanelHeight
