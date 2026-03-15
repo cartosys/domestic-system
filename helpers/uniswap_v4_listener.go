@@ -206,6 +206,11 @@ func v4ShortHash(h common.Hash) string {
 	return s[:10] + "…" + s[len(s)-6:]
 }
 
+// v4FadePoolID renders a shortened pool ID with the domestic-system title gradient.
+func v4FadePoolID(h common.Hash) string {
+	return FadeString(v4ShortHash(h), "#7EE787", "#82CFFD")
+}
+
 // v4HyperAddr returns a FadeString-coloured, OSC 8 hyperlinked short address
 // pointing to the Etherscan address page.
 func v4HyperAddr(a common.Address) string {
@@ -272,7 +277,7 @@ func v4FmtInitialize(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKey
 	mu.Unlock()
 	return fmt.Sprintf(
 		"[Initialize]         block=%d tx=%s poolId=%s c0=%s c1=%s fee=%s tickSpacing=%s hooks=%s sqrtPrice=%s tick=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
 		v4CurrencyLabel(ev.Currency0), v4CurrencyLabel(ev.Currency1),
 		ev.Fee.String(), ev.TickSpacing.String(), v4HyperAddr(ev.Hooks),
 		ev.SqrtPriceX96.String(), ev.Tick.String(),
@@ -296,7 +301,7 @@ func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, po
 	}
 	return fmt.Sprintf(
 		"[ModifyLiquidity]    block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s action=%s delta=%s tickLow=%s tickHigh=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
 		pair, hooks, v4HyperAddr(ev.Sender),
 		action, v4SignedStr(ev.LiquidityDelta),
 		v4SignedStr(ev.TickLower), v4SignedStr(ev.TickUpper),
@@ -322,7 +327,7 @@ func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[
 	}
 	return fmt.Sprintf(
 		"[Swap]               block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s tick=%s fee=%s%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
 		pair, hooks, v4HyperAddr(ev.Sender),
 		v4SignedStr(ev.Amount0), v4SignedStr(ev.Amount1),
 		v4SignedStr(ev.Tick), ev.Fee.String(), dirHint,
@@ -342,7 +347,7 @@ func v4FmtDonate(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys ma
 	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
 	return fmt.Sprintf(
 		"[Donate]             block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
 		pair, hooks, v4HyperAddr(ev.Sender),
 		ev.Amount0.String(), ev.Amount1.String(),
 	), nil
@@ -395,7 +400,7 @@ func v4FmtProtocolFeeUpdated(parsedABI *abi.ABI, lg types.Log) (string, error) {
 	}
 	return fmt.Sprintf(
 		"[ProtocolFeeUpdated] block=%d tx=%s poolId=%s protocolFee=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id), ev.ProtocolFee.String(),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id), ev.ProtocolFee.String(),
 	), nil
 }
 
