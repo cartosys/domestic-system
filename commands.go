@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -357,6 +358,37 @@ func fetchTerraClaim(client *rpc.Client, index *big.Int) tea.Cmd {
 		}
 		result, err := helpers.GetTerraClaim(client.Client, index)
 		return terraNullClaimQueryMsg{result, err}
+	}
+}
+
+// extractOSC8URL returns the first non-empty URL from an OSC 8 hyperlink sequence
+// in s. Format: ESC]8;;URL BEL ... ESC]8;; BEL
+func extractOSC8URL(s string) string {
+	const prefix = "\x1b]8;;"
+	search := s
+	for {
+		idx := strings.Index(search, prefix)
+		if idx < 0 {
+			return ""
+		}
+		rest := search[idx+len(prefix):]
+		end := strings.IndexByte(rest, '\x07')
+		if end < 0 {
+			return ""
+		}
+		url := rest[:end]
+		if url != "" {
+			return url
+		}
+		search = rest[end+1:]
+	}
+}
+
+// openInBrowser opens url in the system default browser (macOS: open, Linux: xdg-open).
+func openInBrowser(url string) tea.Cmd {
+	return func() tea.Msg {
+		_ = exec.Command("open", url).Start()
+		return nil
 	}
 }
 

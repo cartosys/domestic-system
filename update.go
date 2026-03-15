@@ -1581,6 +1581,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+			// If the click lands inside the log viewport content rows, try to open
+			// the first OSC 8 URL found on that line in the system browser.
+			if m.logEnabled && m.logReady && m.logPanelTop > 0 && m.logBuffer != nil {
+				lines := strings.Split(m.logBuffer.String(), "\n")
+				viewportLine := msg.Y - m.logPanelTop
+				absoluteLine := viewportLine + m.logViewport.YOffset
+				if viewportLine >= 0 && absoluteLine < len(lines) {
+					if url := extractOSC8URL(lines[absoluteLine]); url != "" {
+						return m, openInBrowser(url)
+					}
+				}
+			}
+
 			// Log all clicks for debugging
 			m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr='%s', X=%d, Y=%d", msg.X, msg.Y, m.activeAddress, m.headerAddrX, m.headerAddrY))
 			m.addLog("debug", fmt.Sprintf("Registered %d clickable areas", len(m.clickableAreas)))

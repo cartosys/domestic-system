@@ -164,6 +164,9 @@ type model struct {
 	poolEventMonitorActive bool
 	poolEventMonitor       *helpers.PoolEventMonitor
 
+	// Y row where the log viewport content starts (set each render, used for click handling)
+	logPanelTop int
+
 	// Double-click detection for header address
 	lastClickTime time.Time
 	lastClickX    int

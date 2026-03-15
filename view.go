@@ -519,6 +519,9 @@ func (m *model) View() string {
 		m.logViewport.Height = logPanelHeight
 
 		logPanel = logview.Render(m.w, m.h, m.logReady, m.logSpinner.View(), m.logViewport)
+		// Record where the log viewport content rows start (used for click-to-open-URL).
+		// Layout: top border(1) + title(1) + blank(1) = 3 rows into the log panel.
+		m.logPanelTop = lipgloss.Height(headerPanel) + lipgloss.Height(pageContent) + lipgloss.Height(nav) + 3
 		content := lipgloss.JoinVertical(lipgloss.Left, headerPanel, pageContent, nav, logPanel)
 		baseView := appStyle.Render(content)
 
