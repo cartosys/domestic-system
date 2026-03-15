@@ -325,6 +325,19 @@ func (m *model) renderPoolInfoPopup() string {
 	ui := lipgloss.JoinVertical(lipgloss.Center, title, poolIDLine, "", body, okRow)
 	dialog := dialogBoxStyle.Render(ui)
 
+	// Track OK button position for click handling.
+	// Dialog: Width(72) + 2 border = 74 rendered width.
+	// Content area: border(1) + padding(2) = 3 cols from dialog left edge.
+	// okButton: Padding(0,3) = "   OK   " = 8 visible chars, centered in 68.
+	// Left offset within content: (68-8)/2 = 30.
+	dialogH := lipgloss.Height(dialog)
+	dialogW := lipgloss.Width(dialog)
+	dialogStartX := (m.w - dialogW) / 2
+	dialogStartY := (m.h - dialogH) / 2
+	m.poolInfoOKBtnY = dialogStartY + dialogH - 3 // above bottom padding+border
+	m.poolInfoOKBtnX1 = dialogStartX + 3 + 30
+	m.poolInfoOKBtnX2 = dialogStartX + 3 + 30 + 8
+
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 

@@ -1580,6 +1580,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	case tea.MouseMsg:
+		// Consume all clicks while Pool Info popup is showing; close on OK button.
+		if m.showPoolInfoPopup {
+			if msg.Type == tea.MouseLeft &&
+				msg.Y == m.poolInfoOKBtnY &&
+				msg.X >= m.poolInfoOKBtnX1 && msg.X < m.poolInfoOKBtnX2 {
+				m.showPoolInfoPopup = false
+				m.poolInfoData = nil
+				m.poolInfoErr = ""
+				m.poolInfoID = ""
+			}
+			return m, nil
+		}
 		if msg.Type == tea.MouseLeft {
 			// Check for double-click on header active address
 			if m.activeAddress != "" && m.headerAddrX > 0 {

@@ -164,6 +164,16 @@ type model struct {
 	poolEventMonitorActive bool
 	poolEventMonitor       *helpers.PoolEventMonitor
 
+	// Pool Info popup state
+	showPoolInfoPopup bool
+	poolInfoLoading   bool
+	poolInfoID        string
+	poolInfoData      *helpers.PoolInfo
+	poolInfoErr       string
+	poolInfoOKBtnY   int // terminal row of the OK button
+	poolInfoOKBtnX1  int // left column (inclusive)
+	poolInfoOKBtnX2  int // right column (exclusive)
+
 	// Y row where the log viewport content starts (set each render, used for click handling)
 	logPanelTop int
 
