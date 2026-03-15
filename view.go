@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"math/big"
@@ -274,6 +275,63 @@ func (m *model) globalHeader() string {
 	return headerLine + "\n" + separator
 }
 
+func (m *model) renderPoolInfoPopup() string {
+	dialogBoxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#874BFD")).
+		Padding(1, 2).
+		Width(60)
+
+	// Title
+	title := lipgloss.NewStyle().
+		Foreground(cAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(56).
+		Render("Pool Info")
+
+	// Pool ID (shortened, FadeString)
+	shortID := m.poolInfoID
+	if len(shortID) > 16 {
+		shortID = shortID[:10] + "…" + shortID[len(shortID)-6:]
+	}
+	poolIDLine := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(56).
+		Render(helpers.FadeString(shortID, "#7EE787", "#82CFFD"))
+
+	// Body
+	var body string
+	if m.poolInfoLoading {
+		body = lipgloss.NewStyle().Foreground(cMuted).Render(m.spin.View() + " Fetching pool data…")
+	} else if m.poolInfoErr != "" {
+		body = lipgloss.NewStyle().Foreground(lipgloss.Color("#F25D94")).Render("Error: " + m.poolInfoErr)
+	} else if m.poolInfoData != nil {
+		raw, err := json.MarshalIndent(m.poolInfoData, "", "  ")
+		if err != nil {
+			body = lipgloss.NewStyle().Foreground(lipgloss.Color("#F25D94")).Render("Error marshalling data")
+		} else {
+			body = lipgloss.NewStyle().Foreground(cText).Render(string(raw))
+		}
+	}
+
+	// OK button (always focused)
+	okButton := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFF7DB")).
+		Background(lipgloss.Color("#874BFD")).
+		Padding(0, 3).
+		MarginTop(1).
+		Underline(true).
+		Render("OK")
+
+	okRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(56).Render(okButton)
+
+	ui := lipgloss.JoinVertical(lipgloss.Center, title, poolIDLine, "", body, okRow)
+	dialog := dialogBoxStyle.Render(ui)
+
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
+}
+
 func (m *model) View() string {
 	// Clear clickable areas for fresh render
 	m.clickableAreas = nil
@@ -470,6 +528,11 @@ func (m *model) View() string {
 			// Wrap in panel style to constrain properly
 			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(uniswapView)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive)
+		}
+
+		// Show pool info popup overlay if active
+		if m.showPoolInfoPopup {
+			return m.renderPoolInfoPopup()
 		}
 
 		// Show transaction result panel overlay if active
