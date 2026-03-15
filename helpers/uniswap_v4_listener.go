@@ -631,6 +631,13 @@ const poolManagerViewABI = `[
 
 // PoolInfo holds the live on-chain state for a single Uniswap V4 pool.
 type PoolInfo struct {
+	// Pool key (from Initialize event)
+	Currency0   string `json:"currency0,omitempty"`
+	Currency1   string `json:"currency1,omitempty"`
+	Fee         uint32 `json:"fee,omitempty"`
+	TickSpacing int32  `json:"tickSpacing,omitempty"`
+	Hooks       string `json:"hooks,omitempty"`
+	// Live state (from StateView)
 	SqrtPriceX96 string `json:"sqrtPriceX96"`
 	Tick         int64  `json:"tick"`
 	ProtocolFee  uint32 `json:"protocolFee"`
@@ -638,10 +645,22 @@ type PoolInfo struct {
 	Liquidity    string `json:"liquidity"`
 }
 
-// FetchPoolInfo calls getSlot0 and getLiquidity on the V4 PoolManager for the
-// given pool ID and returns the current on-chain state.
+// v4PoolManagerDeployBlock is the approximate mainnet block at which the V4
+// PoolManager was deployed, used as the lower bound for Initialize event lookups.
+const v4PoolManagerDeployBlock = 21688000
+
+// poolCurrencyStr returns "NATIVE" for the zero address, or the checksummed hex address.
+func poolCurrencyStr(a common.Address) string {
+	if (a == common.Address{}) {
+		return "NATIVE"
+	}
+	return a.Hex()
+}
+
+// FetchPoolInfo calls getSlot0 and getLiquidity on the V4 StateView for the
+// given pool ID, and looks up the pool key from the Initialize event log.
 func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	client, err := ethclient.DialContext(ctx, rpcURL)
@@ -691,11 +710,41 @@ func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
 	lpFee := uint32(slot0Vals[3].(*big.Int).Uint64())
 	liquidity := liqVals[0].(*big.Int)
 
-	return &PoolInfo{
+	info := &PoolInfo{
 		SqrtPriceX96: sqrtPriceX96.String(),
 		Tick:         tick,
 		ProtocolFee:  protocolFee,
 		LpFee:        lpFee,
 		Liquidity:    liquidity.String(),
-	}, nil
+	}
+
+	// Look up pool key from the Initialize event log.
+	// The Initialize event has poolId as topics[1], currency0 as topics[2],
+	// currency1 as topics[3], and fee/tickSpacing/hooks in non-indexed data.
+	eventsABI, err := abi.JSON(strings.NewReader(poolManagerEventsABI))
+	if err == nil {
+		poolManager := common.HexToAddress(V4PoolManagerAddress)
+		q := ethereum.FilterQuery{
+			FromBlock: big.NewInt(v4PoolManagerDeployBlock),
+			Addresses: []common.Address{poolManager},
+			Topics:    [][]common.Hash{{eventsABI.Events["Initialize"].ID}, {poolID}},
+		}
+		if logs, err := client.FilterLogs(ctx, q); err == nil && len(logs) > 0 {
+			lg := logs[0]
+			if len(lg.Topics) >= 4 {
+				currency0 := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+				currency1 := common.BytesToAddress(lg.Topics[3].Bytes()[12:])
+				var ev v4InitializeEvent
+				if err := eventsABI.UnpackIntoInterface(&ev, "Initialize", lg.Data); err == nil {
+					info.Currency0 = poolCurrencyStr(currency0)
+					info.Currency1 = poolCurrencyStr(currency1)
+					info.Fee = uint32(ev.Fee.Uint64())
+					info.TickSpacing = int32(ev.TickSpacing.Int64())
+					info.Hooks = ev.Hooks.Hex()
+				}
+			}
+		}
+	}
+
+	return info, nil
 }
