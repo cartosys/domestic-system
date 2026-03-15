@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum"
@@ -18,6 +19,11 @@ import (
 
 // V4PoolManagerAddress is the canonical Uniswap V4 PoolManager address on Ethereum mainnet.
 const V4PoolManagerAddress = "0x000000000004444c5dc75cB358380D2e3dE08A90"
+
+// V4StateViewAddress is the Uniswap V4 StateView peripheral contract on Ethereum mainnet.
+// getSlot0 and getLiquidity must be called here (not on PoolManager) because PoolManager
+// uses custom packed storage (extsload) that is not readable via a standard eth_call.
+const V4StateViewAddress = "0x86e8631a016f9068c3f085faf484ee3f5fdee8f2"
 
 const poolManagerEventsABI = `[
   {
@@ -206,9 +212,12 @@ func v4ShortHash(h common.Hash) string {
 	return s[:10] + "…" + s[len(s)-6:]
 }
 
-// v4FadePoolID renders a shortened pool ID with the domestic-system title gradient.
+// v4FadePoolID renders a shortened pool ID with the domestic-system title gradient
+// and wraps it in an OSC 8 hyperlink using the poolinfo:// scheme so the TUI can
+// intercept clicks and show the Pool Info popup.
 func v4FadePoolID(h common.Hash) string {
-	return FadeString(v4ShortHash(h), "#7EE787", "#82CFFD")
+	display := FadeString(v4ShortHash(h), "#7EE787", "#82CFFD")
+	return ansi.SetHyperlink("poolinfo://"+h.Hex()) + display + ansi.ResetHyperlink()
 }
 
 // v4HyperAddr returns a FadeString-coloured, OSC 8 hyperlinked short address
@@ -594,4 +603,99 @@ func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
 			}
 		}
 	}
+}
+
+// ---- Pool Info (on-demand contract reads) ----
+
+const poolManagerViewABI = `[
+  {
+    "inputs": [{"internalType": "PoolId", "name": "id", "type": "bytes32"}],
+    "name": "getSlot0",
+    "outputs": [
+      {"internalType": "uint160", "name": "sqrtPriceX96", "type": "uint160"},
+      {"internalType": "int24",   "name": "tick",          "type": "int24"},
+      {"internalType": "uint24",  "name": "protocolFee",   "type": "uint24"},
+      {"internalType": "uint24",  "name": "lpFee",         "type": "uint24"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "PoolId", "name": "id", "type": "bytes32"}],
+    "name": "getLiquidity",
+    "outputs": [{"internalType": "uint128", "name": "liquidity", "type": "uint128"}],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]`
+
+// PoolInfo holds the live on-chain state for a single Uniswap V4 pool.
+type PoolInfo struct {
+	SqrtPriceX96 string `json:"sqrtPriceX96"`
+	Tick         int64  `json:"tick"`
+	ProtocolFee  uint32 `json:"protocolFee"`
+	LpFee        uint32 `json:"lpFee"`
+	Liquidity    string `json:"liquidity"`
+}
+
+// FetchPoolInfo calls getSlot0 and getLiquidity on the V4 PoolManager for the
+// given pool ID and returns the current on-chain state.
+func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	client, err := ethclient.DialContext(ctx, rpcURL)
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+	defer client.Close()
+
+	parsedABI, err := abi.JSON(strings.NewReader(poolManagerViewABI))
+	if err != nil {
+		return nil, fmt.Errorf("parse ABI: %w", err)
+	}
+
+	stateView := common.HexToAddress(V4StateViewAddress)
+
+	// getSlot0
+	slot0Calldata, err := parsedABI.Pack("getSlot0", poolID)
+	if err != nil {
+		return nil, fmt.Errorf("pack getSlot0: %w", err)
+	}
+	slot0Raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: slot0Calldata}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("call getSlot0: %w", err)
+	}
+	slot0Vals, err := parsedABI.Unpack("getSlot0", slot0Raw)
+	if err != nil {
+		return nil, fmt.Errorf("unpack getSlot0: %w (raw=%s)", err, hex.EncodeToString(slot0Raw))
+	}
+
+	// getLiquidity
+	liqCalldata, err := parsedABI.Pack("getLiquidity", poolID)
+	if err != nil {
+		return nil, fmt.Errorf("pack getLiquidity: %w", err)
+	}
+	liqRaw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: liqCalldata}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("call getLiquidity: %w", err)
+	}
+	liqVals, err := parsedABI.Unpack("getLiquidity", liqRaw)
+	if err != nil {
+		return nil, fmt.Errorf("unpack getLiquidity: %w", err)
+	}
+
+	sqrtPriceX96 := slot0Vals[0].(*big.Int)
+	tick := slot0Vals[1].(*big.Int).Int64()
+	protocolFee := uint32(slot0Vals[2].(*big.Int).Uint64())
+	lpFee := uint32(slot0Vals[3].(*big.Int).Uint64())
+	liquidity := liqVals[0].(*big.Int)
+
+	return &PoolInfo{
+		SqrtPriceX96: sqrtPriceX96.String(),
+		Tick:         tick,
+		ProtocolFee:  protocolFee,
+		LpFee:        lpFee,
+		Liquidity:    liquidity.String(),
+	}, nil
 }
