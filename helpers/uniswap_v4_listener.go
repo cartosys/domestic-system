@@ -728,7 +728,7 @@ type PoolKeyInfo struct {
 }
 
 // FetchPoolKey looks up the Initialize event log for poolID on the PoolManager
-// and returns the pool key (currency0, currency1, fee, tickSpacing, hooks).
+// within the most recent 99,000 blocks (staying under the 100k RPC limit).
 func FetchPoolKey(rpcURL string, poolID common.Hash) (*PoolKeyInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -744,9 +744,20 @@ func FetchPoolKey(rpcURL string, poolID common.Hash) (*PoolKeyInfo, error) {
 		return nil, fmt.Errorf("parse events ABI: %w", err)
 	}
 
+	header, err := client.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("get latest block: %w", err)
+	}
+	latestBlock := header.Number.Int64()
+	fromBlock := latestBlock - 99000
+	if fromBlock < int64(v4PoolManagerDeployBlock) {
+		fromBlock = int64(v4PoolManagerDeployBlock)
+	}
+
 	poolManager := common.HexToAddress(V4PoolManagerAddress)
 	q := ethereum.FilterQuery{
-		FromBlock: big.NewInt(v4PoolManagerDeployBlock),
+		FromBlock: big.NewInt(fromBlock),
+		ToBlock:   big.NewInt(latestBlock),
 		Addresses: []common.Address{poolManager},
 		Topics:    [][]common.Hash{{eventsABI.Events["Initialize"].ID}, {poolID}},
 	}
@@ -755,22 +766,19 @@ func FetchPoolKey(rpcURL string, poolID common.Hash) (*PoolKeyInfo, error) {
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
 	if len(logs) == 0 {
-		return nil, fmt.Errorf("no Initialize event found for pool %s", poolID.Hex())
+		return nil, fmt.Errorf("Initialize event not found in last 99,000 blocks")
 	}
 
 	lg := logs[0]
 	if len(lg.Topics) < 4 {
 		return nil, fmt.Errorf("Initialize log has too few topics (%d)", len(lg.Topics))
 	}
-
 	currency0 := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
 	currency1 := common.BytesToAddress(lg.Topics[3].Bytes()[12:])
-
 	var ev v4InitializeEvent
 	if err := eventsABI.UnpackIntoInterface(&ev, "Initialize", lg.Data); err != nil {
 		return nil, fmt.Errorf("unpack Initialize: %w", err)
 	}
-
 	return &PoolKeyInfo{
 		Currency0:   poolCurrencyStr(currency0),
 		Currency1:   poolCurrencyStr(currency1),
