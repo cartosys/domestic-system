@@ -23,7 +23,7 @@ const V4PoolManagerAddress = "0x000000000004444c5dc75cB358380D2e3dE08A90"
 // V4StateViewAddress is the Uniswap V4 StateView peripheral contract on Ethereum mainnet.
 // getSlot0 and getLiquidity must be called here (not on PoolManager) because PoolManager
 // uses custom packed storage (extsload) that is not readable via a standard eth_call.
-const V4StateViewAddress = "0x86e8631a016f9068c3f085faf484ee3f5fdee8f2"
+const V4StateViewAddress = "0x7fFE42C4a5DEeA5b0feC41C94c136Cf115597227"
 
 const poolManagerEventsABI = `[
   {
