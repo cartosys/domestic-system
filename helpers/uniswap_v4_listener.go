@@ -197,6 +197,61 @@ type v4ProtocolFeeUpdatedEvent struct {
 	ProtocolFee *big.Int
 }
 
+// ---- ERC-20 symbol cache ----
+
+const erc20SymbolABI = `[{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"}]`
+
+// v4SymbolCache is a thread-safe cache mapping token addresses to their ERC-20 symbol.
+type v4SymbolCache struct {
+	mu   sync.RWMutex
+	syms map[common.Address]string
+}
+
+func newV4SymbolCache() *v4SymbolCache {
+	return &v4SymbolCache{syms: make(map[common.Address]string)}
+}
+
+// getOrFetch returns the cached symbol for addr.
+// If client is non-nil and the symbol is not cached, it fetches it via eth_call.
+// Returns "ETH" for the zero address. Returns "" on cache miss when client is nil.
+func (c *v4SymbolCache) getOrFetch(ctx context.Context, client *ethclient.Client, addr common.Address) string {
+	if (addr == common.Address{}) {
+		return "ETH"
+	}
+	c.mu.RLock()
+	sym, ok := c.syms[addr]
+	c.mu.RUnlock()
+	if ok {
+		return sym
+	}
+	if client == nil {
+		return ""
+	}
+	parsed, err := abi.JSON(strings.NewReader(erc20SymbolABI))
+	if err != nil {
+		return ""
+	}
+	data, err := parsed.Pack("symbol")
+	if err != nil {
+		return ""
+	}
+	fctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	raw, err := client.CallContract(fctx, ethereum.CallMsg{To: &addr, Data: data}, nil)
+	if err != nil {
+		return ""
+	}
+	vals, err := parsed.Unpack("symbol", raw)
+	if err != nil || len(vals) == 0 {
+		return ""
+	}
+	sym, _ = vals[0].(string)
+	c.mu.Lock()
+	c.syms[addr] = sym
+	c.mu.Unlock()
+	return sym
+}
+
 // ---- Helpers ----
 
 func v4ShortAddr(a common.Address) string {
@@ -251,20 +306,27 @@ func v4CurrencyLabel(a common.Address) string {
 	return ansi.SetHyperlink("https://etherscan.io/address/"+a.Hex()) + display + ansi.ResetHyperlink()
 }
 
-func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id common.Hash) (pair, hooks string) {
+func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id common.Hash, syms *v4SymbolCache) (pair, hooks string) {
 	mu.RLock()
 	key, ok := poolKeys[id]
 	mu.RUnlock()
 	if !ok {
 		return "??/??", "??"
 	}
-	pair = fmt.Sprintf("%s/%s", v4CurrencyLabel(key.Currency0), v4CurrencyLabel(key.Currency1))
-	return pair, v4HyperAddr(key.Hooks)
+	sym0 := syms.getOrFetch(nil, nil, key.Currency0) // nil = cache-only read
+	if sym0 == "" {
+		sym0 = v4CurrencyLabel(key.Currency0)
+	}
+	sym1 := syms.getOrFetch(nil, nil, key.Currency1)
+	if sym1 == "" {
+		sym1 = v4CurrencyLabel(key.Currency1)
+	}
+	return sym0 + "/" + sym1, v4HyperAddr(key.Hooks)
 }
 
 // ---- Per-event formatters (return line string) ----
 
-func v4FmtInitialize(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+func v4FmtInitialize(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, ctx context.Context, client *ethclient.Client, syms *v4SymbolCache) (string, error) {
 	if len(lg.Topics) < 4 {
 		return "", fmt.Errorf("Initialize: want 4 topics, got %d", len(lg.Topics))
 	}
@@ -284,16 +346,27 @@ func v4FmtInitialize(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKey
 		Hooks:       ev.Hooks,
 	}
 	mu.Unlock()
+	// Eagerly fetch ERC-20 symbols for both currencies.
+	sym0 := syms.getOrFetch(ctx, client, ev.Currency0)
+	sym1 := syms.getOrFetch(ctx, client, ev.Currency1)
+	c0Label := v4CurrencyLabel(ev.Currency0)
+	c1Label := v4CurrencyLabel(ev.Currency1)
+	if sym0 != "" {
+		c0Label = sym0
+	}
+	if sym1 != "" {
+		c1Label = sym1
+	}
 	return fmt.Sprintf(
 		"[Initialize]         block=%d tx=%s poolId=%s c0=%s c1=%s fee=%s tickSpacing=%s hooks=%s sqrtPrice=%s tick=%s",
 		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
-		v4CurrencyLabel(ev.Currency0), v4CurrencyLabel(ev.Currency1),
+		c0Label, c1Label,
 		ev.Fee.String(), ev.TickSpacing.String(), v4HyperAddr(ev.Hooks),
 		ev.SqrtPriceX96.String(), ev.Tick.String(),
 	), nil
 }
 
-func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, syms *v4SymbolCache) (string, error) {
 	if len(lg.Topics) < 3 {
 		return "", fmt.Errorf("ModifyLiquidity: want 3 topics, got %d", len(lg.Topics))
 	}
@@ -303,7 +376,7 @@ func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, po
 	if err := parsedABI.UnpackIntoInterface(&ev, "ModifyLiquidity", lg.Data); err != nil {
 		return "", fmt.Errorf("unpack ModifyLiquidity: %w (data=%s)", err, hex.EncodeToString(lg.Data))
 	}
-	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
+	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id, syms)
 	action := "add"
 	if ev.LiquidityDelta != nil && ev.LiquidityDelta.Sign() < 0 {
 		action = "remove"
@@ -317,7 +390,7 @@ func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, po
 	), nil
 }
 
-func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, syms *v4SymbolCache) (string, error) {
 	if len(lg.Topics) < 3 {
 		return "", fmt.Errorf("Swap: want 3 topics, got %d", len(lg.Topics))
 	}
@@ -327,7 +400,7 @@ func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[
 	if err := parsedABI.UnpackIntoInterface(&ev, "Swap", lg.Data); err != nil {
 		return "", fmt.Errorf("unpack Swap: %w (data=%s)", err, hex.EncodeToString(lg.Data))
 	}
-	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
+	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id, syms)
 	dirHint := ""
 	if ev.Amount0 != nil && ev.Amount0.Sign() < 0 {
 		dirHint = " (token0 out)"
@@ -343,7 +416,7 @@ func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[
 	), nil
 }
 
-func v4FmtDonate(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey) (string, error) {
+func v4FmtDonate(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, syms *v4SymbolCache) (string, error) {
 	if len(lg.Topics) < 3 {
 		return "", fmt.Errorf("Donate: want 3 topics, got %d", len(lg.Topics))
 	}
@@ -353,7 +426,7 @@ func v4FmtDonate(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys ma
 	if err := parsedABI.UnpackIntoInterface(&ev, "Donate", lg.Data); err != nil {
 		return "", fmt.Errorf("unpack Donate: %w (data=%s)", err, hex.EncodeToString(lg.Data))
 	}
-	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
+	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id, syms)
 	return fmt.Sprintf(
 		"[Donate]             block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s",
 		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
@@ -443,6 +516,9 @@ func v4FormatLog(
 	eventNames map[common.Hash]string,
 	mu *sync.RWMutex,
 	poolKeys map[common.Hash]v4PoolKey,
+	ctx context.Context,
+	client *ethclient.Client,
+	syms *v4SymbolCache,
 ) (string, error) {
 	if len(lg.Topics) == 0 {
 		return "", nil
@@ -453,13 +529,13 @@ func v4FormatLog(
 	}
 	switch name {
 	case "Initialize":
-		return v4FmtInitialize(parsedABI, lg, mu, poolKeys)
+		return v4FmtInitialize(parsedABI, lg, mu, poolKeys, ctx, client, syms)
 	case "ModifyLiquidity":
-		return v4FmtModifyLiquidity(parsedABI, lg, mu, poolKeys)
+		return v4FmtModifyLiquidity(parsedABI, lg, mu, poolKeys, syms)
 	case "Swap":
-		return v4FmtSwap(parsedABI, lg, mu, poolKeys)
+		return v4FmtSwap(parsedABI, lg, mu, poolKeys, syms)
 	case "Donate":
-		return v4FmtDonate(parsedABI, lg, mu, poolKeys)
+		return v4FmtDonate(parsedABI, lg, mu, poolKeys, syms)
 	case "OperatorSet":
 		return v4FmtOperatorSet(parsedABI, lg)
 	case "Transfer":
@@ -566,6 +642,7 @@ func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
 	var (
 		mu       sync.RWMutex
 		poolKeys = make(map[common.Hash]v4PoolKey)
+		syms     = newV4SymbolCache()
 	)
 
 	query := ethereum.FilterQuery{
@@ -595,7 +672,7 @@ func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
 			return
 
 		case lg := <-logCh:
-			line, fmtErr := v4FormatLog(&parsedABI, lg, eventNames, &mu, poolKeys)
+			line, fmtErr := v4FormatLog(&parsedABI, lg, eventNames, &mu, poolKeys, ctx, client, syms)
 			if fmtErr != nil {
 				m.emit(fmt.Sprintf("[PoolMonitor] decode error: %v", fmtErr))
 			} else if line != "" {
