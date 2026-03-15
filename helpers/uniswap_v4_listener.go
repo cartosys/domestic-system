@@ -192,6 +192,12 @@ type v4ProtocolFeeUpdatedEvent struct {
 
 // ---- Helpers ----
 
+// osc8Link wraps text in an OSC 8 terminal hyperlink escape sequence.
+// Supported by iTerm2, kitty, Windows Terminal, and most modern terminals.
+func osc8Link(url, text string) string {
+	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
+}
+
 func v4ShortAddr(a common.Address) string {
 	s := a.Hex()
 	if len(s) <= 10 {
@@ -205,6 +211,18 @@ func v4ShortHash(h common.Hash) string {
 	return s[:10] + "…" + s[len(s)-6:]
 }
 
+// v4HyperAddr returns a terminal hyperlink to the Etherscan address page,
+// displaying the shortened address as the visible text.
+func v4HyperAddr(a common.Address) string {
+	return osc8Link("https://etherscan.io/address/"+a.Hex(), v4ShortAddr(a))
+}
+
+// v4HyperTxHash returns a terminal hyperlink to the Etherscan transaction page,
+// displaying the shortened hash as the visible text.
+func v4HyperTxHash(h common.Hash) string {
+	return osc8Link("https://etherscan.io/tx/"+h.Hex(), v4ShortHash(h))
+}
+
 func v4SignedStr(x *big.Int) string {
 	if x == nil {
 		return "nil"
@@ -212,11 +230,13 @@ func v4SignedStr(x *big.Int) string {
 	return x.String()
 }
 
+// v4CurrencyLabel returns "NATIVE" for the zero address, or a hyperlinked
+// full address for any real ERC-20 token.
 func v4CurrencyLabel(a common.Address) string {
 	if (a == common.Address{}) {
 		return "NATIVE"
 	}
-	return a.Hex()
+	return osc8Link("https://etherscan.io/address/"+a.Hex(), a.Hex())
 }
 
 func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id common.Hash) (pair, hooks string) {
@@ -226,12 +246,8 @@ func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id comm
 	if !ok {
 		return "UNKNOWN/UNKNOWN", "UNKNOWN"
 	}
-	if (key.Currency0 == common.Address{}) || (key.Currency1 == common.Address{}) {
-		pair = fmt.Sprintf("%s/%s", v4CurrencyLabel(key.Currency0), v4CurrencyLabel(key.Currency1))
-	} else {
-		pair = fmt.Sprintf("%s/%s", v4ShortAddr(key.Currency0), v4ShortAddr(key.Currency1))
-	}
-	return pair, v4ShortAddr(key.Hooks)
+	pair = fmt.Sprintf("%s/%s", v4CurrencyLabel(key.Currency0), v4CurrencyLabel(key.Currency1))
+	return pair, v4HyperAddr(key.Hooks)
 }
 
 // ---- Per-event formatters (return line string) ----
@@ -258,9 +274,9 @@ func v4FmtInitialize(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKey
 	mu.Unlock()
 	return fmt.Sprintf(
 		"[Initialize]         block=%d tx=%s poolId=%s c0=%s c1=%s fee=%s tickSpacing=%s hooks=%s sqrtPrice=%s tick=%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
 		v4CurrencyLabel(ev.Currency0), v4CurrencyLabel(ev.Currency1),
-		ev.Fee.String(), ev.TickSpacing.String(), v4ShortAddr(ev.Hooks),
+		ev.Fee.String(), ev.TickSpacing.String(), v4HyperAddr(ev.Hooks),
 		ev.SqrtPriceX96.String(), ev.Tick.String(),
 	), nil
 }
@@ -282,8 +298,8 @@ func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, po
 	}
 	return fmt.Sprintf(
 		"[ModifyLiquidity]    block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s action=%s delta=%s tickLow=%s tickHigh=%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
-		pair, hooks, v4ShortAddr(ev.Sender),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
+		pair, hooks, v4HyperAddr(ev.Sender),
 		action, v4SignedStr(ev.LiquidityDelta),
 		v4SignedStr(ev.TickLower), v4SignedStr(ev.TickUpper),
 	), nil
@@ -308,8 +324,8 @@ func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[
 	}
 	return fmt.Sprintf(
 		"[Swap]               block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s tick=%s fee=%s%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
-		pair, hooks, v4ShortAddr(ev.Sender),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
+		pair, hooks, v4HyperAddr(ev.Sender),
 		v4SignedStr(ev.Amount0), v4SignedStr(ev.Amount1),
 		v4SignedStr(ev.Tick), ev.Fee.String(), dirHint,
 	), nil
@@ -328,8 +344,8 @@ func v4FmtDonate(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys ma
 	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id)
 	return fmt.Sprintf(
 		"[Donate]             block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id),
-		pair, hooks, v4ShortAddr(ev.Sender),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id),
+		pair, hooks, v4HyperAddr(ev.Sender),
 		ev.Amount0.String(), ev.Amount1.String(),
 	), nil
 }
@@ -346,8 +362,8 @@ func v4FmtOperatorSet(parsedABI *abi.ABI, lg types.Log) (string, error) {
 	}
 	return fmt.Sprintf(
 		"[OperatorSet]        block=%d tx=%s owner=%s operator=%s approved=%v",
-		lg.BlockNumber, v4ShortHash(lg.TxHash),
-		v4ShortAddr(ev.Owner), v4ShortAddr(ev.Operator), ev.Approved,
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash),
+		v4HyperAddr(ev.Owner), v4HyperAddr(ev.Operator), ev.Approved,
 	), nil
 }
 
@@ -364,9 +380,9 @@ func v4FmtTransfer(parsedABI *abi.ABI, lg types.Log) (string, error) {
 	}
 	return fmt.Sprintf(
 		"[Transfer]           block=%d tx=%s from=%s to=%s tokenId=%s amount=%s caller=%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash),
-		v4ShortAddr(ev.From), v4ShortAddr(ev.To),
-		ev.Id.String(), ev.Amount.String(), v4ShortAddr(ev.Caller),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash),
+		v4HyperAddr(ev.From), v4HyperAddr(ev.To),
+		ev.Id.String(), ev.Amount.String(), v4HyperAddr(ev.Caller),
 	), nil
 }
 
@@ -381,7 +397,7 @@ func v4FmtProtocolFeeUpdated(parsedABI *abi.ABI, lg types.Log) (string, error) {
 	}
 	return fmt.Sprintf(
 		"[ProtocolFeeUpdated] block=%d tx=%s poolId=%s protocolFee=%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortHash(ev.Id), ev.ProtocolFee.String(),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4ShortHash(ev.Id), ev.ProtocolFee.String(),
 	), nil
 }
 
@@ -392,7 +408,7 @@ func v4FmtProtocolFeeControllerUpdated(lg types.Log) (string, error) {
 	controller := common.BytesToAddress(lg.Topics[1].Bytes()[12:])
 	return fmt.Sprintf(
 		"[FeeControllerUpd]   block=%d tx=%s newController=%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortAddr(controller),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4HyperAddr(controller),
 	), nil
 }
 
@@ -404,7 +420,7 @@ func v4FmtOwnershipTransferred(lg types.Log) (string, error) {
 	next := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
 	return fmt.Sprintf(
 		"[OwnershipXfer]      block=%d tx=%s from=%s to=%s",
-		lg.BlockNumber, v4ShortHash(lg.TxHash), v4ShortAddr(prev), v4ShortAddr(next),
+		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4HyperAddr(prev), v4HyperAddr(next),
 	), nil
 }
 
