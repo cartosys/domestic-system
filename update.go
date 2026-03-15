@@ -549,7 +549,37 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case poolInfoResultMsg:
+		m.poolInfoLoading = false
+		m.poolInfoID = msg.poolID
+		shortID := msg.poolID
+		if len(shortID) > 16 {
+			shortID = shortID[:10] + "…" + shortID[len(shortID)-6:]
+		}
+		if msg.err != nil {
+			m.poolInfoErr = msg.err.Error()
+			m.poolInfoData = nil
+			m.addLog("error", fmt.Sprintf("Pool Info: failed for pool %s: %s", shortID, msg.err.Error()))
+		} else {
+			m.poolInfoData = msg.info
+			m.poolInfoErr = ""
+			m.addLog("success", fmt.Sprintf("Pool Info: pool %s — sqrtPrice=%s tick=%d liquidity=%s", shortID, msg.info.SqrtPriceX96, msg.info.Tick, msg.info.Liquidity))
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		// Handle pool info popup (closes on Enter or Esc regardless of active page)
+		if m.showPoolInfoPopup {
+			switch msg.String() {
+			case "enter", "esc":
+				m.showPoolInfoPopup = false
+				m.poolInfoData = nil
+				m.poolInfoErr = ""
+				m.poolInfoID = ""
+			}
+			return m, nil
+		}
+
 		// Handle transaction result panel FIRST (before any other keys)
 		if m.showTxResultPanel {
 			switch msg.String() {
@@ -1591,6 +1621,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if viewportLine >= 0 && absoluteLine < len(lines) {
 					lineCol := msg.X - 2 // subtract border(1) + padding(1)
 					if url := urlAtCol(lines[absoluteLine], lineCol); url != "" {
+						if strings.HasPrefix(url, "poolinfo://") {
+							poolIDHex := strings.TrimPrefix(url, "poolinfo://")
+							m.showPoolInfoPopup = true
+							m.poolInfoLoading = true
+							m.poolInfoID = poolIDHex
+							m.poolInfoData = nil
+							m.poolInfoErr = ""
+							shortID := poolIDHex
+							if len(shortID) > 16 {
+								shortID = shortID[:10] + "…" + shortID[len(shortID)-6:]
+							}
+							m.addLog("info", fmt.Sprintf("Pool Info: querying pool %s", shortID))
+							return m, fetchPoolInfo(m.rpcURL, poolIDHex)
+						}
 						return m, openInBrowser(url)
 					}
 				}
