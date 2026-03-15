@@ -247,7 +247,7 @@ func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id comm
 	key, ok := poolKeys[id]
 	mu.RUnlock()
 	if !ok {
-		return "UNKNOWN/UNKNOWN", "UNKNOWN"
+		return "??/??", "??"
 	}
 	pair = fmt.Sprintf("%s/%s", v4CurrencyLabel(key.Currency0), v4CurrencyLabel(key.Currency1))
 	return pair, v4HyperAddr(key.Hooks)
