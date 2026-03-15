@@ -657,10 +657,9 @@ func poolCurrencyStr(a common.Address) string {
 	return a.Hex()
 }
 
-// FetchPoolInfo calls getSlot0 and getLiquidity on the V4 StateView for the
-// given pool ID, and looks up the pool key from the Initialize event log.
+// FetchPoolInfo calls getSlot0 and getLiquidity on the V4 StateView for the given pool ID.
 func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 
 	client, err := ethclient.DialContext(ctx, rpcURL)
@@ -710,41 +709,73 @@ func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
 	lpFee := uint32(slot0Vals[3].(*big.Int).Uint64())
 	liquidity := liqVals[0].(*big.Int)
 
-	info := &PoolInfo{
+	return &PoolInfo{
 		SqrtPriceX96: sqrtPriceX96.String(),
 		Tick:         tick,
 		ProtocolFee:  protocolFee,
 		LpFee:        lpFee,
 		Liquidity:    liquidity.String(),
-	}
+	}, nil
+}
 
-	// Look up pool key from the Initialize event log.
-	// The Initialize event has poolId as topics[1], currency0 as topics[2],
-	// currency1 as topics[3], and fee/tickSpacing/hooks in non-indexed data.
+// PoolKeyInfo holds the pool key fields retrieved from the Initialize event log.
+type PoolKeyInfo struct {
+	Currency0   string
+	Currency1   string
+	Fee         uint32
+	TickSpacing int32
+	Hooks       string
+}
+
+// FetchPoolKey looks up the Initialize event log for poolID on the PoolManager
+// and returns the pool key (currency0, currency1, fee, tickSpacing, hooks).
+func FetchPoolKey(rpcURL string, poolID common.Hash) (*PoolKeyInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	client, err := ethclient.DialContext(ctx, rpcURL)
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+	defer client.Close()
+
 	eventsABI, err := abi.JSON(strings.NewReader(poolManagerEventsABI))
-	if err == nil {
-		poolManager := common.HexToAddress(V4PoolManagerAddress)
-		q := ethereum.FilterQuery{
-			FromBlock: big.NewInt(v4PoolManagerDeployBlock),
-			Addresses: []common.Address{poolManager},
-			Topics:    [][]common.Hash{{eventsABI.Events["Initialize"].ID}, {poolID}},
-		}
-		if logs, err := client.FilterLogs(ctx, q); err == nil && len(logs) > 0 {
-			lg := logs[0]
-			if len(lg.Topics) >= 4 {
-				currency0 := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
-				currency1 := common.BytesToAddress(lg.Topics[3].Bytes()[12:])
-				var ev v4InitializeEvent
-				if err := eventsABI.UnpackIntoInterface(&ev, "Initialize", lg.Data); err == nil {
-					info.Currency0 = poolCurrencyStr(currency0)
-					info.Currency1 = poolCurrencyStr(currency1)
-					info.Fee = uint32(ev.Fee.Uint64())
-					info.TickSpacing = int32(ev.TickSpacing.Int64())
-					info.Hooks = ev.Hooks.Hex()
-				}
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("parse events ABI: %w", err)
 	}
 
-	return info, nil
+	poolManager := common.HexToAddress(V4PoolManagerAddress)
+	q := ethereum.FilterQuery{
+		FromBlock: big.NewInt(v4PoolManagerDeployBlock),
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{{eventsABI.Events["Initialize"].ID}, {poolID}},
+	}
+	logs, err := client.FilterLogs(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("filter logs: %w", err)
+	}
+	if len(logs) == 0 {
+		return nil, fmt.Errorf("no Initialize event found for pool %s", poolID.Hex())
+	}
+
+	lg := logs[0]
+	if len(lg.Topics) < 4 {
+		return nil, fmt.Errorf("Initialize log has too few topics (%d)", len(lg.Topics))
+	}
+
+	currency0 := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+	currency1 := common.BytesToAddress(lg.Topics[3].Bytes()[12:])
+
+	var ev v4InitializeEvent
+	if err := eventsABI.UnpackIntoInterface(&ev, "Initialize", lg.Data); err != nil {
+		return nil, fmt.Errorf("unpack Initialize: %w", err)
+	}
+
+	return &PoolKeyInfo{
+		Currency0:   poolCurrencyStr(currency0),
+		Currency1:   poolCurrencyStr(currency1),
+		Fee:         uint32(ev.Fee.Uint64()),
+		TickSpacing: int32(ev.TickSpacing.Int64()),
+		Hooks:       ev.Hooks.Hex(),
+	}, nil
 }

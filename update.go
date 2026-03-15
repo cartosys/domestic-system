@@ -560,11 +560,37 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.poolInfoErr = msg.err.Error()
 			m.poolInfoData = nil
 			m.addLog("error", fmt.Sprintf("Pool Info: failed for pool %s: %s", shortID, msg.err.Error()))
-		} else {
-			m.poolInfoData = msg.info
-			m.poolInfoErr = ""
-			m.addLog("success", fmt.Sprintf("Pool Info: pool %s — sqrtPrice=%s tick=%d liquidity=%s", shortID, msg.info.SqrtPriceX96, msg.info.Tick, msg.info.Liquidity))
+			return m, nil
 		}
+		m.poolInfoData = msg.info
+		m.poolInfoErr = ""
+		m.addLog("success", fmt.Sprintf("Pool Info: pool %s — sqrtPrice=%s tick=%d liquidity=%s", shortID, msg.info.SqrtPriceX96, msg.info.Tick, msg.info.Liquidity))
+		// Chain the eth_getLogs fetch for pool key (currency0/1, fee, etc.)
+		m.poolInfoKeyLoading = true
+		m.poolInfoKeyErr = ""
+		m.addLog("info", fmt.Sprintf("Pool Info: fetching Initialize event log for pool %s", shortID))
+		return m, fetchPoolKey(m.rpcURL, msg.poolID)
+
+	case poolKeyResultMsg:
+		m.poolInfoKeyLoading = false
+		shortID := msg.poolID
+		if len(shortID) > 16 {
+			shortID = shortID[:10] + "…" + shortID[len(shortID)-6:]
+		}
+		if msg.err != nil {
+			m.poolInfoKeyErr = msg.err.Error()
+			m.addLog("warn", fmt.Sprintf("Pool Info: Initialize event lookup failed for pool %s: %s", shortID, msg.err.Error()))
+			return m, nil
+		}
+		if m.poolInfoData != nil {
+			m.poolInfoData.Currency0 = msg.key.Currency0
+			m.poolInfoData.Currency1 = msg.key.Currency1
+			m.poolInfoData.Fee = msg.key.Fee
+			m.poolInfoData.TickSpacing = msg.key.TickSpacing
+			m.poolInfoData.Hooks = msg.key.Hooks
+		}
+		m.poolInfoKeyErr = ""
+		m.addLog("success", fmt.Sprintf("Pool Info: pool key for %s — currency0=%s currency1=%s fee=%d", shortID, msg.key.Currency0, msg.key.Currency1, msg.key.Fee))
 		return m, nil
 
 	case tea.KeyMsg:
@@ -576,6 +602,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.poolInfoData = nil
 				m.poolInfoErr = ""
 				m.poolInfoID = ""
+				m.poolInfoKeyLoading = false
+				m.poolInfoKeyErr = ""
 			}
 			return m, nil
 		}
@@ -1589,6 +1617,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.poolInfoData = nil
 				m.poolInfoErr = ""
 				m.poolInfoID = ""
+				m.poolInfoKeyLoading = false
+				m.poolInfoKeyErr = ""
 			}
 			return m, nil
 		}

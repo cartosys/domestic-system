@@ -311,6 +311,14 @@ func (m *model) renderPoolInfoPopup() string {
 		}
 	}
 
+	// Eth logs loading row (shown while fetching pool key)
+	var keyRow string
+	if m.poolInfoKeyLoading {
+		keyRow = lipgloss.NewStyle().Foreground(cMuted).Render(m.spin.View() + " Loading eth logs…")
+	} else if m.poolInfoKeyErr != "" {
+		keyRow = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA657")).Render("⚠ " + m.poolInfoKeyErr)
+	}
+
 	// OK button (always focused)
 	okButton := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFF7DB")).
@@ -322,7 +330,12 @@ func (m *model) renderPoolInfoPopup() string {
 
 	okRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(okButton)
 
-	ui := lipgloss.JoinVertical(lipgloss.Center, title, poolIDLine, "", body, okRow)
+	rows := []string{title, poolIDLine, "", body}
+	if keyRow != "" {
+		rows = append(rows, keyRow)
+	}
+	rows = append(rows, okRow)
+	ui := lipgloss.JoinVertical(lipgloss.Center, rows...)
 	dialog := dialogBoxStyle.Render(ui)
 
 	// Track OK button position for click handling.

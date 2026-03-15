@@ -448,6 +448,24 @@ func openInBrowser(url string) tea.Cmd {
 	}
 }
 
+// fetchPoolInfo calls getSlot0 and getLiquidity on the V4 StateView for poolIDHex.
+func fetchPoolInfo(rpcURL, poolIDHex string) tea.Cmd {
+	return func() tea.Msg {
+		id := common.HexToHash(poolIDHex)
+		info, err := helpers.FetchPoolInfo(rpcURL, id)
+		return poolInfoResultMsg{poolID: poolIDHex, info: info, err: err}
+	}
+}
+
+// fetchPoolKey looks up the Initialize event log for poolIDHex to get currency0/1, fee, etc.
+func fetchPoolKey(rpcURL, poolIDHex string) tea.Cmd {
+	return func() tea.Msg {
+		id := common.HexToHash(poolIDHex)
+		key, err := helpers.FetchPoolKey(rpcURL, id)
+		return poolKeyResultMsg{poolID: poolIDHex, key: key, err: err}
+	}
+}
+
 // waitForPoolEvent blocks until the next line arrives from the pool event monitor channel.
 // Returns poolEventLineMsg when a line is received, or poolEventMonitorStoppedMsg when
 // the channel is closed (monitor stopped or error).

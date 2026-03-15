@@ -81,3 +81,17 @@ type poolEventLineMsg struct {
 
 // poolEventMonitorStoppedMsg signals that the pool event monitor has stopped
 type poolEventMonitorStoppedMsg struct{}
+
+// poolInfoResultMsg carries the result of a FetchPoolInfo call
+type poolInfoResultMsg struct {
+	poolID string
+	info   *helpers.PoolInfo
+	err    error
+}
+
+// poolKeyResultMsg carries the result of a FetchPoolKey call
+type poolKeyResultMsg struct {
+	poolID string
+	key    *helpers.PoolKeyInfo
+	err    error
+}
