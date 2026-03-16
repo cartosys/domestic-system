@@ -600,18 +600,41 @@ func colorizeLogContent(content string) string {
 	return result.String()
 }
 
-// updateLogViewport refreshes the viewport content with log output
+// maxLogBytes is the maximum size of the in-memory log buffer (~2 MB).
+const maxLogBytes = 2 * 1024 * 1024
+
+// updateLogViewport refreshes the viewport content with log output.
+// It preserves the current scroll position so that manual scrolls are not
+// overridden; it only jumps to the bottom if the viewport was already there.
 func (m *model) updateLogViewport() {
 	if !m.logReady || m.logBuffer == nil {
 		return
 	}
 
-	// Get content from log buffer and apply color coding
+	// Remember whether we were at the bottom before refreshing content.
+	atBottom := m.logViewport.AtBottom()
+
 	content := m.logBuffer.String()
+
+	// Trim the oldest entries if the buffer has grown beyond the cap.
+	if len(content) > maxLogBytes {
+		trimmed := content[len(content)-maxLogBytes:]
+		// Advance to the start of the next complete line.
+		if idx := strings.Index(trimmed, "\n"); idx >= 0 {
+			trimmed = trimmed[idx+1:]
+		}
+		m.logBuffer.Reset()
+		m.logBuffer.WriteString(trimmed)
+		content = trimmed
+	}
+
 	content = colorizeLogContent(content)
 	m.logViewport.SetContent(content)
-	// Scroll to bottom to show latest entries
-	m.logViewport.GotoBottom()
+
+	// Only follow new output when the user hasn't scrolled up.
+	if atBottom {
+		m.logViewport.GotoBottom()
+	}
 }
 
 // textInputActive returns true if any text input is currently active

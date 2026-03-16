@@ -3,11 +3,43 @@ package log
 import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/styles"
-	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// scrollbarTrack builds a slice of single-character strings (one per visible
+// line) representing a vertical scrollbar track.  When there is nothing to
+// scroll the slice is empty.
+func scrollbarTrack(vpHeight, totalLines, yOffset int) []string {
+	if totalLines <= vpHeight || vpHeight <= 0 {
+		return nil
+	}
+
+	// Thumb height: at least 1, proportional to visible fraction.
+	thumbSize := vpHeight * vpHeight / totalLines
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
+
+	// Thumb top position within the track.
+	maxOffset := totalLines - vpHeight
+	thumbTop := 0
+	if maxOffset > 0 {
+		thumbTop = (yOffset * (vpHeight - thumbSize)) / maxOffset
+	}
+
+	track := make([]string, vpHeight)
+	for i := range track {
+		if i >= thumbTop && i < thumbTop+thumbSize {
+			track[i] = "█"
+		} else {
+			track[i] = "░"
+		}
+	}
+	return track
+}
 
 // Render renders the log panel.
 // viewportHeight is the number of content lines the viewport should display;
@@ -35,18 +67,19 @@ func Render(width, viewportHeight int, logReady bool, logSpinnerView string, vp 
 		return border.Render(title + "\n\n" + initMsg)
 	}
 
-	// Show scrollbar info if content is larger than viewport
-	scrollInfo := ""
-	if vp.TotalLineCount() > 0 {
-		scrollPercent := int(vp.ScrollPercent() * 100)
-		if vp.TotalLineCount() > vp.Height {
-			scrollInfo = lipgloss.NewStyle().
-				Foreground(styles.CMuted).
-				Render(fmt.Sprintf(" [%d%%]", scrollPercent))
+	// Build the viewport body, optionally decorating with a scrollbar track.
+	vpContent := vp.View()
+	track := scrollbarTrack(logPanelHeight, vp.TotalLineCount(), vp.YOffset)
+	if len(track) > 0 {
+		trackStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+		vpLines := strings.Split(vpContent, "\n")
+		for i := range vpLines {
+			if i < len(track) {
+				vpLines[i] = vpLines[i] + " " + trackStyle.Render(track[i])
+			}
 		}
+		vpContent = strings.Join(vpLines, "\n")
 	}
 
-	titleWithScroll := title + scrollInfo
-
-	return border.Render(titleWithScroll + "\n\n" + vp.View())
+	return border.Render(title + "\n\n" + vpContent)
 }

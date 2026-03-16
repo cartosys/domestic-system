@@ -1622,6 +1622,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+
+		// Route mouse wheel events to the log viewport.
+		if m.logEnabled && m.logReady && (msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown) {
+			var cmd tea.Cmd
+			m.logViewport, cmd = m.logViewport.Update(msg)
+			return m, cmd
+		}
+
 		if msg.Type == tea.MouseLeft {
 			// Check for double-click on header active address
 			if m.activeAddress != "" && m.headerAddrX > 0 {
