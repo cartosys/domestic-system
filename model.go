@@ -145,6 +145,13 @@ type model struct {
 	lastQuoteFromTokenIdx int    // last from token index used for quote
 	lastQuoteToTokenIdx   int    // last to token index used for quote
 
+	// Liquidity positions view (within Uniswap page)
+	uniswapShowingLiquidity bool
+	liquidityPositions      []helpers.LiquidityPosition
+	liquidityLoading        bool
+	liquidityFocusedIdx     int
+	liquidityErr            string
+
 	// Terra Nullius dapp state
 	terraNullFocusedField   int                    // 1=Claims, 2=Claim
 	terraNullClaimsCount    string                 // display value from number_of_claims()

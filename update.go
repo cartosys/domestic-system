@@ -681,7 +681,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// global keys
 		if allowMenuHotkeys {
 			switch msg.String() {
-			case "ctrl+c", "q":
+			case "ctrl+c":
 				return m, tea.Quit
 
 			case "l", "L":
@@ -1215,6 +1215,29 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle liquidity positions view
+		if m.uniswapShowingLiquidity {
+			switch msg.String() {
+			case "esc", "q", "Q":
+				m.uniswapShowingLiquidity = false
+				return m, nil
+			case "up", "k":
+				if m.liquidityFocusedIdx > 0 {
+					m.liquidityFocusedIdx--
+				}
+				return m, nil
+			case "down", "j":
+				if m.liquidityFocusedIdx < len(m.liquidityPositions)-1 {
+					m.liquidityFocusedIdx++
+				}
+				return m, nil
+			case "l":
+				m.logEnabled = !m.logEnabled
+				return m, nil
+			}
+			return m, nil
+		}
+
 		// Handle token selector popup
 		if m.uniswapShowingSelector {
 			switch msg.String() {
@@ -1489,6 +1512,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.maybeRequestUniswapQuote()
 					}
 				}
+			}
+			return m, nil
+
+		case "q", "Q":
+			m.uniswapShowingLiquidity = true
+			m.liquidityFocusedIdx = 0
+			if m.activeAddress != "" && m.rpcURL != "" {
+				m.liquidityLoading = true
+				m.liquidityPositions = nil
+				m.liquidityErr = ""
+				return m, fetchLiquidityPositions(m.rpcURL, common.HexToAddress(m.activeAddress))
 			}
 			return m, nil
 
@@ -1859,6 +1893,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if msg.quote.PriceImpact > 0.5 {
 				m.uniswapPriceImpactWarn = fmt.Sprintf("⚠ Moderate price impact: %.2f%%", msg.quote.PriceImpact)
 			}
+		}
+		return m, nil
+
+	case liquidityPositionsMsg:
+		m.liquidityLoading = false
+		if msg.err != nil {
+			m.liquidityErr = msg.err.Error()
+			m.addLog("error", "Liquidity positions: "+msg.err.Error())
+		} else {
+			m.liquidityPositions = msg.positions
+			m.addLog("info", fmt.Sprintf("Loaded %d V3 liquidity position(s)", len(msg.positions)))
 		}
 		return m, nil
 

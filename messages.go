@@ -95,3 +95,9 @@ type poolKeyResultMsg struct {
 	key    *helpers.PoolKeyInfo
 	err    error
 }
+
+// liquidityPositionsMsg carries the result of a V3 liquidity position lookup
+type liquidityPositionsMsg struct {
+	positions []helpers.LiquidityPosition
+	err       error
+}

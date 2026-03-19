@@ -4,6 +4,7 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/styles"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 
@@ -20,7 +21,8 @@ type TokenOption struct {
 
 // Nav returns the navigation bar for Uniswap view.
 // poolMonitorActive controls the color of the pool event monitor hotkey.
-func Nav(width int, poolMonitorActive bool) string {
+// liquidityActive controls the color of the liquidity hotkey.
+func Nav(width int, poolMonitorActive, liquidityActive bool) string {
 	var pItem string
 	if poolMonitorActive {
 		pKey := lipgloss.NewStyle().Foreground(styles.CError).Bold(true).Render("p")
@@ -28,6 +30,15 @@ func Nav(width int, poolMonitorActive bool) string {
 		pItem = pKey + " " + pLabel
 	} else {
 		pItem = styles.Key("p") + " pool event monitor"
+	}
+
+	var qItem string
+	if liquidityActive {
+		qKey := lipgloss.NewStyle().Foreground(styles.CAccent2).Bold(true).Render("q")
+		qLabel := lipgloss.NewStyle().Foreground(styles.CAccent2).Render("liquidity positions")
+		qItem = qKey + " " + qLabel
+	} else {
+		qItem = styles.Key("q") + " liquidity"
 	}
 
 	left := strings.Join([]string{
@@ -39,6 +50,7 @@ func Nav(width int, poolMonitorActive bool) string {
 		styles.Key("Esc") + " back",
 		styles.Key("l") + " logger",
 		pItem,
+		qItem,
 	}, "   ")
 
 	return styles.NavStyle.Width(width).Render(left)
@@ -298,4 +310,149 @@ func RenderTokenSelector(width, height int, tokens []TokenOption, selectedIdx in
 		lipgloss.Center,
 		box,
 	)
+}
+
+// RenderLiquidity renders the Uniswap V3 liquidity positions view.
+func RenderLiquidity(width, height int, positions []helpers.LiquidityPosition, loading bool, focusedIdx int, errMsg, spinView string) string {
+	containerWidth := helpers.Min(80, width-4)
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(containerWidth)
+
+	title := titleStyle.Render("🦄 Liquidity Pools")
+
+	var body string
+
+	switch {
+	case loading:
+		body = lipgloss.NewStyle().
+			Foreground(styles.CMuted).
+			Align(lipgloss.Center).
+			Width(containerWidth).
+			Render(spinView + " Loading positions…")
+
+	case errMsg != "":
+		body = lipgloss.NewStyle().
+			Foreground(styles.CError).
+			Align(lipgloss.Center).
+			Width(containerWidth).
+			Render("Error: " + errMsg)
+
+	case len(positions) == 0:
+		body = lipgloss.NewStyle().
+			Foreground(styles.CMuted).
+			Align(lipgloss.Center).
+			Width(containerWidth).
+			Render("No V3 liquidity positions found for this address")
+
+	default:
+		cardWidth := containerWidth - 4
+
+		normalCard := lipgloss.NewStyle().
+			Width(cardWidth).
+			Padding(0, 2).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(styles.CBorder)
+
+		focusedCard := lipgloss.NewStyle().
+			Width(cardWidth).
+			Padding(0, 2).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(styles.CAccent)
+
+		labelStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+		valueStyle := lipgloss.NewStyle().Foreground(styles.CAccent2)
+		accentStyle := lipgloss.NewStyle().Foreground(styles.CAccent)
+		boldStyle := lipgloss.NewStyle().Foreground(styles.CText).Bold(true)
+		mutedStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+
+		var cards []string
+		for i, pos := range positions {
+			feePercent := fmt.Sprintf("%.2f%%", float64(pos.Fee)/10000.0)
+			pair := pos.Token0Symbol + "/" + pos.Token1Symbol
+			idStr := "#" + pos.TokenID.String()
+
+			headerLine := boldStyle.Render(pair) +
+				"   " + valueStyle.Render(feePercent) +
+				"   " + mutedStyle.Render(idStr)
+
+			minStr := liquidityFormatPrice(pos.MinPrice)
+			maxStr := liquidityFormatPrice(pos.MaxPrice)
+			rangeLine := labelStyle.Render("Range:  ") +
+				valueStyle.Render(minStr+" — "+maxStr) +
+				mutedStyle.Render("  "+pos.Token1Symbol+"/"+pos.Token0Symbol)
+
+			liqLine := labelStyle.Render("Liq:    ") +
+				lipgloss.NewStyle().Foreground(styles.CText).Render(pos.Liquidity.String())
+
+			content := headerLine + "\n" + rangeLine + "\n" + liqLine
+
+			if pos.TokensOwed0.Sign() > 0 || pos.TokensOwed1.Sign() > 0 {
+				f0 := liquidityFormatAmount(pos.TokensOwed0, pos.Token0Decimals)
+				f1 := liquidityFormatAmount(pos.TokensOwed1, pos.Token1Decimals)
+				feesLine := labelStyle.Render("Fees:   ") +
+					accentStyle.Render(f0+" "+pos.Token0Symbol+" / "+f1+" "+pos.Token1Symbol)
+				content += "\n" + feesLine
+			}
+
+			var card string
+			if i == focusedIdx {
+				card = focusedCard.Render(content)
+			} else {
+				card = normalCard.Render(content)
+			}
+			cards = append(cards, card)
+		}
+		body = strings.Join(cards, "\n")
+	}
+
+	infoText := lipgloss.NewStyle().
+		Foreground(styles.CMuted).
+		Width(containerWidth).
+		Align(lipgloss.Center).
+		Render("↑/↓ navigate   q/Esc back to swap")
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		title, "", body, "", infoText,
+	)
+
+	return lipgloss.NewStyle().
+		Width(width).
+		Align(lipgloss.Center).
+		Render(content)
+}
+
+// liquidityFormatPrice formats a tick-derived price for display.
+func liquidityFormatPrice(price float64) string {
+	if price <= 0 || math.IsInf(price, 0) || math.IsNaN(price) {
+		return "∞"
+	}
+	switch {
+	case price < 0.0001:
+		return fmt.Sprintf("%.8f", price)
+	case price < 1:
+		return fmt.Sprintf("%.6f", price)
+	case price > 1e9:
+		return fmt.Sprintf("%.2e", price)
+	case price > 1e6:
+		return fmt.Sprintf("%.2f", price)
+	default:
+		return fmt.Sprintf("%.4f", price)
+	}
+}
+
+// liquidityFormatAmount formats a token amount from base units to a human-readable string.
+func liquidityFormatAmount(amount *big.Int, decimals uint8) string {
+	if amount == nil || amount.Sign() == 0 {
+		return "0"
+	}
+	divisor := new(big.Float).SetInt(
+		new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil),
+	)
+	value := new(big.Float).Quo(new(big.Float).SetInt(amount), divisor)
+	return value.Text('f', 6)
 }

@@ -532,7 +532,19 @@ func (m *model) View() string {
 				m.uniswapSelectorFor == 0,
 			)
 			pageContent = uniswapView
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
+		} else if m.uniswapShowingLiquidity {
+			liquidityView := uniswap.RenderLiquidity(
+				m.w-2,
+				m.h-8,
+				m.liquidityPositions,
+				m.liquidityLoading,
+				m.liquidityFocusedIdx,
+				m.liquidityErr,
+				m.spin.View(),
+			)
+			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(liquidityView)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
 		} else {
 			// Render main swap interface
 			uniswapView := uniswap.Render(
@@ -549,7 +561,7 @@ func (m *model) View() string {
 			)
 			// Wrap in panel style to constrain properly
 			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(uniswapView)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
 		}
 
 		// Show pool info popup overlay if active
