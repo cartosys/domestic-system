@@ -23,6 +23,20 @@ import (
 
 // -------------------- MODEL --------------------
 
+// dialogKind identifies which overlay dialog (if any) is currently visible.
+// Only one dialog can be shown at a time.
+type dialogKind uint8
+
+const (
+	dialogNone        dialogKind = iota
+	dialogDeleteWallet            // wallet delete confirmation
+	dialogDeleteRPC               // RPC endpoint delete confirmation
+	dialogTxResult                // transaction result / QR panel
+	dialogPoolInfo                // Uniswap pool info popup
+	dialogAccountList             // account selector popup
+	dialogTerraClaim              // Terra Nullius claim form
+)
+
 // model represents the application state following The Elm Architecture
 type model struct {
 	w, h int
@@ -101,14 +115,15 @@ type model struct {
 	// split view flag for wallets page
 	detailsInWallets bool // when true, show details panel alongside wallet list
 
-	// delete confirmation dialog
-	showDeleteDialog        bool
+	// active overlay dialog (only one at a time)
+	activeDialog dialogKind
+
+	// delete confirmation dialog state
 	deleteDialogAddr        string
 	deleteDialogIdx         int
 	deleteDialogYesSelected bool // true = Yes button, false = No button
-	showRPCDeleteDialog        bool
-	deleteRPCDialogName        string
-	deleteRPCDialogIdx         int
+	deleteRPCDialogName     string
+	deleteRPCDialogIdx      int
 	deleteRPCDialogYesSelected bool
 
 	// send button state
@@ -116,8 +131,7 @@ type model struct {
 	showSendForm      bool
 	sendForm          *huh.Form
 
-	// transaction result panel
-	showTxResultPanel bool
+	// transaction result panel state
 	txResultPackaging bool
 	txResultHex       string
 	txResultEIP681    string
@@ -161,8 +175,7 @@ type model struct {
 	terraNullClaimQuerying  bool
 	terraNullLastQueriedIdx string // index used for the current/last result
 	terraNullClaimResultErr string
-	// Terra Nullius claim popup
-	terraNullShowClaimForm bool
+	// Terra Nullius claim popup state
 	terraNullMsgInput      textinput.Model
 	terraNullFormFocused   int    // 0=message input, 1=submit button
 	terraNullMsgError      string
@@ -172,7 +185,6 @@ type model struct {
 	poolEventMonitor       *helpers.PoolEventMonitor
 
 	// Pool Info popup state
-	showPoolInfoPopup  bool
 	poolInfoLoading    bool
 	poolInfoID         string
 	poolInfoData       *helpers.PoolInfo
@@ -191,8 +203,7 @@ type model struct {
 	lastClickX    int
 	lastClickY    int
 
-	// Account list popup (shown on double-click of active address in header)
-	showAccountListPopup   bool
+	// Account list popup state
 	accountListSelectedIdx int
 	headerAddrX            int // X position of active address in header
 	headerAddrY            int // Y position of active address in header

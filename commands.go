@@ -659,7 +659,7 @@ func (m model) textInputActive() bool {
 	if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
 		return true
 	}
-if m.terraNullShowClaimForm {
+if m.activeDialog == dialogTerraClaim {
 		return true
 	}
 	return false

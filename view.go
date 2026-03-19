@@ -382,7 +382,7 @@ func (m *model) View() string {
 			detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
 
 			// Show transaction result panel if active
-			if m.showTxResultPanel {
+			if m.activeDialog == dialogTxResult {
 				detailsContent = m.renderTxResultContent()
 				// Show send form if active
 			} else if m.showSendForm && m.sendForm != nil {
@@ -436,12 +436,12 @@ func (m *model) View() string {
 		nav = wallets.Nav(m.w - 2)
 
 		// Render delete confirmation dialog overlay
-		if m.showDeleteDialog {
+		if m.activeDialog == dialogDeleteWallet {
 			// Dialog overlays the current view
 			return m.renderDeleteDialog()
 		}
 
-		if m.showTxResultPanel {
+		if m.activeDialog == dialogTxResult {
 			return m.renderTxResultPanel()
 		}
 
@@ -467,7 +467,7 @@ func (m *model) View() string {
 		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(settingsContent)
 		nav = settings.Nav(m.w-2, m.settingsMode)
 
-		if m.showRPCDeleteDialog {
+		if m.activeDialog == dialogDeleteRPC {
 			return m.renderRPCDeleteDialog()
 		}
 
@@ -518,18 +518,18 @@ func (m *model) View() string {
 		}
 
 		// Show pool info popup overlay if active
-		if m.showPoolInfoPopup {
+		if m.activeDialog == dialogPoolInfo {
 			return m.renderPoolInfoPopup()
 		}
 
 		// Show transaction result panel overlay if active
-		if m.showTxResultPanel {
+		if m.activeDialog == dialogTxResult {
 			return m.renderTxResultPanel()
 		}
 
 	case config.PageTerraNullius:
 		// Show claim popup overlay
-		if m.terraNullShowClaimForm {
+		if m.activeDialog == dialogTerraClaim {
 			return terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
 		}
 
@@ -553,7 +553,7 @@ func (m *model) View() string {
 		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(terraView)
 		nav = terra.Nav(m.w - 2)
 
-		if m.showTxResultPanel {
+		if m.activeDialog == dialogTxResult {
 			return m.renderTxResultPanel()
 		}
 	}
@@ -575,7 +575,7 @@ func (m *model) View() string {
 		baseView := appStyle.Render(content)
 
 		// Show account list popup overlay if active
-		if m.showAccountListPopup {
+		if m.activeDialog == dialogAccountList {
 			popup := m.renderAccountListPopup()
 			return popup // Popup uses lipgloss.Place internally, so just return it
 		}
@@ -588,7 +588,7 @@ func (m *model) View() string {
 	baseView := appStyle.Render(content)
 
 	// Show account list popup overlay if active
-	if m.showAccountListPopup {
+	if m.activeDialog == dialogAccountList {
 		// Register clickable areas for popup before rendering
 		accountList, popupClickableAreas, _ := wallets.RenderList(m.accounts, m.accountListSelectedIdx)
 

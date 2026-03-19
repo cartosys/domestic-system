@@ -183,7 +183,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addLog("info", fmt.Sprintf("Packaging transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
 				m.showSendForm = false
 				m.sendForm = nil
-				m.showTxResultPanel = true
+				m.activeDialog = dialogTxResult
 				m.txResultPackaging = true
 				m.txResultHex = ""
 				m.txResultError = ""
@@ -287,11 +287,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Terra Nullius claim popup handler
-	if m.activePage == config.PageTerraNullius && m.terraNullShowClaimForm {
+	if m.activePage == config.PageTerraNullius && m.activeDialog == dialogTerraClaim {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			switch keyMsg.String() {
 			case "esc":
-				m.terraNullShowClaimForm = false
+				m.activeDialog = dialogNone
 				m.terraNullMsgInput.Blur()
 				m.terraNullMsgError = ""
 				return m, nil
@@ -327,10 +327,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.terraNullMsgInput.Focus()
 					}
 					m.terraNullMsgError = ""
-					m.terraNullShowClaimForm = false
+					m.activeDialog = dialogNone
 					m.terraNullMsgInput.Blur()
 					m.addLog("info", fmt.Sprintf("Terra Nullius: packaging claim → \"%s\"", msgVal))
-					m.showTxResultPanel = true
+					m.activeDialog = dialogTxResult
 					m.txResultPackaging = true
 					m.txResultHex = ""
 					m.txResultError = ""
@@ -595,10 +595,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Handle pool info popup (closes on Enter or Esc regardless of active page)
-		if m.showPoolInfoPopup {
+		if m.activeDialog == dialogPoolInfo {
 			switch msg.String() {
 			case "enter", "esc":
-				m.showPoolInfoPopup = false
+				m.activeDialog = dialogNone
 				m.poolInfoData = nil
 				m.poolInfoErr = ""
 				m.poolInfoID = ""
@@ -609,7 +609,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle transaction result panel FIRST (before any other keys)
-		if m.showTxResultPanel {
+		if m.activeDialog == dialogTxResult {
 			switch msg.String() {
 			case "ctrl+c":
 				// Copy transaction JSON to clipboard
@@ -623,7 +623,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "esc", "enter":
-				m.showTxResultPanel = false
+				m.activeDialog = dialogNone
 				m.txResultHex = ""
 				m.txResultEIP681 = ""
 				m.txResultError = ""
@@ -636,7 +636,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle account list popup
-		if m.showAccountListPopup {
+		if m.activeDialog == dialogAccountList {
 			switch msg.String() {
 			case "up", "k":
 				if m.accountListSelectedIdx > 0 {
@@ -665,13 +665,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 					m.addLog("success", fmt.Sprintf("Activated account: %s", helpers.ShortenAddr(selectedAddr)))
 					// Close popup
-					m.showAccountListPopup = false
+					m.activeDialog = dialogNone
 					// Load details for newly activated wallet
 					return m, m.loadSelectedWalletDetails()
 				}
 				return m, nil
 			case "esc":
-				m.showAccountListPopup = false
+				m.activeDialog = dialogNone
 				return m, nil
 			}
 			return m, nil
@@ -725,7 +725,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case config.PageWallets:
 			// Handle delete confirmation dialog
-			if m.showDeleteDialog {
+			if m.activeDialog == dialogDeleteWallet {
 				switch msg.String() {
 				case "left", "right", "tab":
 					// Toggle between Yes and No buttons
@@ -760,16 +760,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Save wallets to config
 						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 						m.addLog("warning", fmt.Sprintf("Deleted wallet `%s`", helpers.ShortenAddr(deletedAddr)))
-						m.showDeleteDialog = false
+						m.activeDialog = dialogNone
 						// Load details for the newly selected wallet if split view is enabled
 						return m, m.loadSelectedWalletDetails()
 					}
 					// Cancel deletion (No button)
-					m.showDeleteDialog = false
+					m.activeDialog = dialogNone
 					return m, nil
 				case "esc":
 					// Cancel deletion
-					m.showDeleteDialog = false
+					m.activeDialog = dialogNone
 					return m, nil
 				}
 				return m, nil
@@ -1021,7 +1021,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.accounts) == 0 {
 				return m, nil
 			}
-			m.showDeleteDialog = true
+			m.activeDialog = dialogDeleteWallet
 			m.deleteDialogYesSelected = true // Default to Yes button
 			m.deleteDialogIdx = m.selectedWallet
 			m.deleteDialogAddr = m.accounts[m.selectedWallet].Address
@@ -1070,7 +1070,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.terraNullClaimResult = nil
 				m.terraNullClaimQuerying = false
 				m.terraNullClaimResultErr = ""
-				m.terraNullShowClaimForm = false
+				m.activeDialog = dialogNone
 				m.addLog("info", "Terra Nullius: loading number of claims…")
 				return m, fetchTerraNumberOfClaims(m.ethClient)
 			}
@@ -1110,7 +1110,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case config.PageSettings:
-		if m.showRPCDeleteDialog {
+		if m.activeDialog == dialogDeleteRPC {
 			switch msg.String() {
 			case "left", "right", "tab":
 				m.deleteRPCDialogYesSelected = !m.deleteRPCDialogYesSelected
@@ -1127,13 +1127,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 						m.addLog("warning", fmt.Sprintf("Deleted RPC endpoint `%s`", deletedName))
 					}
-					m.showRPCDeleteDialog = false
+					m.activeDialog = dialogNone
 					return m, nil
 				}
-				m.showRPCDeleteDialog = false
+				m.activeDialog = dialogNone
 				return m, nil
 			case "esc":
-				m.showRPCDeleteDialog = false
+				m.activeDialog = dialogNone
 				return m, nil
 			}
 			return m, nil
@@ -1160,7 +1160,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "delete", "backspace":
 				if len(m.rpcURLs) > 0 && m.selectedRPCIdx < len(m.rpcURLs) {
-					m.showRPCDeleteDialog = true
+					m.activeDialog = dialogDeleteRPC
 					m.deleteRPCDialogYesSelected = true
 					m.deleteRPCDialogIdx = m.selectedRPCIdx
 					name := strings.TrimSpace(m.rpcURLs[m.selectedRPCIdx].Name)
@@ -1202,10 +1202,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case config.PageUniswap:
 		// Handle transaction result panel first
-		if m.showTxResultPanel {
+		if m.activeDialog == dialogTxResult {
 			switch msg.String() {
 			case "esc", "enter":
-				m.showTxResultPanel = false
+				m.activeDialog = dialogNone
 				m.txResultHex = ""
 				m.txResultEIP681 = ""
 				m.txResultError = ""
@@ -1440,7 +1440,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				toToken := tokens[m.uniswapToTokenIdx]
 
 				m.addLog("info", fmt.Sprintf("Packaging swap: %s %s → %s %s", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol))
-				m.showTxResultPanel = true
+				m.activeDialog = dialogTxResult
 				m.txResultPackaging = true
 				m.txResultHex = ""
 				m.txResultError = ""
@@ -1535,10 +1535,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case config.PageTerraNullius:
-		if m.showTxResultPanel {
+		if m.activeDialog == dialogTxResult {
 			switch msg.String() {
 			case "esc", "enter":
-				m.showTxResultPanel = false
+				m.activeDialog = dialogNone
 				m.txResultHex = ""
 				m.txResultEIP681 = ""
 				m.txResultError = ""
@@ -1602,7 +1602,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, fetchTerraClaim(m.ethClient, idx)
 			} else if m.terraNullFocusedField == 2 {
 				// Open claim popup
-				m.terraNullShowClaimForm = true
+				m.activeDialog = dialogTerraClaim
 				m.terraNullFormFocused = 0
 				m.terraNullMsgInput.SetValue("")
 				m.terraNullMsgError = ""
@@ -1630,11 +1630,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// Consume all clicks while Pool Info popup is showing; close on OK button.
-		if m.showPoolInfoPopup {
+		if m.activeDialog == dialogPoolInfo {
 			if msg.Type == tea.MouseLeft &&
 				msg.Y == m.poolInfoOKBtnY &&
 				msg.X >= m.poolInfoOKBtnX1 && msg.X < m.poolInfoOKBtnX2 {
-				m.showPoolInfoPopup = false
+				m.activeDialog = dialogNone
 				m.poolInfoData = nil
 				m.poolInfoErr = ""
 				m.poolInfoID = ""
@@ -1662,7 +1662,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if now.Sub(m.lastClickTime) < 500*time.Millisecond &&
 						m.lastClickX == msg.X && m.lastClickY == msg.Y {
 						// Double-click detected - show account list popup
-						m.showAccountListPopup = true
+						m.activeDialog = dialogAccountList
 						// Find index of current active address in accounts list
 						m.accountListSelectedIdx = 0
 						for i, w := range m.accounts {
@@ -1694,7 +1694,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if url := urlAtCol(lines[absoluteLine], lineCol); url != "" {
 						if strings.HasPrefix(url, "poolinfo://") {
 							poolIDHex := strings.TrimPrefix(url, "poolinfo://")
-							m.showPoolInfoPopup = true
+							m.activeDialog = dialogPoolInfo
 							m.poolInfoLoading = true
 							m.poolInfoID = poolIDHex
 							m.poolInfoData = nil
@@ -1722,7 +1722,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addLog("debug", fmt.Sprintf("Click matched area %d: addr=%s at (%d,%d) size=%dx%d", idx, helpers.ShortenAddr(area.Address), area.X, area.Y, area.Width, area.Height))
 
 					// Check if this is on the wallets page or popup - enable double-click activation
-					if m.activePage == config.PageWallets || m.showAccountListPopup {
+					if m.activePage == config.PageWallets || m.activeDialog == dialogAccountList {
 						now := time.Now()
 						// Check if this is a double-click
 						if now.Sub(m.lastClickTime) < 500*time.Millisecond &&
@@ -1743,8 +1743,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 									m.addLog("success", fmt.Sprintf("Activated account: %s", helpers.ShortenAddr(area.Address)))
 									// Close popup if it was open
-									if m.showAccountListPopup {
-										m.showAccountListPopup = false
+									if m.activeDialog == dialogAccountList {
+										m.activeDialog = dialogNone
 									}
 									// Load details for newly activated wallet
 									return m, m.loadSelectedWalletDetails()
@@ -1761,7 +1761,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if strings.EqualFold(w.Address, area.Address) {
 								m.selectedWallet = i
 								m.highlightedAddress = area.Address
-								if m.showAccountListPopup {
+								if m.activeDialog == dialogAccountList {
 									m.accountListSelectedIdx = i
 								}
 								break
@@ -1794,7 +1794,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Handle click on transaction JSON in tx result panel
 			// Make the entire panel clickable (simpler than precise coordinate tracking)
-			if m.showTxResultPanel && m.txResultHex != "" {
+			if m.activeDialog == dialogTxResult && m.txResultHex != "" {
 				m.addLog("info", "Copied transaction JSON to clipboard")
 				return m, copyTxJsonToClipboard(m.txResultHex)
 			}
