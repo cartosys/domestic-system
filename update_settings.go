@@ -139,9 +139,7 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settingsMode == "list" {
 		switch msg.String() {
 		case "esc":
-			m.activePage = config.PageWallets
-			// Load details for selected wallet if split view enabled
-			return m, m.loadSelectedWalletDetails()
+			return m, m.navigateTo(config.PageWallets)
 
 		case "a", "A":
 			m.settingsMode = "add"

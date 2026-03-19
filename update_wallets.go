@@ -381,13 +381,10 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "s", "S":
-		m.activePage = config.PageSettings
-		m.settingsMode = "list"
-		return m, nil
+		return m, m.navigateTo(config.PageSettings)
 
 	case "b", "B":
-		m.activePage = config.PageDappBrowser
-		return m, nil
+		return m, m.navigateTo(config.PageDappBrowser)
 
 	case "h", "H":
 

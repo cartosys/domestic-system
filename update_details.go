@@ -91,9 +91,7 @@ func (m *model) handleDetailsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !m.nicknaming {
 		switch msg.String() {
 		case "esc", "backspace":
-			m.activePage = config.PageWallets
-			// Load details for selected wallet if split view enabled
-			return m, m.loadSelectedWalletDetails()
+			return m, m.navigateTo(config.PageWallets)
 
 		case "r", "R":
 			// refresh

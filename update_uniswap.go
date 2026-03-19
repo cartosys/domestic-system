@@ -89,8 +89,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.poolEventMonitor = nil
 			m.poolEventMonitorActive = false
 		}
-		m.activePage = config.PageDappBrowser
-		return m, nil
+		return m, m.navigateTo(config.PageDappBrowser)
 
 	case "up", "k":
 		// Navigate up through fields

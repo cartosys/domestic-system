@@ -37,10 +37,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.activePage == config.PageHome {
-		// TODO: home view not implemented yet
-		// Temporarily disabled until home view is created
-		m.activePage = config.PageWallets
-		return m, m.loadSelectedWalletDetails()
+		return m, m.navigateTo(config.PageWallets)
 	}
 
 	// Handle form updates first (before message switching)

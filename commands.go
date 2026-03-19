@@ -864,3 +864,45 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 
 	return fetchReverseUniswapQuote(m.ethClient, pairAddr, tokenInAddr, amountOut, fromToken.Decimals)
 }
+
+// navigateTo sets the active page and returns any initial Cmd required
+// for that page (e.g. data fetches, state resets). Callers should use
+//   return m, m.navigateTo(config.PageXxx)
+// instead of setting m.activePage inline.
+func (m *model) navigateTo(page config.Page) tea.Cmd {
+	m.activePage = page
+	switch page {
+	case config.PageWallets:
+		return m.loadSelectedWalletDetails()
+	case config.PageSettings:
+		m.settingsMode = "list"
+	case config.PageUniswap:
+		m.uniswapFromTokenIdx = 0
+		m.uniswapToTokenIdx = 1
+		m.uniswapFromAmount = ""
+		m.uniswapToAmount = ""
+		m.uniswapFocusedField = 0
+		m.uniswapShowingSelector = false
+		m.uniswapSelectorFor = 0
+		m.uniswapSelectorIdx = 0
+		m.uniswapEstimating = false
+		m.uniswapQuote = nil
+		m.uniswapQuoteError = ""
+		m.uniswapPriceImpactWarn = ""
+		m.lastQuoteFromAmount = ""
+		m.lastQuoteFromTokenIdx = -1
+		m.lastQuoteToTokenIdx = -1
+	case config.PageTerraNullius:
+		m.terraNullFocusedField = 1
+		m.terraNullClaimsCount = ""
+		m.terraNullClaimsLoading = true
+		m.terraNullClaimInput = "0"
+		m.terraNullClaimResult = nil
+		m.terraNullClaimQuerying = false
+		m.terraNullClaimResultErr = ""
+		m.activeDialog = dialogNone
+		m.addLog("info", "Terra Nullius: loading number of claims…")
+		return fetchTerraNumberOfClaims(m.ethClient)
+	}
+	return nil
+}

@@ -87,8 +87,7 @@ func (m *model) handleTerraKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "esc":
-		m.activePage = config.PageDappBrowser
-		return m, nil
+		return m, m.navigateTo(config.PageDappBrowser)
 
 	case "up", "k":
 		if m.terraNullFocusedField > 1 {
