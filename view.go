@@ -322,7 +322,7 @@ func (m *model) View() string {
 
 	// Render global header outside of page content
 	globalHdr := m.globalHeader()
-	headerPanel := panelStyle.Width(helpers.Max(0, m.w-2)).Render(globalHdr)
+	headerPanel := panelStyle.Width(m.contentW).Render(globalHdr)
 
 	// Note: Header address clickable area coordinates are set in globalHeader()
 
@@ -332,7 +332,7 @@ func (m *model) View() string {
 	switch m.activePage {
 	case config.PageHome:
 		// TODO: home view not implemented yet
-		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render("Home view not implemented")
+		pageContent = panelStyle.Width(m.contentW).Render("Home view not implemented")
 		nav = ""
 
 	case config.PageWallets:
@@ -431,7 +431,7 @@ func (m *model) View() string {
 
 			pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 		} else {
-			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(walletsContent)
+			pageContent = panelStyle.Width(m.contentW).Render(walletsContent)
 		}
 		nav = wallets.Nav(m.w - 2)
 
@@ -447,13 +447,13 @@ func (m *model) View() string {
 
 	case config.PageDappBrowser:
 		dappBrowserContent := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx)
-		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(dappBrowserContent)
+		pageContent = panelStyle.Width(m.contentW).Render(dappBrowserContent)
 		nav = dapps.Nav(m.w - 2)
 
 	case config.PageDetails:
 		rpcDetails := toRPCDetails(m.details)
 		detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
-		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(detailsContent)
+		pageContent = panelStyle.Width(m.contentW).Render(detailsContent)
 		nav = details.Nav(m.w-2, m.nicknaming)
 
 	case config.PageSettings:
@@ -464,7 +464,7 @@ func (m *model) View() string {
 			settingsContent = styles.TitleStyle.Render("RPC Settings") + "\n\n" + m.form.View()
 		}
 
-		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(settingsContent)
+		pageContent = panelStyle.Width(m.contentW).Render(settingsContent)
 		nav = settings.Nav(m.w-2, m.settingsMode)
 
 		if m.activeDialog == dialogDeleteRPC {
@@ -496,7 +496,7 @@ func (m *model) View() string {
 				m.liquidityErr,
 				m.spin.View(),
 			)
-			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(liquidityView)
+			pageContent = panelStyle.Width(m.contentW).Render(liquidityView)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
 		} else {
 			// Render main swap interface
@@ -513,7 +513,7 @@ func (m *model) View() string {
 				m.uniswapPriceImpactWarn,
 			)
 			// Wrap in panel style to constrain properly
-			pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(uniswapView)
+			pageContent = panelStyle.Width(m.contentW).Render(uniswapView)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
 		}
 
@@ -550,7 +550,7 @@ func (m *model) View() string {
 			m.terraNullLastQueriedIdx,
 			m.terraNullClaimResult, m.terraNullClaimResultErr,
 		)
-		pageContent = panelStyle.Width(helpers.Max(0, m.w-2)).Render(terraView)
+		pageContent = panelStyle.Width(m.contentW).Render(terraView)
 		nav = terra.Nav(m.w - 2)
 
 		if m.activeDialog == dialogTxResult {

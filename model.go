@@ -39,7 +39,8 @@ const (
 
 // model represents the application state following The Elm Architecture
 type model struct {
-	w, h int
+	w, h     int
+	contentW int // helpers.Max(0, w-2) — pre-computed each WindowSizeMsg
 
 	activePage config.Page
 

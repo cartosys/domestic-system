@@ -448,6 +448,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		m.contentW = helpers.Max(0, m.w-2)
 
 		// Only initialize viewport if log is enabled
 		if m.logEnabled {
