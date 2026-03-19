@@ -1450,33 +1450,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".":
-			// Allow numeric input for amount when focused on from field
 			if m.uniswapFocusedField == 0 {
-				char := msg.String()
-				// If not currently editing and field has a non-zero value, clear it first
-				if !m.uniswapEditingFrom && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
-					m.uniswapFromAmount = ""
-				}
-				// Prevent multiple decimal points
-				if char == "." && strings.Contains(m.uniswapFromAmount, ".") {
+				v, e, ok := appendNumericInput(m.uniswapFromAmount, m.uniswapEditingFrom, msg.String())
+				if !ok {
 					return m, nil
 				}
-				m.uniswapFromAmount += char
-				m.uniswapEditingFrom = true // Mark that user is actively editing
-				// Quote will be fetched when user leaves the field
+				m.uniswapFromAmount, m.uniswapEditingFrom = v, e
 				return m, nil
 			} else if m.uniswapFocusedField == 1 {
-				char := msg.String()
-				// If not currently editing and field has a non-zero value, clear it first
-				if !m.uniswapEditingTo && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
-					m.uniswapToAmount = ""
-				}
-				// Prevent multiple decimal points
-				if char == "." && strings.Contains(m.uniswapToAmount, ".") {
+				v, e, ok := appendNumericInput(m.uniswapToAmount, m.uniswapEditingTo, msg.String())
+				if !ok {
 					return m, nil
 				}
-				m.uniswapToAmount += char
-				m.uniswapEditingTo = true // Mark that user is actively editing
+				m.uniswapToAmount, m.uniswapEditingTo = v, e
 				return m, nil
 			}
 			return m, nil
@@ -1976,4 +1962,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// appendNumericInput appends a digit or '.' to value.
+// On first keystroke after a non-zero value, the field is cleared.
+// Returns (newValue, newEditing, ok) — ok is false when a duplicate '.' should be dropped.
+func appendNumericInput(value string, editing bool, char string) (string, bool, bool) {
+	if !editing && value != "" && value != "0" {
+		value = ""
+	}
+	if char == "." && strings.Contains(value, ".") {
+		return value, editing, false
+	}
+	return value + char, true, true
 }
