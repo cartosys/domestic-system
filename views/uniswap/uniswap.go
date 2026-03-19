@@ -368,16 +368,41 @@ func RenderLiquidity(width, height int, positions []helpers.LiquidityPosition, l
 		accentStyle := lipgloss.NewStyle().Foreground(styles.CAccent)
 		boldStyle := lipgloss.NewStyle().Foreground(styles.CText).Bold(true)
 		mutedStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+		warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn)
 
 		var cards []string
 		for i, pos := range positions {
-			feePercent := fmt.Sprintf("%.2f%%", float64(pos.Fee)/10000.0)
-			pair := pos.Token0Symbol + "/" + pos.Token1Symbol
 			idStr := "#" + pos.TokenID.String()
+
+			// Stub card when positions() call failed entirely.
+			if pos.Stub {
+				content := boldStyle.Render(idStr) + "\n" +
+					warnStyle.Render("positions() call failed — raw NFT token only")
+				var card string
+				if i == focusedIdx {
+					card = focusedCard.Render(content)
+				} else {
+					card = normalCard.Render(content)
+				}
+				cards = append(cards, card)
+				continue
+			}
+
+			feePercent := fmt.Sprintf("%.4f%%", float64(pos.Fee)/10000.0)
+			pair := pos.Token0Symbol + "/" + pos.Token1Symbol
 
 			headerLine := boldStyle.Render(pair) +
 				"   " + valueStyle.Render(feePercent) +
 				"   " + mutedStyle.Render(idStr)
+
+			tok0Line := labelStyle.Render("Token0: ") + valueStyle.Render(pos.Token0Symbol) +
+				mutedStyle.Render("  "+pos.Token0.Hex())
+			tok1Line := labelStyle.Render("Token1: ") + valueStyle.Render(pos.Token1Symbol) +
+				mutedStyle.Render("  "+pos.Token1.Hex())
+
+			tickLine := labelStyle.Render("Ticks:  ") +
+				valueStyle.Render(fmt.Sprintf("%d → %d", pos.TickLower, pos.TickUpper)) +
+				mutedStyle.Render(fmt.Sprintf("  spacing=%d", pos.TickSpacing))
 
 			minStr := liquidityFormatPrice(pos.MinPrice)
 			maxStr := liquidityFormatPrice(pos.MaxPrice)
@@ -385,10 +410,22 @@ func RenderLiquidity(width, height int, positions []helpers.LiquidityPosition, l
 				valueStyle.Render(minStr+" — "+maxStr) +
 				mutedStyle.Render("  "+pos.Token1Symbol+"/"+pos.Token0Symbol)
 
+			liqVal := "nil"
+			if pos.Liquidity != nil {
+				liqVal = pos.Liquidity.String()
+			}
 			liqLine := labelStyle.Render("Liq:    ") +
-				lipgloss.NewStyle().Foreground(styles.CText).Render(pos.Liquidity.String())
+				lipgloss.NewStyle().Foreground(styles.CText).Render(liqVal)
 
-			content := headerLine + "\n" + rangeLine + "\n" + liqLine
+			hooksLine := labelStyle.Render("Hooks:  ") + mutedStyle.Render(pos.Hooks.Hex())
+
+			content := headerLine + "\n" +
+				tok0Line + "\n" +
+				tok1Line + "\n" +
+				tickLine + "\n" +
+				rangeLine + "\n" +
+				liqLine + "\n" +
+				hooksLine
 
 			if (pos.TokensOwed0 != nil && pos.TokensOwed0.Sign() > 0) ||
 				(pos.TokensOwed1 != nil && pos.TokensOwed1.Sign() > 0) {

@@ -38,6 +38,7 @@ const v4PositionManagerViewABI = `[
 // LiquidityPosition represents a Uniswap V4 NFT liquidity position.
 type LiquidityPosition struct {
 	TokenID        *big.Int
+	Stub           bool           // true when positions() call failed; only TokenID is populated
 	Token0         common.Address // currency0
 	Token1         common.Address // currency1
 	Token0Symbol   string
@@ -95,6 +96,8 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 		pos, err := v4FetchPosition(ctx, client, tokenId)
 		if err != nil {
 			diags = append(diags, fmt.Sprintf("tokenId %s: positions() error: %v", tokenId, err))
+			// Still include a stub so the token ID is visible in the panel.
+			positions = append(positions, LiquidityPosition{TokenID: tokenId, Stub: true})
 			continue
 		}
 
@@ -103,10 +106,8 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 		posKey := v4ComputePositionKey(tokenId, pos.TickLower, pos.TickUpper)
 		pos.Liquidity = v4FetchPositionLiquidity(ctx, client, &stateViewABI, poolId, posKey)
 
-		// Skip positions with no liquidity (closed / empty).
 		if pos.Liquidity == nil || pos.Liquidity.Sign() == 0 {
-			diags = append(diags, fmt.Sprintf("tokenId %s: liquidity=0, skipped", tokenId))
-			continue
+			diags = append(diags, fmt.Sprintf("tokenId %s: liquidity=0", tokenId))
 		}
 
 		// Resolve symbols via the shared V4 cache.
