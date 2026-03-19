@@ -448,11 +448,11 @@ func openInBrowser(url string) tea.Cmd {
 	}
 }
 
-// fetchLiquidityPositions looks up all Uniswap V3 NFT positions held by ownerAddr.
+// fetchLiquidityPositions looks up all Uniswap V4 NFT positions held by ownerAddr.
 func fetchLiquidityPositions(rpcURL string, ownerAddr common.Address) tea.Cmd {
 	return func() tea.Msg {
-		positions, err := helpers.GetLiquidityPositions(rpcURL, ownerAddr)
-		return liquidityPositionsMsg{positions: positions, err: err}
+		positions, nftCount, err := helpers.GetLiquidityPositions(rpcURL, ownerAddr)
+		return liquidityPositionsMsg{positions: positions, nftCount: nftCount, err: err}
 	}
 }
 

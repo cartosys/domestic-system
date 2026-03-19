@@ -1522,6 +1522,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.liquidityLoading = true
 				m.liquidityPositions = nil
 				m.liquidityErr = ""
+				m.addLog("info", fmt.Sprintf("Fetching V4 liquidity positions for %s…", helpers.ShortenAddr(m.activeAddress)))
 				return m, fetchLiquidityPositions(m.rpcURL, common.HexToAddress(m.activeAddress))
 			}
 			return m, nil
@@ -1900,10 +1901,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.liquidityLoading = false
 		if msg.err != nil {
 			m.liquidityErr = msg.err.Error()
-			m.addLog("error", "Liquidity positions: "+msg.err.Error())
+			m.addLog("error", "Liquidity positions error: "+msg.err.Error())
 		} else {
 			m.liquidityPositions = msg.positions
-			m.addLog("info", fmt.Sprintf("Loaded %d V4 liquidity position(s)", len(msg.positions)))
+			m.addLog("info", fmt.Sprintf("V4 PositionManager NFT lookup: found %d NFT(s)", msg.nftCount))
+			if len(msg.positions) == 0 {
+				m.addLog("info", "No active V4 liquidity positions found")
+			} else {
+				m.addLog("info", fmt.Sprintf("%d position(s) with active liquidity", len(msg.positions)))
+			}
 		}
 		return m, nil
 

@@ -58,29 +58,30 @@ type LiquidityPosition struct {
 
 // GetLiquidityPositions fetches all Uniswap V4 NFT positions held by ownerAddr.
 // Caps at 50 to avoid excessive RPC calls.
-func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]LiquidityPosition, error) {
+// Returns the positions, the total NFT count before filtering, and any error.
+func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]LiquidityPosition, uint64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	client, err := ethclient.DialContext(ctx, rpcURL)
 	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
+		return nil, 0, fmt.Errorf("dial: %w", err)
 	}
 	defer client.Close()
 
 	balance, err := v4BalanceOf(ctx, client, ownerAddr)
 	if err != nil {
-		return nil, fmt.Errorf("balanceOf: %w", err)
+		return nil, 0, fmt.Errorf("balanceOf: %w", err)
 	}
 	if balance == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	count := min(balance, 50)
 
 	stateViewABI, err := abi.JSON(strings.NewReader(v4PositionManagerViewABI))
 	if err != nil {
-		return nil, fmt.Errorf("parse StateView ABI: %w", err)
+		return nil, 0, fmt.Errorf("parse StateView ABI: %w", err)
 	}
 
 	syms := newV4SymbolCache()
@@ -133,7 +134,7 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 		positions = append(positions, pos)
 	}
 
-	return positions, nil
+	return positions, count, nil
 }
 
 // ---- ERC-721 Enumerable calls (selectors shared with V3) ----

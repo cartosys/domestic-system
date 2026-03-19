@@ -96,8 +96,9 @@ type poolKeyResultMsg struct {
 	err    error
 }
 
-// liquidityPositionsMsg carries the result of a V3 liquidity position lookup
+// liquidityPositionsMsg carries the result of a V4 liquidity position lookup
 type liquidityPositionsMsg struct {
 	positions []helpers.LiquidityPosition
+	nftCount  uint64 // total NFTs enumerated before filtering for active liquidity
 	err       error
 }
