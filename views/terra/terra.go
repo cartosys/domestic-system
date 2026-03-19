@@ -91,15 +91,8 @@ func Render(
 	countBox := countBoxStyle.Render(countLabel + "\n" + countDisplay)
 
 	// --- Element 1: Claims query (selectable) ---
-	claimsBoxStyle := lipgloss.NewStyle().
-		Width(containerWidth - 4).
-		Padding(0, 2).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.CBorder)
-
-	claimsBoxFocusedStyle := claimsBoxStyle.Copy().
-		BorderForeground(styles.CAccent).
-		BorderStyle(lipgloss.ThickBorder())
+	claimsBoxStyle := styles.CardNormal.Width(containerWidth - 4)
+	claimsBoxFocusedStyle := styles.CardFocused.Width(containerWidth - 4)
 
 	claimsLabel := lipgloss.NewStyle().
 		Foreground(styles.CText).
@@ -147,15 +140,8 @@ func Render(
 	}
 
 	// --- Element 2: Claim write function (selectable) ---
-	claimBoxStyle := lipgloss.NewStyle().
-		Width(containerWidth - 4).
-		Padding(0, 2).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.CBorder)
-
-	claimBoxFocusedStyle := claimBoxStyle.Copy().
-		BorderForeground(styles.CAccent).
-		BorderStyle(lipgloss.ThickBorder())
+	claimBoxStyle := styles.CardNormal.Width(containerWidth - 4)
+	claimBoxFocusedStyle := styles.CardFocused.Width(containerWidth - 4)
 
 	claimLabel := lipgloss.NewStyle().
 		Foreground(styles.CText).
@@ -213,14 +199,8 @@ func RenderClaimPopup(width, height int, inputView, inputErr string, formFocused
 	inputLabelStyle := lipgloss.NewStyle().
 		Foreground(styles.CMuted)
 
-	inputBoxStyle := lipgloss.NewStyle().
-		Width(popupWidth - 12).
-		Padding(0, 1).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.CBorder)
-
-	inputBoxFocusedStyle := inputBoxStyle.Copy().
-		BorderForeground(styles.CAccent)
+	inputBoxStyle := styles.CardNormal.Width(popupWidth - 12).Padding(0, 1)
+	inputBoxFocusedStyle := styles.CardFocused.Width(popupWidth - 12).Padding(0, 1)
 
 	var inputBox string
 	if formFocused == 0 {
@@ -236,17 +216,8 @@ func RenderClaimPopup(width, height int, inputView, inputErr string, formFocused
 			Render("⚠ " + inputErr)
 	}
 
-	submitActiveStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFF7DB")).
-		Background(styles.CError).
-		Padding(0, 3).
-		MarginRight(0).
-		Underline(true)
-
-	submitInactiveStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFF7DB")).
-		Background(lipgloss.Color("#888B7E")).
-		Padding(0, 3)
+	submitActiveStyle := styles.ButtonActive
+	submitInactiveStyle := styles.ButtonNormal
 
 	var submitBtn string
 	if formFocused == 1 {

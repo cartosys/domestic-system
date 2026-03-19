@@ -71,15 +71,8 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 	title := titleStyle.Render("🦄 Uniswap Swap")
 	
 	// Token selection styles
-	tokenBoxStyle := lipgloss.NewStyle().
-		Width(containerWidth - 4).
-		Padding(0, 2).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.CBorder)
-	
-	tokenBoxFocusedStyle := tokenBoxStyle.Copy().
-		BorderForeground(styles.CAccent).
-		BorderStyle(lipgloss.ThickBorder())
+	tokenBoxStyle := styles.CardNormal.Width(containerWidth - 4)
+	tokenBoxFocusedStyle := styles.CardFocused.Width(containerWidth - 4)
 	
 	// Build "From" token section
 	fromToken := ""
@@ -207,9 +200,12 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		BorderForeground(styles.CBorder).
 		Foreground(styles.CText)
 	
-	swapButtonFocusedStyle := swapButtonStyle.Copy().
-		BorderForeground(styles.CAccent).
+	swapButtonFocusedStyle := lipgloss.NewStyle().
+		Width(containerWidth - 4).
+		Padding(0, 1).
+		Align(lipgloss.Center).
 		BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(styles.CAccent).
 		Background(styles.CAccent).
 		Foreground(lipgloss.Color("#000000")).
 		Bold(true)
@@ -350,18 +346,8 @@ func RenderLiquidity(width, height int, positions []helpers.LiquidityPosition, l
 
 	default:
 		cardWidth := containerWidth - 4
-
-		normalCard := lipgloss.NewStyle().
-			Width(cardWidth).
-			Padding(0, 2).
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(styles.CBorder)
-
-		focusedCard := lipgloss.NewStyle().
-			Width(cardWidth).
-			Padding(0, 2).
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(styles.CAccent)
+		normalCard := styles.CardNormal.Width(cardWidth)
+		focusedCard := styles.CardFocused.Width(cardWidth)
 
 		labelStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
 		valueStyle := lipgloss.NewStyle().Foreground(styles.CAccent2)
@@ -451,7 +437,7 @@ func RenderLiquidity(width, height int, positions []helpers.LiquidityPosition, l
 		Foreground(styles.CMuted).
 		Width(containerWidth).
 		Align(lipgloss.Center).
-		Render("↑/↓ navigate   q/Esc back to swap")
+		Render("↑/↓ navigate   Esc back to swap")
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Center,

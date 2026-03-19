@@ -27,28 +27,10 @@ import (
 // -------------------- VIEW --------------------
 
 func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
-	var (
-		dialogBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#874BFD")).
-				Padding(1, 0).
-				BorderTop(true).
-				BorderLeft(true).
-				BorderRight(true).
-				BorderBottom(true)
+	dialogBoxStyle := styles.DialogBox.Padding(1, 0)
+	buttonStyle := styles.ButtonNormal.MarginTop(1)
+	activeButtonStyle := styles.ButtonActive.MarginRight(2).MarginTop(1)
 
-		buttonStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFF7DB")).
-				Background(lipgloss.Color("#888B7E")).
-				Padding(0, 3).
-				MarginTop(1)
-
-		activeButtonStyle = buttonStyle.Copy().
-				Foreground(lipgloss.Color("#FFF7DB")).
-				Background(lipgloss.Color("#F25D94")).
-				MarginRight(2).
-				Underline(true)
-	)
 	question := lipgloss.NewStyle().Width(50).Align(lipgloss.Center).Render(prompt)
 
 	var okButton, cancelButton string
@@ -56,8 +38,8 @@ func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
 		okButton = activeButtonStyle.Render("Yes")
 		cancelButton = buttonStyle.Render("No")
 	} else {
-		okButton = buttonStyle.Copy().MarginRight(2).Render("Yes")
-		cancelButton = activeButtonStyle.Copy().MarginRight(0).Render("No")
+		okButton = buttonStyle.MarginRight(2).Render("Yes")
+		cancelButton = activeButtonStyle.MarginRight(0).Render("No")
 	}
 
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top, okButton, cancelButton)
@@ -83,17 +65,7 @@ func (m model) renderRPCDeleteDialog() string {
 }
 
 func (m *model) renderAccountListPopup() string {
-	var (
-		dialogBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#874BFD")).
-				Padding(1, 2).
-				BorderTop(true).
-				BorderLeft(true).
-				BorderRight(true).
-				BorderBottom(true).
-				Background(cPanel)
-	)
+	dialogBoxStyle := styles.DialogBox.Background(cPanel)
 
 	title := lipgloss.NewStyle().
 		Foreground(cAccent2).
@@ -276,11 +248,7 @@ func (m *model) globalHeader() string {
 }
 
 func (m *model) renderPoolInfoPopup() string {
-	dialogBoxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#874BFD")).
-		Padding(1, 2).
-		Width(72)
+	dialogBoxStyle := styles.DialogBox.Width(72)
 
 	// Title
 	title := lipgloss.NewStyle().
@@ -301,11 +269,11 @@ func (m *model) renderPoolInfoPopup() string {
 	if m.poolInfoLoading {
 		body = lipgloss.NewStyle().Foreground(cMuted).Render(m.spin.View() + " Fetching pool data…")
 	} else if m.poolInfoErr != "" {
-		body = lipgloss.NewStyle().Foreground(lipgloss.Color("#F25D94")).Render("Error: " + m.poolInfoErr)
+		body = lipgloss.NewStyle().Foreground(styles.CError).Render("Error: " + m.poolInfoErr)
 	} else if m.poolInfoData != nil {
 		raw, err := json.MarshalIndent(m.poolInfoData, "", "  ")
 		if err != nil {
-			body = lipgloss.NewStyle().Foreground(lipgloss.Color("#F25D94")).Render("Error marshalling data")
+			body = lipgloss.NewStyle().Foreground(styles.CError).Render("Error marshalling data")
 		} else {
 			body = lipgloss.NewStyle().Foreground(cText).Render(string(raw))
 		}
@@ -316,17 +284,11 @@ func (m *model) renderPoolInfoPopup() string {
 	if m.poolInfoKeyLoading {
 		keyRow = lipgloss.NewStyle().Foreground(cMuted).Render(m.spin.View() + " Loading eth logs…")
 	} else if m.poolInfoKeyErr != "" {
-		keyRow = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA657")).Render("⚠ " + m.poolInfoKeyErr)
+		keyRow = lipgloss.NewStyle().Foreground(styles.CWarn).Render("⚠ " + m.poolInfoKeyErr)
 	}
 
 	// OK button (always focused)
-	okButton := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFF7DB")).
-		Background(lipgloss.Color("#874BFD")).
-		Padding(0, 3).
-		MarginTop(1).
-		Underline(true).
-		Render("OK")
+	okButton := styles.ButtonPrimary.MarginTop(1).Render("OK")
 
 	okRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(okButton)
 
@@ -430,18 +392,9 @@ func (m *model) View() string {
 				// Add send button if ETH balance > 0 and form is not active
 				var sendButtonStyle lipgloss.Style
 				if m.sendButtonFocused {
-					sendButtonStyle = lipgloss.NewStyle().
-						Foreground(lipgloss.Color("#FFF7DB")).
-						Background(lipgloss.Color("#F25D94")).
-						Padding(0, 3).
-						MarginTop(2).
-						Underline(true)
+					sendButtonStyle = styles.ButtonActive.MarginTop(2)
 				} else {
-					sendButtonStyle = lipgloss.NewStyle().
-						Foreground(lipgloss.Color("#FFF7DB")).
-						Background(lipgloss.Color("#888B7E")).
-						Padding(0, 3).
-						MarginTop(2)
+					sendButtonStyle = styles.ButtonNormal.MarginTop(2)
 				}
 				sendButton := sendButtonStyle.Render("Send")
 				detailsContent += "\n\n" + sendButton

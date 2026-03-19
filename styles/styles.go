@@ -14,6 +14,7 @@ var (
 	CWarn    = lipgloss.Color("#FFA657") // orange
 	CError   = lipgloss.Color("#F25D94") // pink/red
 	CInfo    = lipgloss.Color("#FFF7DB") // light yellow
+	CGray    = lipgloss.Color("#888B7E") // neutral inactive button background
 )
 
 // Shared styles
@@ -47,6 +48,39 @@ var (
 
 	HelpRightStyle = lipgloss.NewStyle().
 			Foreground(CMuted)
+
+	// Component base styles — use .Copy() before adding per-call overrides
+	DialogBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(CBorder).
+			Padding(1, 2)
+
+	CardNormal = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(CBorder).
+			Padding(0, 2)
+
+	CardFocused = lipgloss.NewStyle().
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(CAccent).
+			Padding(0, 2)
+
+	ButtonNormal = lipgloss.NewStyle().
+			Foreground(CInfo).
+			Background(CGray).
+			Padding(0, 3)
+
+	ButtonActive = lipgloss.NewStyle().
+			Foreground(CInfo).
+			Background(CError).
+			Padding(0, 3).
+			Underline(true)
+
+	ButtonPrimary = lipgloss.NewStyle().
+			Foreground(CInfo).
+			Background(CBorder).
+			Padding(0, 3).
+			Underline(true)
 )
 
 // Key renders a key with accent styling
