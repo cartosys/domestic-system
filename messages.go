@@ -98,7 +98,8 @@ type poolKeyResultMsg struct {
 
 // liquidityPositionsMsg carries the result of a V4 liquidity position lookup
 type liquidityPositionsMsg struct {
-	positions []helpers.LiquidityPosition
-	nftCount  uint64 // total NFTs enumerated before filtering for active liquidity
-	err       error
+	positions   []helpers.LiquidityPosition
+	nftCount    uint64    // total NFTs reported by balanceOf before filtering
+	diagnostics []string  // per-step diagnostic lines for the logger
+	err         error
 }

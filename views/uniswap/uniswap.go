@@ -38,7 +38,7 @@ func Nav(width int, poolMonitorActive, liquidityActive bool) string {
 		qLabel := lipgloss.NewStyle().Foreground(styles.CAccent2).Render("liquidity positions")
 		qItem = qKey + " " + qLabel
 	} else {
-		qItem = styles.Key("q") + " liquidity"
+		qItem = styles.Key("q") + " liquidity positions"
 	}
 
 	left := strings.Join([]string{

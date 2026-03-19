@@ -1902,9 +1902,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.liquidityErr = msg.err.Error()
 			m.addLog("error", "Liquidity positions error: "+msg.err.Error())
+			for _, d := range msg.diagnostics {
+				m.addLog("info", "  "+d)
+			}
 		} else {
 			m.liquidityPositions = msg.positions
-			m.addLog("info", fmt.Sprintf("V4 PositionManager NFT lookup: found %d NFT(s)", msg.nftCount))
+			m.addLog("info", fmt.Sprintf("V4 PositionManager: balanceOf=%d NFT(s)", msg.nftCount))
+			for _, d := range msg.diagnostics {
+				m.addLog("info", "  "+d)
+			}
 			if len(msg.positions) == 0 {
 				m.addLog("info", "No active V4 liquidity positions found")
 			} else {
