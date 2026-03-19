@@ -346,7 +346,7 @@ func RenderLiquidity(width, height int, positions []helpers.LiquidityPosition, l
 			Foreground(styles.CMuted).
 			Align(lipgloss.Center).
 			Width(containerWidth).
-			Render("No V3 liquidity positions found for this address")
+			Render("No V4 liquidity positions found for this address")
 
 	default:
 		cardWidth := containerWidth - 4
@@ -390,7 +390,8 @@ func RenderLiquidity(width, height int, positions []helpers.LiquidityPosition, l
 
 			content := headerLine + "\n" + rangeLine + "\n" + liqLine
 
-			if pos.TokensOwed0.Sign() > 0 || pos.TokensOwed1.Sign() > 0 {
+			if (pos.TokensOwed0 != nil && pos.TokensOwed0.Sign() > 0) ||
+				(pos.TokensOwed1 != nil && pos.TokensOwed1.Sign() > 0) {
 				f0 := liquidityFormatAmount(pos.TokensOwed0, pos.Token0Decimals)
 				f1 := liquidityFormatAmount(pos.TokensOwed1, pos.Token1Decimals)
 				feesLine := labelStyle.Render("Fees:   ") +

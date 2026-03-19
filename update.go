@@ -1903,7 +1903,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addLog("error", "Liquidity positions: "+msg.err.Error())
 		} else {
 			m.liquidityPositions = msg.positions
-			m.addLog("info", fmt.Sprintf("Loaded %d V3 liquidity position(s)", len(msg.positions)))
+			m.addLog("info", fmt.Sprintf("Loaded %d V4 liquidity position(s)", len(msg.positions)))
 		}
 		return m, nil
 
