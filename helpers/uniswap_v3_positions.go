@@ -83,10 +83,11 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 		return nil, 0, nil, fmt.Errorf("parse StateView ABI: %w", err)
 	}
 
-	tokenIds, enumMethod, enumErr := v4EnumerateOwnedTokenIds(ctx, client, ownerAddr, balance)
-	diags := []string{fmt.Sprintf("enumeration via %s: %d token ID(s)", enumMethod, len(tokenIds))}
+	diags := []string{fmt.Sprintf("balanceOf: %d NFT(s)", balance)}
+	tokenIds, enumDiags, enumErr := v4EnumerateOwnedTokenIds(ctx, client, ownerAddr, balance)
+	diags = append(diags, enumDiags...)
 	if enumErr != nil {
-		return nil, balance, diags, fmt.Errorf("enumerate (%s): %w", enumMethod, enumErr)
+		return nil, balance, diags, fmt.Errorf("enumerate token IDs: %w", enumErr)
 	}
 
 	syms := newV4SymbolCache()
@@ -143,55 +144,62 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 // ---- ERC-721 token ID enumeration ----
 
 // v4EnumerateOwnedTokenIds returns up to 50 token IDs owned by owner.
-// It first tries ERC-721 Enumerable (tokenOfOwnerByIndex). If that reverts,
-// it falls back to scanning Transfer(_, owner, tokenId) event logs and
-// verifying current ownership with ownerOf().
-// Returns the token IDs, a method label for logging, and any fatal error.
-func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, owner common.Address, expectedCount uint64) ([]*big.Int, string, error) {
-	// Try Enumerable path first.
+// It uses ERC-721 Enumerable (tokenOfOwnerByIndex). If that reverts it falls
+// back to Transfer event log scanning + ownerOf verification.
+// Returns token IDs, per-step diagnostic lines, and any fatal error.
+func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, owner common.Address, expectedCount uint64) ([]*big.Int, []string, error) {
+	var diags []string
+	count := min(expectedCount, 50)
+
+	// Try ERC-721 Enumerable path.
 	first, err := v4TokenOfOwnerByIndex(ctx, client, owner, 0)
-	if err == nil {
-		count := min(expectedCount, 50)
+	if err != nil {
+		diags = append(diags, fmt.Sprintf("tokenOfOwnerByIndex(0): error: %v", err))
+		diags = append(diags, "falling back to Transfer event log scan")
+	} else {
+		diags = append(diags, fmt.Sprintf("tokenOfOwnerByIndex(0): tokenId=%s", first))
 		ids := make([]*big.Int, 0, count)
 		ids = append(ids, first)
 		for i := uint64(1); i < count; i++ {
 			id, e := v4TokenOfOwnerByIndex(ctx, client, owner, i)
 			if e != nil {
+				diags = append(diags, fmt.Sprintf("tokenOfOwnerByIndex(%d): error: %v", i, e))
 				break
 			}
+			diags = append(diags, fmt.Sprintf("tokenOfOwnerByIndex(%d): tokenId=%s", i, id))
 			ids = append(ids, id)
 		}
-		return ids, "ERC721Enumerable", nil
+		return ids, diags, nil
 	}
 
-	// Fall back to Transfer event log scan.
-	// Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+	// Transfer event log fallback.
 	transferSig := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 	ownerTopic := common.BytesToHash(owner.Bytes())
 
-	// Look back ~2,000,000 blocks (~8 months at 12 s/block).
 	header, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
-		return nil, "Transfer-log", fmt.Errorf("get block header: %w", err)
+		return nil, diags, fmt.Errorf("get block header: %w", err)
 	}
 	fromBlock := new(big.Int).Sub(header.Number, big.NewInt(2_000_000))
 	if fromBlock.Sign() < 0 {
 		fromBlock = big.NewInt(0)
 	}
+	diags = append(diags, fmt.Sprintf("Transfer-log scan from block %s", fromBlock))
 
 	query := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		Addresses: []common.Address{v4NftPositionManager},
 		Topics: [][]common.Hash{
 			{transferSig},
-			nil,           // from: any
-			{ownerTopic},  // to: owner
+			nil,          // from: any
+			{ownerTopic}, // to: owner
 		},
 	}
 	logs, err := client.FilterLogs(ctx, query)
 	if err != nil {
-		return nil, "Transfer-log", fmt.Errorf("FilterLogs: %w", err)
+		return nil, diags, fmt.Errorf("FilterLogs: %w", err)
 	}
+	diags = append(diags, fmt.Sprintf("Transfer-log: %d inbound transfer event(s) found", len(logs)))
 
 	seen := make(map[string]bool)
 	ids := make([]*big.Int, 0, expectedCount)
@@ -205,14 +213,18 @@ func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, own
 			continue
 		}
 		seen[key] = true
-		if v4OwnerOf(ctx, client, tokenId) == owner {
+		currentOwner := v4OwnerOf(ctx, client, tokenId)
+		if currentOwner == owner {
+			diags = append(diags, fmt.Sprintf("Transfer-log: tokenId=%s confirmed owned", tokenId))
 			ids = append(ids, tokenId)
+		} else {
+			diags = append(diags, fmt.Sprintf("Transfer-log: tokenId=%s no longer owned (ownerOf=%s)", tokenId, currentOwner.Hex()[:10]))
 		}
 		if uint64(len(ids)) >= 50 {
 			break
 		}
 	}
-	return ids, "Transfer-log", nil
+	return ids, diags, nil
 }
 
 // ---- ERC-721 calls ----
