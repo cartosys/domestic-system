@@ -9,11 +9,21 @@ import (
 )
 
 // Nav returns the navigation bar for settings view
-func Nav(width int, settingsMode string) string {
+func Nav(width int, settingsMode string, indexerActive bool) string {
+	var iItem string
+	if indexerActive {
+		iKey := lipgloss.NewStyle().Foreground(styles.CAccent).Bold(true).Render("i")
+		iLabel := lipgloss.NewStyle().Foreground(styles.CAccent).Render("indexer")
+		iItem = iKey + " " + iLabel
+	} else {
+		iItem = styles.Key("i") + " indexer"
+	}
+
 	var left string
 	if settingsMode == "add" || settingsMode == "edit" {
 		left = strings.Join([]string{
 			styles.Key("l") + " logger",
+			iItem,
 			styles.Key("Esc") + " cancel",
 		}, "   ")
 	} else {
@@ -24,6 +34,7 @@ func Nav(width int, settingsMode string) string {
 			styles.Key("e") + " edit",
 			styles.Key("del") + " delete",
 			styles.Key("l") + " logger",
+			iItem,
 			styles.Key("Esc") + " back",
 		}, "   ")
 	}

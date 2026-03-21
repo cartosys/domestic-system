@@ -22,7 +22,7 @@ type TokenOption struct {
 // Nav returns the navigation bar for Uniswap view.
 // poolMonitorActive controls the color of the pool event monitor hotkey.
 // liquidityActive controls the color of the liquidity hotkey.
-func Nav(width int, poolMonitorActive, liquidityActive bool) string {
+func Nav(width int, poolMonitorActive, liquidityActive bool, indexerActive bool) string {
 	var pItem string
 	if poolMonitorActive {
 		pKey := lipgloss.NewStyle().Foreground(styles.CError).Bold(true).Render("p")
@@ -41,6 +41,15 @@ func Nav(width int, poolMonitorActive, liquidityActive bool) string {
 		qItem = styles.Key("q") + " liquidity positions"
 	}
 
+	var iItem string
+	if indexerActive {
+		iKey := lipgloss.NewStyle().Foreground(styles.CAccent).Bold(true).Render("i")
+		iLabel := lipgloss.NewStyle().Foreground(styles.CAccent).Render("indexer")
+		iItem = iKey + " " + iLabel
+	} else {
+		iItem = styles.Key("i") + " indexer"
+	}
+
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " navigate",
 		styles.Key("Tab") + " next",
@@ -49,6 +58,7 @@ func Nav(width int, poolMonitorActive, liquidityActive bool) string {
 		styles.Key("Enter") + " select/swap",
 		styles.Key("Esc") + " back",
 		styles.Key("l") + " logger",
+		iItem,
 		pItem,
 		qItem,
 	}, "   ")

@@ -8,7 +8,9 @@ import (
 
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
+	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
+	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -185,6 +187,14 @@ type model struct {
 	poolEventMonitorActive bool
 	poolEventMonitor       *helpers.PoolEventMonitor
 
+	// Address indexer state (toggleable via "i")
+	txIndexerActive bool
+	txIndexer       *indexer.Indexer
+
+	// Persistent event store (SQLite)
+	eventStore    *store.Store
+	eventStoreErr string // set if store failed to open
+
 	// Pool Info popup state
 	poolInfoLoading    bool
 	poolInfoID         string
@@ -228,6 +238,14 @@ func newModel() model {
 	// config path
 	homeDir, _ := os.UserHomeDir()
 	configPath := filepath.Join(homeDir, ".charm-wallet-config.json")
+
+	// event store
+	dbPath := filepath.Join(homeDir, ".charm-wallet-events.db")
+	eventStore, storeErr := store.Open(dbPath)
+	var eventStoreErrMsg string
+	if storeErr != nil {
+		eventStoreErrMsg = storeErr.Error()
+	}
 
 	// load config
 	cfg := config.Load(configPath)
@@ -348,6 +366,8 @@ func newModel() model {
 		terraNullFocusedField: 1,
 		terraNullClaimInput:   "0",
 		terraNullMsgInput:     terraNullInput,
+		eventStore:            eventStore,
+		eventStoreErr:         eventStoreErrMsg,
 	}
 
 	return m

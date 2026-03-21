@@ -433,7 +433,7 @@ func (m *model) View() string {
 		} else {
 			pageContent = panelStyle.Width(m.contentW).Render(walletsContent)
 		}
-		nav = wallets.Nav(m.w - 2)
+		nav = wallets.Nav(m.w-2, m.txIndexerActive)
 
 		// Render delete confirmation dialog overlay
 		if m.activeDialog == dialogDeleteWallet {
@@ -448,13 +448,13 @@ func (m *model) View() string {
 	case config.PageDappBrowser:
 		dappBrowserContent := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx)
 		pageContent = panelStyle.Width(m.contentW).Render(dappBrowserContent)
-		nav = dapps.Nav(m.w - 2)
+		nav = dapps.Nav(m.w-2, m.txIndexerActive)
 
 	case config.PageDetails:
 		rpcDetails := toRPCDetails(m.details)
 		detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
 		pageContent = panelStyle.Width(m.contentW).Render(detailsContent)
-		nav = details.Nav(m.w-2, m.nicknaming)
+		nav = details.Nav(m.w-2, m.nicknaming, m.txIndexerActive)
 
 	case config.PageSettings:
 		settingsContent := settings.Render(m.rpcURLs, m.selectedRPCIdx)
@@ -465,7 +465,7 @@ func (m *model) View() string {
 		}
 
 		pageContent = panelStyle.Width(m.contentW).Render(settingsContent)
-		nav = settings.Nav(m.w-2, m.settingsMode)
+		nav = settings.Nav(m.w-2, m.settingsMode, m.txIndexerActive)
 
 		if m.activeDialog == dialogDeleteRPC {
 			return m.renderRPCDeleteDialog()
@@ -485,7 +485,7 @@ func (m *model) View() string {
 				m.uniswapSelectorFor == 0,
 			)
 			pageContent = uniswapView
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive)
 		} else if m.uniswapShowingLiquidity {
 			liquidityView := uniswap.RenderLiquidity(
 				m.w-2,
@@ -497,7 +497,7 @@ func (m *model) View() string {
 				m.spin.View(),
 			)
 			pageContent = panelStyle.Width(m.contentW).Render(liquidityView)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive)
 		} else {
 			// Render main swap interface
 			uniswapView := uniswap.Render(
@@ -514,7 +514,7 @@ func (m *model) View() string {
 			)
 			// Wrap in panel style to constrain properly
 			pageContent = panelStyle.Width(m.contentW).Render(uniswapView)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive)
 		}
 
 		// Show pool info popup overlay if active
@@ -551,7 +551,7 @@ func (m *model) View() string {
 			m.terraNullClaimResult, m.terraNullClaimResultErr,
 		)
 		pageContent = panelStyle.Width(m.contentW).Render(terraView)
-		nav = terra.Nav(m.w - 2)
+		nav = terra.Nav(m.w-2, m.txIndexerActive)
 
 		if m.activeDialog == dialogTxResult {
 			return m.renderTxResultPanel()

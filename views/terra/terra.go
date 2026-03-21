@@ -11,13 +11,23 @@ import (
 )
 
 // Nav returns the navigation bar for Terra Nullius view
-func Nav(width int) string {
+func Nav(width int, indexerActive bool) string {
+	var iItem string
+	if indexerActive {
+		iKey := lipgloss.NewStyle().Foreground(styles.CAccent).Bold(true).Render("i")
+		iLabel := lipgloss.NewStyle().Foreground(styles.CAccent).Render("indexer")
+		iItem = iKey + " " + iLabel
+	} else {
+		iItem = styles.Key("i") + " indexer"
+	}
+
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " navigate",
 		styles.Key("Tab") + " next",
 		styles.Key("Enter") + " select",
 		styles.Key("Esc") + " back",
 		styles.Key("l") + " logger",
+		iItem,
 	}, "   ")
 	return styles.NavStyle.Width(width).Render(left)
 }
