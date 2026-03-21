@@ -548,11 +548,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.Type == tea.MouseLeft {
-			// Scrollbar click: detect click on the scrollbar column and start dragging.
+			// Scrollbar click: detect click near the scrollbar column and start dragging.
+			// ±1 tolerance accounts for terminal/lipgloss coordinate rounding.
 			if m.logEnabled && m.logReady && m.logPanelTop > 0 {
 				scrollbarX := m.logViewport.Width + 3
 				vpBottom := m.logPanelTop + m.logViewport.Height - 1
-				if msg.X == scrollbarX && msg.Y >= m.logPanelTop && msg.Y <= vpBottom {
+				if msg.X >= scrollbarX-1 && msg.X <= scrollbarX+1 &&
+					msg.Y >= m.logPanelTop && msg.Y <= vpBottom {
 					m.logScrollDragging = true
 					m.applyScrollbarDrag(msg.Y)
 					return m, nil
@@ -618,9 +620,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// Log all clicks for debugging
-			m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr='%s', X=%d, Y=%d", msg.X, msg.Y, m.activeAddress, m.headerAddrX, m.headerAddrY))
-			m.addLog("debug", fmt.Sprintf("Registered %d clickable areas", len(m.clickableAreas)))
+			// Log all clicks for debugging (suppressed during scrollbar drag)
+			if !m.logScrollDragging {
+				m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr='%s', X=%d, Y=%d", msg.X, msg.Y, m.activeAddress, m.headerAddrX, m.headerAddrY))
+				m.addLog("debug", fmt.Sprintf("Registered %d clickable areas", len(m.clickableAreas)))
+			}
 
 			// Check if click is on any registered clickable address
 			for idx, area := range m.clickableAreas {
