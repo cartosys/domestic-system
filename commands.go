@@ -677,6 +677,26 @@ func colorizeLogContent(content string) string {
 const maxLogBytes = 2 * 1024 * 1024
 
 // updateLogViewport refreshes the viewport content with log output.
+// applyScrollbarDrag maps a screen Y coordinate to a log viewport scroll offset.
+// Called on scrollbar click and during drag motion.
+func (m *model) applyScrollbarDrag(screenY int) {
+	vpHeight := m.logViewport.Height
+	totalLines := m.logViewport.TotalLineCount()
+	if vpHeight <= 0 || totalLines <= vpHeight {
+		return
+	}
+	trackY := screenY - m.logPanelTop
+	maxOffset := totalLines - vpHeight
+	newOffset := trackY * maxOffset / (vpHeight - 1)
+	if newOffset < 0 {
+		newOffset = 0
+	}
+	if newOffset > maxOffset {
+		newOffset = maxOffset
+	}
+	m.logViewport.YOffset = newOffset
+}
+
 // It preserves the current scroll position so that manual scrolls are not
 // overridden; it only jumps to the bottom if the viewport was already there.
 func (m *model) updateLogViewport() {

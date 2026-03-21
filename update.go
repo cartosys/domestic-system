@@ -535,7 +535,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// Scrollbar drag: release ends drag regardless of position.
+		if msg.Type == tea.MouseRelease {
+			m.logScrollDragging = false
+			return m, nil
+		}
+
+		// Scrollbar drag: motion while dragging updates scroll offset.
+		if msg.Type == tea.MouseMotion && m.logScrollDragging {
+			m.applyScrollbarDrag(msg.Y)
+			return m, nil
+		}
+
 		if msg.Type == tea.MouseLeft {
+			// Scrollbar click: detect click on the scrollbar column and start dragging.
+			if m.logEnabled && m.logReady && m.logPanelTop > 0 {
+				scrollbarX := m.logViewport.Width + 3
+				vpBottom := m.logPanelTop + m.logViewport.Height - 1
+				if msg.X == scrollbarX && msg.Y >= m.logPanelTop && msg.Y <= vpBottom {
+					m.logScrollDragging = true
+					m.applyScrollbarDrag(msg.Y)
+					return m, nil
+				}
+			}
+
 			// Check for double-click on header active address
 			if m.activeAddress != "" && m.headerAddrX > 0 {
 				if msg.X >= m.headerAddrX && msg.X < m.headerAddrX+m.headerAddrWidth &&

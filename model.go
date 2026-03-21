@@ -208,6 +208,8 @@ type model struct {
 
 	// Y row where the log viewport content starts (set each render, used for click handling)
 	logPanelTop int
+	// true while the user is click-dragging the log scrollbar thumb
+	logScrollDragging bool
 
 	// Double-click detection for header address
 	lastClickTime time.Time
