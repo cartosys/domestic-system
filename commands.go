@@ -466,15 +466,15 @@ func waitForIndexedEvent(idx *indexer.Indexer) tea.Cmd {
 	}
 }
 
-// waitForV4SwapEvent blocks on the next Uniswap V4 Swap event from the indexer.
-// Returns v4SwapIndexerStoppedMsg when the channel is closed.
-func waitForV4SwapEvent(idx *indexer.Indexer) tea.Cmd {
+// waitForV4PoolEvent blocks on the next Uniswap V4 PoolManager event from the indexer.
+// Returns v4PoolIndexerStoppedMsg when the channel is closed.
+func waitForV4PoolEvent(idx *indexer.Indexer) tea.Cmd {
 	return func() tea.Msg {
-		event, ok := <-idx.V4Swaps()
+		event, ok := <-idx.PoolEvents()
 		if !ok {
-			return v4SwapIndexerStoppedMsg{}
+			return v4PoolIndexerStoppedMsg{}
 		}
-		return v4SwapEventMsg{event: event}
+		return v4PoolEventMsg{event: event}
 	}
 }
 
@@ -585,6 +585,68 @@ func (m *model) logIndexedEvent(ev indexer.IndexedEvent) {
 	m.addLog("info", fmt.Sprintf("  Value   : %s raw  (%s %s)", ev.Value.String(), fmt.Sprintf("%.6f", humanAmt), ev.Symbol))
 	m.addLog("info", fmt.Sprintf("  Decimals: %d", ev.Decimals))
 	m.addLog("info", "  ─────────────────────────────────────────────────────────")
+}
+
+// logV4PoolEvent logs a single V4PoolEvent in a structured, human-readable format.
+func (m *model) logV4PoolEvent(ev indexer.V4PoolEvent) {
+	bigStr := func(x *big.Int) string {
+		if x == nil {
+			return "0"
+		}
+		return x.String()
+	}
+	shortPool := func(h common.Hash) string {
+		s := h.Hex()
+		return helpers.FadeString(s[:10]+"…"+s[len(s)-6:], "#7EE787", "#82CFFD")
+	}
+	sep := "  ─────────────────────────────────────────────────────────"
+
+	switch ev.Kind {
+	case indexer.V4KindSwap:
+		dir := "→"
+		if ev.Amount0 != nil && ev.Amount0.Sign() > 0 {
+			dir = "←"
+		}
+		m.addLog("info", fmt.Sprintf("[V4-SWAP] %s  Pool: %s", dir, shortPool(ev.PoolID)))
+		m.addLog("info", fmt.Sprintf("  Sender    : %s", helpers.HyperAddr(ev.Sender)))
+		m.addLog("info", fmt.Sprintf("  Amount0   : %s", bigStr(ev.Amount0)))
+		m.addLog("info", fmt.Sprintf("  Amount1   : %s", bigStr(ev.Amount1)))
+		m.addLog("info", fmt.Sprintf("  Tick      : %s", bigStr(ev.Tick)))
+		m.addLog("info", fmt.Sprintf("  Block     : %d", ev.Block))
+		m.addLog("info", fmt.Sprintf("  TxHash    : %s", helpers.HyperTxHash(ev.TxHash)))
+		m.addLog("info", sep)
+
+	case indexer.V4KindModifyLiquidity:
+		sign := "+"
+		if ev.LiquidityDelta != nil && ev.LiquidityDelta.Sign() < 0 {
+			sign = "-"
+		}
+		m.addLog("info", fmt.Sprintf("[V4-LIQ] %sΔ  Pool: %s", sign, shortPool(ev.PoolID)))
+		m.addLog("info", fmt.Sprintf("  Sender    : %s", helpers.HyperAddr(ev.Sender)))
+		m.addLog("info", fmt.Sprintf("  ΔLiquidity: %s", bigStr(ev.LiquidityDelta)))
+		m.addLog("info", fmt.Sprintf("  Ticks     : [%s, %s]", bigStr(ev.TickLower), bigStr(ev.TickUpper)))
+		m.addLog("info", fmt.Sprintf("  Block     : %d", ev.Block))
+		m.addLog("info", fmt.Sprintf("  TxHash    : %s", helpers.HyperTxHash(ev.TxHash)))
+		m.addLog("info", sep)
+
+	case indexer.V4KindDonate:
+		m.addLog("info", fmt.Sprintf("[V4-DONATE]  Pool: %s", shortPool(ev.PoolID)))
+		m.addLog("info", fmt.Sprintf("  Sender  : %s", helpers.HyperAddr(ev.Sender)))
+		m.addLog("info", fmt.Sprintf("  Amount0 : %s", bigStr(ev.Amount0)))
+		m.addLog("info", fmt.Sprintf("  Amount1 : %s", bigStr(ev.Amount1)))
+		m.addLog("info", fmt.Sprintf("  Block   : %d", ev.Block))
+		m.addLog("info", fmt.Sprintf("  TxHash  : %s", helpers.HyperTxHash(ev.TxHash)))
+		m.addLog("info", sep)
+
+	case indexer.V4KindTransfer:
+		m.addLog("info", fmt.Sprintf("[V4-TRANSFER]  TokenID: %s", bigStr(ev.TokenID)))
+		m.addLog("info", fmt.Sprintf("  From    : %s", helpers.HyperAddr(ev.From)))
+		m.addLog("info", fmt.Sprintf("  To      : %s", helpers.HyperAddr(ev.To)))
+		m.addLog("info", fmt.Sprintf("  Amount  : %s", bigStr(ev.Amount0)))
+		m.addLog("info", fmt.Sprintf("  Block   : %d", ev.Block))
+		m.addLog("info", fmt.Sprintf("  TxHash  : %s", helpers.HyperTxHash(ev.TxHash)))
+		m.addLog("info", sep)
+	}
 }
 
 // addLog adds a log entry with timestamp and type

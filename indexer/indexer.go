@@ -19,30 +19,76 @@ import (
 )
 
 var (
-	transferSig = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
-	v4SwapSig   = crypto.Keccak256Hash([]byte("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"))
+	transferSig    = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	v4SwapSig      = crypto.Keccak256Hash([]byte("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"))
+	v4ModifyLiqSig = crypto.Keccak256Hash([]byte("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"))
+	v4DonateSig    = crypto.Keccak256Hash([]byte("Donate(bytes32,address,uint256,uint256)"))
+	v4TransferSig  = crypto.Keccak256Hash([]byte("Transfer(address,address,address,uint256,uint256)"))
 )
 
-const pollInterval     = 12 * time.Second
-const backChunkSize    = uint64(500)
+const pollInterval      = 12 * time.Second
+const backChunkSize     = uint64(500)
 const backChunkInterval = 2 * time.Second
 const v4PoolManagerAddress = "0x000000000004444c5dc75cB358380D2e3dE08A90"
 
-const v4SwapEventABI = `[{
-	"anonymous": false,
-	"inputs": [
-		{"indexed": true,  "name": "id",          "type": "bytes32"},
-		{"indexed": true,  "name": "sender",       "type": "address"},
-		{"indexed": false, "name": "amount0",      "type": "int128"},
-		{"indexed": false, "name": "amount1",      "type": "int128"},
-		{"indexed": false, "name": "sqrtPriceX96", "type": "uint160"},
-		{"indexed": false, "name": "liquidity",    "type": "uint128"},
-		{"indexed": false, "name": "tick",         "type": "int24"},
-		{"indexed": false, "name": "fee",          "type": "uint24"}
-	],
-	"name": "Swap",
-	"type": "event"
-}]`
+// V4EventKind identifies which PoolManager event was emitted.
+type V4EventKind uint8
+
+const (
+	V4KindSwap            V4EventKind = iota // Swap(bytes32,address,...)
+	V4KindModifyLiquidity                    // ModifyLiquidity(bytes32,address,...)
+	V4KindDonate                             // Donate(bytes32,address,...)
+	V4KindTransfer                           // Transfer(address,address,address,...) — ERC-6909 claims
+)
+
+func (k V4EventKind) String() string {
+	switch k {
+	case V4KindSwap:
+		return "swap"
+	case V4KindModifyLiquidity:
+		return "modify_liquidity"
+	case V4KindDonate:
+		return "donate"
+	case V4KindTransfer:
+		return "transfer"
+	default:
+		return "unknown"
+	}
+}
+
+// V4PoolEvent represents any Uniswap V4 PoolManager event involving a watched address.
+// Fields are populated according to Kind; unused fields are zero/nil.
+type V4PoolEvent struct {
+	Kind     V4EventKind
+	Block    uint64
+	TxHash   common.Hash
+	LogIndex uint
+
+	// Swap, ModifyLiquidity, Donate
+	PoolID common.Hash
+	Sender common.Address
+
+	// Swap: signed int128; Donate: unsigned uint256
+	Amount0 *big.Int
+	Amount1 *big.Int
+
+	// Swap only
+	SqrtPriceX96 *big.Int
+	Liquidity    *big.Int
+	Tick         *big.Int
+	Fee          *big.Int
+
+	// ModifyLiquidity only
+	TickLower      *big.Int
+	TickUpper      *big.Int
+	LiquidityDelta *big.Int
+	Salt           common.Hash
+
+	// Transfer (ERC-6909) only; Amount reuses Amount0
+	From    common.Address
+	To      common.Address
+	TokenID *big.Int
+}
 
 // IndexedEvent represents a detected ERC-20 Transfer event involving a watched address.
 type IndexedEvent struct {
@@ -57,37 +103,23 @@ type IndexedEvent struct {
 	Decimals uint8
 }
 
-// V4SwapEvent represents a Uniswap V4 Swap event where the sender is a watched address.
-type V4SwapEvent struct {
-	Block        uint64
-	TxHash       common.Hash
-	LogIndex     uint
-	PoolID       common.Hash
-	Sender       common.Address
-	Amount0      *big.Int
-	Amount1      *big.Int
-	SqrtPriceX96 *big.Int
-	Liquidity    *big.Int
-	Tick         *big.Int
-	Fee          *big.Int
-}
-
-// Indexer polls for ERC-20 Transfer events and Uniswap V4 Swap events involving saved wallet addresses.
+// Indexer polls for ERC-20 Transfer events and all Uniswap V4 PoolManager events
+// involving saved wallet addresses.
 type Indexer struct {
-	events   chan IndexedEvent
-	v4swaps  chan V4SwapEvent
-	progress chan uint64
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	cursor   uint64
+	events     chan IndexedEvent
+	poolEvents chan V4PoolEvent
+	progress   chan uint64
+	cancel     context.CancelFunc
+	mu         sync.Mutex
+	cursor     uint64
 }
 
 // New creates a new Indexer. Call Start to begin indexing.
 func New() *Indexer {
 	return &Indexer{
-		events:   make(chan IndexedEvent, 256),
-		v4swaps:  make(chan V4SwapEvent, 256),
-		progress: make(chan uint64, 32),
+		events:     make(chan IndexedEvent, 256),
+		poolEvents: make(chan V4PoolEvent, 256),
+		progress:   make(chan uint64, 32),
 	}
 }
 
@@ -98,7 +130,7 @@ func (idx *Indexer) Start(rpcURL string, addrs []common.Address, tokens []rpc.Wa
 	go idx.run(ctx, rpcURL, addrs, tokens)
 }
 
-// Stop halts the indexer and closes the events channel.
+// Stop halts the indexer and closes all channels.
 func (idx *Indexer) Stop() {
 	if idx.cancel != nil {
 		idx.cancel()
@@ -110,9 +142,9 @@ func (idx *Indexer) Events() <-chan IndexedEvent {
 	return idx.events
 }
 
-// V4Swaps returns the read-only channel of indexed Uniswap V4 Swap events.
-func (idx *Indexer) V4Swaps() <-chan V4SwapEvent {
-	return idx.v4swaps
+// PoolEvents returns the read-only channel of indexed Uniswap V4 PoolManager events.
+func (idx *Indexer) PoolEvents() <-chan V4PoolEvent {
+	return idx.poolEvents
 }
 
 // Progress returns a read-only channel that emits the current block number each
@@ -121,15 +153,96 @@ func (idx *Indexer) Progress() <-chan uint64 {
 	return idx.progress
 }
 
+const v4PoolManagerABI = `[
+{
+	"anonymous": false,
+	"inputs": [
+		{"indexed": true,  "name": "id",          "type": "bytes32"},
+		{"indexed": true,  "name": "sender",       "type": "address"},
+		{"indexed": false, "name": "amount0",      "type": "int128"},
+		{"indexed": false, "name": "amount1",      "type": "int128"},
+		{"indexed": false, "name": "sqrtPriceX96", "type": "uint160"},
+		{"indexed": false, "name": "liquidity",    "type": "uint128"},
+		{"indexed": false, "name": "tick",         "type": "int24"},
+		{"indexed": false, "name": "fee",          "type": "uint24"}
+	],
+	"name": "Swap",
+	"type": "event"
+},
+{
+	"anonymous": false,
+	"inputs": [
+		{"indexed": true,  "name": "id",            "type": "bytes32"},
+		{"indexed": true,  "name": "sender",         "type": "address"},
+		{"indexed": false, "name": "tickLower",      "type": "int24"},
+		{"indexed": false, "name": "tickUpper",      "type": "int24"},
+		{"indexed": false, "name": "liquidityDelta", "type": "int256"},
+		{"indexed": false, "name": "salt",           "type": "bytes32"}
+	],
+	"name": "ModifyLiquidity",
+	"type": "event"
+},
+{
+	"anonymous": false,
+	"inputs": [
+		{"indexed": true,  "name": "id",      "type": "bytes32"},
+		{"indexed": true,  "name": "sender",  "type": "address"},
+		{"indexed": false, "name": "amount0", "type": "uint256"},
+		{"indexed": false, "name": "amount1", "type": "uint256"}
+	],
+	"name": "Donate",
+	"type": "event"
+},
+{
+	"anonymous": false,
+	"inputs": [
+		{"indexed": false, "name": "caller", "type": "address"},
+		{"indexed": true,  "name": "from",   "type": "address"},
+		{"indexed": true,  "name": "to",     "type": "address"},
+		{"indexed": false, "name": "id",     "type": "uint256"},
+		{"indexed": false, "name": "amount", "type": "uint256"}
+	],
+	"name": "Transfer",
+	"type": "event"
+}]`
+
+// ABI unpack targets — one per non-indexed data shape.
+
+type v4SwapData struct {
+	Amount0      *big.Int
+	Amount1      *big.Int
+	SqrtPriceX96 *big.Int
+	Liquidity    *big.Int
+	Tick         *big.Int
+	Fee          *big.Int
+}
+
+type v4ModifyLiqData struct {
+	TickLower      *big.Int
+	TickUpper      *big.Int
+	LiquidityDelta *big.Int
+	Salt           [32]byte
+}
+
+type v4DonateData struct {
+	Amount0 *big.Int
+	Amount1 *big.Int
+}
+
+type v4TransferData struct {
+	Caller common.Address
+	Id     *big.Int
+	Amount *big.Int
+}
+
 func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Address, tokens []rpc.WatchedToken) {
-	// runCtx is cancelled when run() exits for any reason, stopping sub-goroutines.
 	runCtx, runCancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	defer func() {
 		runCancel()
 		wg.Wait()
 		close(idx.events)
-		close(idx.v4swaps)
+		close(idx.poolEvents)
 		close(idx.progress)
 	}()
 
@@ -141,12 +254,11 @@ func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Addre
 	}
 	defer client.Close()
 
-	swapABI, err := abi.JSON(strings.NewReader(v4SwapEventABI))
+	pmABI, err := abi.JSON(strings.NewReader(v4PoolManagerABI))
 	if err != nil {
 		return
 	}
 
-	// Build token contract address list and lookup map.
 	tokenAddrs := make([]common.Address, len(tokens))
 	tokenByAddr := make(map[common.Address]rpc.WatchedToken, len(tokens))
 	for i, t := range tokens {
@@ -154,13 +266,11 @@ func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Addre
 		tokenByAddr[t.Address] = t
 	}
 
-	// Pad watched addresses into topic hashes for FilterLogs.
 	watchedTopics := make([]common.Hash, len(addrs))
 	for i, a := range addrs {
 		watchedTopics[i] = common.BytesToHash(a.Bytes())
 	}
 
-	// Get current tip. Forward polling covers tip+1 onwards; backward scan covers tip downward.
 	tipCtx, tipCancel := context.WithTimeout(ctx, 8*time.Second)
 	tip, err := client.BlockNumber(tipCtx)
 	tipCancel()
@@ -171,14 +281,12 @@ func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Addre
 	idx.cursor = tip
 	idx.mu.Unlock()
 
-	// Backward scanner: scans from tip down to block 0 in chunks.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		idx.runBackscan(runCtx, client, tip, tokenAddrs, watchedTopics, tokenByAddr, &swapABI)
+		idx.runBackscan(runCtx, client, tip, tokenAddrs, watchedTopics, tokenByAddr, &pmABI)
 	}()
 
-	// Forward polling: catches new blocks as they arrive above tip.
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
@@ -202,21 +310,17 @@ func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Addre
 				continue
 			}
 
-			events := idx.fetchRange(runCtx, client, from, newTip, tokenAddrs, watchedTopics, tokenByAddr)
-			for _, ev := range events {
+			for _, ev := range idx.fetchRange(runCtx, client, from, newTip, tokenAddrs, watchedTopics, tokenByAddr) {
 				select {
 				case idx.events <- ev:
 				default:
-					// drop on buffer full
 				}
 			}
 
-			v4swaps := idx.fetchV4Swaps(runCtx, client, from, newTip, watchedTopics, &swapABI)
-			for _, ev := range v4swaps {
+			for _, ev := range idx.fetchV4PoolEvents(runCtx, client, from, newTip, watchedTopics, &pmABI) {
 				select {
-				case idx.v4swaps <- ev:
+				case idx.poolEvents <- ev:
 				default:
-					// drop on buffer full
 				}
 			}
 
@@ -227,9 +331,6 @@ func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Addre
 	}
 }
 
-// runBackscan scans blocks backward from startBlock down to 0 in chunks of backChunkSize.
-// Each chunk is separated by backChunkInterval to avoid hammering the RPC.
-// The store's UNIQUE constraint silently deduplicates any overlap with the forward poller.
 func (idx *Indexer) runBackscan(
 	ctx context.Context,
 	client *ethclient.Client,
@@ -237,7 +338,7 @@ func (idx *Indexer) runBackscan(
 	tokenAddrs []common.Address,
 	watchedTopics []common.Hash,
 	tokenByAddr map[common.Address]rpc.WatchedToken,
-	swapABI *abi.ABI,
+	pmABI *abi.ABI,
 ) {
 	high := startBlock
 	for {
@@ -252,23 +353,20 @@ func (idx *Indexer) runBackscan(
 			low = high - backChunkSize
 		}
 
-		events := idx.fetchRange(ctx, client, low, high, tokenAddrs, watchedTopics, tokenByAddr)
-		for _, ev := range events {
+		for _, ev := range idx.fetchRange(ctx, client, low, high, tokenAddrs, watchedTopics, tokenByAddr) {
 			select {
 			case idx.events <- ev:
 			default:
 			}
 		}
 
-		v4swaps := idx.fetchV4Swaps(ctx, client, low, high, watchedTopics, swapABI)
-		for _, ev := range v4swaps {
+		for _, ev := range idx.fetchV4PoolEvents(ctx, client, low, high, watchedTopics, pmABI) {
 			select {
-			case idx.v4swaps <- ev:
+			case idx.poolEvents <- ev:
 			default:
 			}
 		}
 
-		// Emit a progress tick when the chunk crosses a 10,000-block boundary.
 		if boundary := (high / 10_000) * 10_000; low <= boundary {
 			select {
 			case idx.progress <- boundary:
@@ -277,7 +375,7 @@ func (idx *Indexer) runBackscan(
 		}
 
 		if low == 0 {
-			return // reached genesis
+			return
 		}
 		high = low - 1
 	}
@@ -312,7 +410,6 @@ func (idx *Indexer) fetchRange(
 	})
 	fCancel2()
 
-	// Merge and deduplicate by TxHash+LogIndex.
 	seen := make(map[string]struct{})
 	var events []IndexedEvent
 	for _, l := range append(logsFrom, logsTo...) {
@@ -328,66 +425,141 @@ func (idx *Indexer) fetchRange(
 	return events
 }
 
-// v4SwapData holds ABI-unpacked non-indexed fields from a V4 Swap event.
-type v4SwapData struct {
-	Amount0      *big.Int
-	Amount1      *big.Int
-	SqrtPriceX96 *big.Int
-	Liquidity    *big.Int
-	Tick         *big.Int
-	Fee          *big.Int
-}
-
-func (idx *Indexer) fetchV4Swaps(
+// fetchV4PoolEvents queries the PoolManager for all four address-relevant event types.
+func (idx *Indexer) fetchV4PoolEvents(
 	ctx context.Context,
 	client *ethclient.Client,
 	from, to uint64,
 	watchedTopics []common.Hash,
-	swapABI *abi.ABI,
-) []V4SwapEvent {
+	pmABI *abi.ABI,
+) []V4PoolEvent {
 	poolManager := common.HexToAddress(v4PoolManagerAddress)
 	fromBlock := new(big.Int).SetUint64(from)
 	toBlock := new(big.Int).SetUint64(to)
 
+	// Swap, ModifyLiquidity, Donate: sender is indexed topic[2].
 	fCtx, fCancel := context.WithTimeout(ctx, 15*time.Second)
-	logs, _ := client.FilterLogs(fCtx, ethereum.FilterQuery{
+	senderLogs, _ := client.FilterLogs(fCtx, ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
 		Addresses: []common.Address{poolManager},
-		Topics:    [][]common.Hash{{v4SwapSig}, nil, watchedTopics},
+		Topics:    [][]common.Hash{{v4SwapSig, v4ModifyLiqSig, v4DonateSig}, nil, watchedTopics},
 	})
 	fCancel()
 
-	var events []V4SwapEvent
-	for _, l := range logs {
-		if ev := decodeV4Swap(l, swapABI); ev != nil {
+	// Transfer (ERC-6909): from=topic[1].
+	fCtx2, fCancel2 := context.WithTimeout(ctx, 15*time.Second)
+	xferFromLogs, _ := client.FilterLogs(fCtx2, ethereum.FilterQuery{
+		FromBlock: fromBlock,
+		ToBlock:   toBlock,
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{{v4TransferSig}, watchedTopics, nil},
+	})
+	fCancel2()
+
+	// Transfer (ERC-6909): to=topic[2].
+	fCtx3, fCancel3 := context.WithTimeout(ctx, 15*time.Second)
+	xferToLogs, _ := client.FilterLogs(fCtx3, ethereum.FilterQuery{
+		FromBlock: fromBlock,
+		ToBlock:   toBlock,
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{{v4TransferSig}, nil, watchedTopics},
+	})
+	fCancel3()
+
+	seen := make(map[string]struct{})
+	var events []V4PoolEvent
+	allLogs := append(senderLogs, append(xferFromLogs, xferToLogs...)...)
+	for _, l := range allLogs {
+		key := fmt.Sprintf("%s:%d", l.TxHash.Hex(), l.Index)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if ev := decodeV4PoolEvent(l, pmABI); ev != nil {
 			events = append(events, *ev)
 		}
 	}
 	return events
 }
 
-func decodeV4Swap(l types.Log, swapABI *abi.ABI) *V4SwapEvent {
-	if len(l.Topics) < 3 {
+func decodeV4PoolEvent(l types.Log, pmABI *abi.ABI) *V4PoolEvent {
+	if len(l.Topics) < 1 {
 		return nil
 	}
-	var data v4SwapData
-	if err := swapABI.UnpackIntoInterface(&data, "Swap", l.Data); err != nil {
-		return nil
+	base := V4PoolEvent{
+		Block:    l.BlockNumber,
+		TxHash:   l.TxHash,
+		LogIndex: uint(l.Index),
 	}
-	return &V4SwapEvent{
-		Block:        l.BlockNumber,
-		TxHash:       l.TxHash,
-		LogIndex:     uint(l.Index),
-		PoolID:       l.Topics[1],
-		Sender:       common.BytesToAddress(l.Topics[2].Bytes()[12:]),
-		Amount0:      data.Amount0,
-		Amount1:      data.Amount1,
-		SqrtPriceX96: data.SqrtPriceX96,
-		Liquidity:    data.Liquidity,
-		Tick:         data.Tick,
-		Fee:          data.Fee,
+	switch l.Topics[0] {
+	case v4SwapSig:
+		if len(l.Topics) < 3 {
+			return nil
+		}
+		var d v4SwapData
+		if err := pmABI.UnpackIntoInterface(&d, "Swap", l.Data); err != nil {
+			return nil
+		}
+		base.Kind = V4KindSwap
+		base.PoolID = l.Topics[1]
+		base.Sender = common.BytesToAddress(l.Topics[2].Bytes()[12:])
+		base.Amount0 = d.Amount0
+		base.Amount1 = d.Amount1
+		base.SqrtPriceX96 = d.SqrtPriceX96
+		base.Liquidity = d.Liquidity
+		base.Tick = d.Tick
+		base.Fee = d.Fee
+		return &base
+
+	case v4ModifyLiqSig:
+		if len(l.Topics) < 3 {
+			return nil
+		}
+		var d v4ModifyLiqData
+		if err := pmABI.UnpackIntoInterface(&d, "ModifyLiquidity", l.Data); err != nil {
+			return nil
+		}
+		base.Kind = V4KindModifyLiquidity
+		base.PoolID = l.Topics[1]
+		base.Sender = common.BytesToAddress(l.Topics[2].Bytes()[12:])
+		base.TickLower = d.TickLower
+		base.TickUpper = d.TickUpper
+		base.LiquidityDelta = d.LiquidityDelta
+		base.Salt = common.BytesToHash(d.Salt[:])
+		return &base
+
+	case v4DonateSig:
+		if len(l.Topics) < 3 {
+			return nil
+		}
+		var d v4DonateData
+		if err := pmABI.UnpackIntoInterface(&d, "Donate", l.Data); err != nil {
+			return nil
+		}
+		base.Kind = V4KindDonate
+		base.PoolID = l.Topics[1]
+		base.Sender = common.BytesToAddress(l.Topics[2].Bytes()[12:])
+		base.Amount0 = d.Amount0
+		base.Amount1 = d.Amount1
+		return &base
+
+	case v4TransferSig:
+		if len(l.Topics) < 3 {
+			return nil
+		}
+		var d v4TransferData
+		if err := pmABI.UnpackIntoInterface(&d, "Transfer", l.Data); err != nil {
+			return nil
+		}
+		base.Kind = V4KindTransfer
+		base.From = common.BytesToAddress(l.Topics[1].Bytes()[12:])
+		base.To = common.BytesToAddress(l.Topics[2].Bytes()[12:])
+		base.TokenID = d.Id
+		base.Amount0 = d.Amount
+		return &base
 	}
+	return nil
 }
 
 func decodeTransfer(l types.Log, tokenByAddr map[common.Address]rpc.WatchedToken) *IndexedEvent {

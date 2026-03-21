@@ -48,6 +48,36 @@ CREATE TABLE IF NOT EXISTS v4_swap_events (
 CREATE INDEX IF NOT EXISTS idx_v4_sender ON v4_swap_events(sender);
 CREATE INDEX IF NOT EXISTS idx_v4_block  ON v4_swap_events(block);
 CREATE INDEX IF NOT EXISTS idx_v4_pool   ON v4_swap_events(pool_id);
+
+CREATE TABLE IF NOT EXISTS v4_pool_events (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	kind        TEXT    NOT NULL,
+	block       INTEGER NOT NULL,
+	tx_hash     TEXT    NOT NULL,
+	log_index   INTEGER NOT NULL,
+	pool_id     TEXT,
+	sender      TEXT,
+	amount0     TEXT,
+	amount1     TEXT,
+	sqrt_price  TEXT,
+	liquidity   TEXT,
+	tick        INTEGER,
+	fee         INTEGER,
+	tick_lower  INTEGER,
+	tick_upper  INTEGER,
+	liq_delta   TEXT,
+	salt        TEXT,
+	from_addr   TEXT,
+	to_addr     TEXT,
+	token_id    TEXT,
+	seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(tx_hash, log_index)
+);
+CREATE INDEX IF NOT EXISTS idx_v4pe_sender ON v4_pool_events(sender);
+CREATE INDEX IF NOT EXISTS idx_v4pe_block  ON v4_pool_events(block);
+CREATE INDEX IF NOT EXISTS idx_v4pe_pool   ON v4_pool_events(pool_id);
+CREATE INDEX IF NOT EXISTS idx_v4pe_from   ON v4_pool_events(from_addr);
+CREATE INDEX IF NOT EXISTS idx_v4pe_to     ON v4_pool_events(to_addr);
 `
 
 // Store wraps a SQLite database for persisting indexed events.
@@ -97,92 +127,63 @@ func (s *Store) SaveEvent(ev indexer.IndexedEvent) error {
 	return err
 }
 
-// SaveV4Swap inserts a Uniswap V4 Swap event. Silently ignores duplicate (tx_hash, log_index) pairs.
-func (s *Store) SaveV4Swap(ev indexer.V4SwapEvent) error {
-	bigStr := func(x *big.Int) string {
+
+// SaveV4PoolEvent inserts any V4 PoolManager event. Silently ignores duplicate (tx_hash, log_index).
+func (s *Store) SaveV4PoolEvent(ev indexer.V4PoolEvent) error {
+	bigStr := func(x *big.Int) *string {
 		if x == nil {
-			return "0"
+			return nil
 		}
-		return x.String()
+		v := x.String()
+		return &v
 	}
-	tick := int64(0)
-	if ev.Tick != nil {
-		tick = ev.Tick.Int64()
+	nullInt := func(x *big.Int) *int64 {
+		if x == nil {
+			return nil
+		}
+		v := x.Int64()
+		return &v
 	}
-	fee := int64(0)
-	if ev.Fee != nil {
-		fee = ev.Fee.Int64()
+	nullStr := func(h common.Hash) *string {
+		z := common.Hash{}
+		if h == z {
+			return nil
+		}
+		v := h.Hex()
+		return &v
+	}
+	nullAddr := func(a common.Address) *string {
+		z := common.Address{}
+		if a == z {
+			return nil
+		}
+		v := a.Hex()
+		return &v
+	}
+	var poolID, sender *string
+	if ev.Kind != indexer.V4KindTransfer {
+		poolID = nullStr(ev.PoolID)
+		v := ev.Sender.Hex()
+		sender = &v
 	}
 	_, err := s.db.Exec(`
-		INSERT OR IGNORE INTO v4_swap_events
-			(block, tx_hash, log_index, pool_id, sender, amount0, amount1, sqrt_price, liquidity, tick, fee)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ev.Block,
-		ev.TxHash.Hex(),
-		ev.LogIndex,
-		ev.PoolID.Hex(),
-		ev.Sender.Hex(),
-		bigStr(ev.Amount0),
-		bigStr(ev.Amount1),
-		bigStr(ev.SqrtPriceX96),
-		bigStr(ev.Liquidity),
-		tick,
-		fee,
+		INSERT OR IGNORE INTO v4_pool_events
+			(kind, block, tx_hash, log_index,
+			 pool_id, sender, amount0, amount1, sqrt_price, liquidity, tick, fee,
+			 tick_lower, tick_upper, liq_delta, salt,
+			 from_addr, to_addr, token_id)
+		VALUES (?,?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?, ?,?,?)`,
+		ev.Kind.String(), ev.Block, ev.TxHash.Hex(), ev.LogIndex,
+		poolID, sender, bigStr(ev.Amount0), bigStr(ev.Amount1),
+		bigStr(ev.SqrtPriceX96), bigStr(ev.Liquidity),
+		nullInt(ev.Tick), nullInt(ev.Fee),
+		nullInt(ev.TickLower), nullInt(ev.TickUpper),
+		bigStr(ev.LiquidityDelta), nullStr(ev.Salt),
+		nullAddr(ev.From), nullAddr(ev.To), bigStr(ev.TokenID),
 	)
 	return err
 }
 
-// RecentV4Swaps returns up to limit V4 Swap events ordered newest block first.
-func (s *Store) RecentV4Swaps(limit int) ([]indexer.V4SwapEvent, error) {
-	rows, err := s.db.Query(`
-		SELECT block, tx_hash, log_index, pool_id, sender, amount0, amount1, sqrt_price, liquidity, tick, fee
-		FROM v4_swap_events
-		ORDER BY block DESC, id DESC
-		LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var events []indexer.V4SwapEvent
-	for rows.Next() {
-		var (
-			block     uint64
-			txHash    string
-			logIdx    uint
-			poolID    string
-			sender    string
-			amount0   string
-			amount1   string
-			sqrtPrice string
-			liquidity string
-			tick      int64
-			fee       int64
-		)
-		if err := rows.Scan(&block, &txHash, &logIdx, &poolID, &sender, &amount0, &amount1, &sqrtPrice, &liquidity, &tick, &fee); err != nil {
-			continue
-		}
-		parseBig := func(s string) *big.Int {
-			x := new(big.Int)
-			x.SetString(s, 10)
-			return x
-		}
-		events = append(events, indexer.V4SwapEvent{
-			Block:        block,
-			TxHash:       common.HexToHash(txHash),
-			LogIndex:     logIdx,
-			PoolID:       common.HexToHash(poolID),
-			Sender:       common.HexToAddress(sender),
-			Amount0:      parseBig(amount0),
-			Amount1:      parseBig(amount1),
-			SqrtPriceX96: parseBig(sqrtPrice),
-			Liquidity:    parseBig(liquidity),
-			Tick:         big.NewInt(tick),
-			Fee:          big.NewInt(fee),
-		})
-	}
-	return events, rows.Err()
-}
 
 // RecentEvents returns up to limit events ordered newest block first.
 func (s *Store) RecentEvents(limit int) ([]indexer.IndexedEvent, error) {

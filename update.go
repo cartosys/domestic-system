@@ -234,36 +234,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case v4SwapEventMsg:
+	case v4PoolEventMsg:
 		ev := msg.event
 		if m.eventStore != nil {
-			if err := m.eventStore.SaveV4Swap(ev); err != nil {
+			if err := m.eventStore.SaveV4PoolEvent(ev); err != nil {
 				m.addLog("warn", fmt.Sprintf("[v4-indexer] db write error: %s", err.Error()))
 			}
 		}
-		dir := "→"
-		if ev.Amount0 != nil && ev.Amount0.Sign() < 0 {
-			dir = "token0 out →"
-		} else if ev.Amount1 != nil && ev.Amount1.Sign() < 0 {
-			dir = "→ token1 out"
-		}
-		m.addLog("info", fmt.Sprintf(
-			"[v4-swap] pool=%s sender=%s %s amt0=%s amt1=%s tick=%s block=%d tx=%s",
-			helpers.HyperTxHash(ev.PoolID),
-			helpers.HyperAddr(ev.Sender),
-			dir,
-			ev.Amount0.String(),
-			ev.Amount1.String(),
-			ev.Tick.String(),
-			ev.Block,
-			helpers.HyperTxHash(ev.TxHash),
-		))
+		m.logV4PoolEvent(ev)
 		if m.txIndexerActive && m.txIndexer != nil {
-			return m, waitForV4SwapEvent(m.txIndexer)
+			return m, waitForV4PoolEvent(m.txIndexer)
 		}
 		return m, nil
 
-	case v4SwapIndexerStoppedMsg:
+	case v4PoolIndexerStoppedMsg:
 		return m, nil
 
 	case indexerProgressMsg:
@@ -476,7 +460,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				addrLabels[i] = helpers.HyperAddr(a)
 			}
 			m.addLog("info", fmt.Sprintf("Address indexer started — scanning backward from current block, watching: %s", strings.Join(addrLabels, "  ")))
-				startCmds := []tea.Cmd{waitForIndexedEvent(m.txIndexer), waitForV4SwapEvent(m.txIndexer), waitForIndexerProgress(m.txIndexer)}
+				startCmds := []tea.Cmd{waitForIndexedEvent(m.txIndexer), waitForV4PoolEvent(m.txIndexer), waitForIndexerProgress(m.txIndexer)}
 				if m.eventStore != nil {
 					startCmds = append(startCmds, loadRecentEvents(m.eventStore, 50))
 				} else if m.eventStoreErr != "" {

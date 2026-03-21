@@ -105,13 +105,13 @@ type indexedEventMsg struct {
 // indexerStoppedMsg signals that the address indexer has stopped
 type indexerStoppedMsg struct{}
 
-// v4SwapEventMsg carries a single Uniswap V4 Swap event from the address indexer
-type v4SwapEventMsg struct {
-	event indexer.V4SwapEvent
+// v4PoolEventMsg carries a single Uniswap V4 PoolManager event from the indexer
+type v4PoolEventMsg struct {
+	event indexer.V4PoolEvent
 }
 
-// v4SwapIndexerStoppedMsg signals that the V4 swap channel has closed
-type v4SwapIndexerStoppedMsg struct{}
+// v4PoolIndexerStoppedMsg signals that the V4 pool events channel has closed
+type v4PoolIndexerStoppedMsg struct{}
 
 // indexerProgressMsg carries a backward-scan progress block number
 type indexerProgressMsg struct {
