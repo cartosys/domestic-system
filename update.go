@@ -8,6 +8,7 @@ import (
 
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
+	"charm-wallet-tui/indexer"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -210,6 +211,90 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case indexedEventMsg:
+		ev := msg.event
+		if m.eventStore != nil {
+			if err := m.eventStore.SaveEvent(ev); err != nil {
+				m.addLog("warn", fmt.Sprintf("[indexer] db write error: %s", err.Error()))
+			}
+		}
+		divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(ev.Decimals)), nil))
+		amt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
+		m.addLog("info", fmt.Sprintf(
+			"[indexer] %s %s  %s → %s  block %d  tx %s",
+			amt.Text('f', 6), ev.Symbol,
+			helpers.ShortenAddr(ev.From.Hex()),
+			helpers.ShortenAddr(ev.To.Hex()),
+			ev.Block,
+			helpers.ShortenAddr(ev.TxHash.Hex()),
+		))
+		if m.txIndexerActive && m.txIndexer != nil {
+			return m, waitForIndexedEvent(m.txIndexer)
+		}
+		return m, nil
+
+	case indexerStoppedMsg:
+		wasActive := m.txIndexerActive
+		m.txIndexerActive = false
+		m.txIndexer = nil
+		if wasActive {
+			m.addLog("info", "Address indexer stopped")
+		}
+		return m, nil
+
+	case v4SwapEventMsg:
+		ev := msg.event
+		if m.eventStore != nil {
+			if err := m.eventStore.SaveV4Swap(ev); err != nil {
+				m.addLog("warn", fmt.Sprintf("[v4-indexer] db write error: %s", err.Error()))
+			}
+		}
+		dir := "→"
+		if ev.Amount0 != nil && ev.Amount0.Sign() < 0 {
+			dir = "token0 out →"
+		} else if ev.Amount1 != nil && ev.Amount1.Sign() < 0 {
+			dir = "→ token1 out"
+		}
+		m.addLog("info", fmt.Sprintf(
+			"[v4-swap] pool=%s sender=%s %s amt0=%s amt1=%s tick=%s block=%d tx=%s",
+			helpers.ShortenAddr(ev.PoolID.Hex()),
+			helpers.ShortenAddr(ev.Sender.Hex()),
+			dir,
+			ev.Amount0.String(),
+			ev.Amount1.String(),
+			ev.Tick.String(),
+			ev.Block,
+			helpers.ShortenAddr(ev.TxHash.Hex()),
+		))
+		if m.txIndexerActive && m.txIndexer != nil {
+			return m, waitForV4SwapEvent(m.txIndexer)
+		}
+		return m, nil
+
+	case v4SwapIndexerStoppedMsg:
+		return m, nil
+
+	case recentEventsMsg:
+		if msg.err != nil {
+			m.addLog("warn", fmt.Sprintf("[indexer] failed to load history: %s", msg.err.Error()))
+			return m, nil
+		}
+		m.addLog("info", fmt.Sprintf("[indexer] %d events in store — showing last %d", msg.count, len(msg.events)))
+		// Log events in chronological order (they arrive newest-first from DB)
+		for i := len(msg.events) - 1; i >= 0; i-- {
+			ev := msg.events[i]
+			divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(ev.Decimals)), nil))
+			amt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
+			m.addLog("info", fmt.Sprintf(
+				"[history] %s %s  %s → %s  block %d",
+				amt.Text('f', 6), ev.Symbol,
+				helpers.ShortenAddr(ev.From.Hex()),
+				helpers.ShortenAddr(ev.To.Hex()),
+				ev.Block,
+			))
+		}
+		return m, nil
+
 	case poolInfoResultMsg:
 		m.poolInfoLoading = false
 		m.poolInfoID = msg.poolID
@@ -365,6 +450,39 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logReady = false
 				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 				return m, nil
+
+			case "i", "I":
+				if m.txIndexerActive {
+					if m.txIndexer != nil {
+						m.txIndexer.Stop()
+					}
+					m.txIndexerActive = false
+					m.addLog("info", "Address indexer stopped")
+					return m, nil
+				}
+				if !m.rpcConnected || m.ethClient == nil {
+					m.addLog("warn", "Indexer requires an active RPC connection")
+					return m, nil
+				}
+				if len(m.accounts) == 0 {
+					m.addLog("warn", "No saved addresses to index")
+					return m, nil
+				}
+				addrs := make([]common.Address, len(m.accounts))
+				for i, a := range m.accounts {
+					addrs[i] = common.HexToAddress(a.Address)
+				}
+				m.txIndexer = indexer.New()
+				m.txIndexer.Start(m.rpcURL, addrs, m.tokenWatch)
+				m.txIndexerActive = true
+				m.addLog("info", fmt.Sprintf("Address indexer started — watching %d address(es), scanning backward from current block", len(addrs)))
+				startCmds := []tea.Cmd{waitForIndexedEvent(m.txIndexer), waitForV4SwapEvent(m.txIndexer)}
+				if m.eventStore != nil {
+					startCmds = append(startCmds, loadRecentEvents(m.eventStore, 50))
+				} else if m.eventStoreErr != "" {
+					m.addLog("warn", fmt.Sprintf("[indexer] event store unavailable: %s", m.eventStoreErr))
+				}
+				return m, tea.Batch(startCmds...)
 
 			case "pageup", "pagedown":
 				// Allow scrolling in log viewport when enabled

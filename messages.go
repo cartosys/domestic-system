@@ -5,6 +5,7 @@ import (
 
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
+	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
 )
 
@@ -93,6 +94,29 @@ type poolInfoResultMsg struct {
 type poolKeyResultMsg struct {
 	poolID string
 	key    *helpers.PoolKeyInfo
+	err    error
+}
+
+// indexedEventMsg carries a single ERC-20 Transfer event from the address indexer
+type indexedEventMsg struct {
+	event indexer.IndexedEvent
+}
+
+// indexerStoppedMsg signals that the address indexer has stopped
+type indexerStoppedMsg struct{}
+
+// v4SwapEventMsg carries a single Uniswap V4 Swap event from the address indexer
+type v4SwapEventMsg struct {
+	event indexer.V4SwapEvent
+}
+
+// v4SwapIndexerStoppedMsg signals that the V4 swap channel has closed
+type v4SwapIndexerStoppedMsg struct{}
+
+// recentEventsMsg carries historical events loaded from the local SQLite store
+type recentEventsMsg struct {
+	events []indexer.IndexedEvent
+	count  int64 // total rows in DB at time of query
 	err    error
 }
 

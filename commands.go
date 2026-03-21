@@ -10,7 +10,9 @@ import (
 
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
+	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
+	"charm-wallet-tui/store"
 	"charm-wallet-tui/views/uniswap"
 
 	"github.com/atotto/clipboard"
@@ -438,6 +440,42 @@ func urlAtCol(line string, col int) string {
 		}
 	}
 	return ""
+}
+
+// loadRecentEvents fetches the most recent indexed events from the local store.
+func loadRecentEvents(s *store.Store, limit int) tea.Cmd {
+	return func() tea.Msg {
+		events, err := s.RecentEvents(limit)
+		if err != nil {
+			return recentEventsMsg{err: err}
+		}
+		count, _ := s.Count()
+		return recentEventsMsg{events: events, count: count}
+	}
+}
+
+// waitForIndexedEvent blocks on the next event from the address indexer.
+// Returns indexerStoppedMsg when the channel is closed.
+func waitForIndexedEvent(idx *indexer.Indexer) tea.Cmd {
+	return func() tea.Msg {
+		event, ok := <-idx.Events()
+		if !ok {
+			return indexerStoppedMsg{}
+		}
+		return indexedEventMsg{event: event}
+	}
+}
+
+// waitForV4SwapEvent blocks on the next Uniswap V4 Swap event from the indexer.
+// Returns v4SwapIndexerStoppedMsg when the channel is closed.
+func waitForV4SwapEvent(idx *indexer.Indexer) tea.Cmd {
+	return func() tea.Msg {
+		event, ok := <-idx.V4Swaps()
+		if !ok {
+			return v4SwapIndexerStoppedMsg{}
+		}
+		return v4SwapEventMsg{event: event}
+	}
 }
 
 // openInBrowser opens url in the system default browser (macOS: open, Linux: xdg-open).
