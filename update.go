@@ -223,10 +223,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog("info", fmt.Sprintf(
 			"[indexer] %s %s  %s → %s  block %d  tx %s",
 			amt.Text('f', 6), ev.Symbol,
-			helpers.ShortenAddr(ev.From.Hex()),
-			helpers.ShortenAddr(ev.To.Hex()),
+			helpers.HyperAddr(ev.From),
+			helpers.HyperAddr(ev.To),
 			ev.Block,
-			helpers.ShortenAddr(ev.TxHash.Hex()),
+			helpers.HyperTxHash(ev.TxHash),
 		))
 		if m.txIndexerActive && m.txIndexer != nil {
 			return m, waitForIndexedEvent(m.txIndexer)
@@ -257,14 +257,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.addLog("info", fmt.Sprintf(
 			"[v4-swap] pool=%s sender=%s %s amt0=%s amt1=%s tick=%s block=%d tx=%s",
-			helpers.ShortenAddr(ev.PoolID.Hex()),
-			helpers.ShortenAddr(ev.Sender.Hex()),
+			helpers.HyperTxHash(ev.PoolID),
+			helpers.HyperAddr(ev.Sender),
 			dir,
 			ev.Amount0.String(),
 			ev.Amount1.String(),
 			ev.Tick.String(),
 			ev.Block,
-			helpers.ShortenAddr(ev.TxHash.Hex()),
+			helpers.HyperTxHash(ev.TxHash),
 		))
 		if m.txIndexerActive && m.txIndexer != nil {
 			return m, waitForV4SwapEvent(m.txIndexer)
@@ -298,11 +298,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(ev.Decimals)), nil))
 			amt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
 			m.addLog("info", fmt.Sprintf(
-				"[history] %s %s  %s → %s  block %d",
+				"[history] %s %s  %s → %s  block %d  tx %s",
 				amt.Text('f', 6), ev.Symbol,
-				helpers.ShortenAddr(ev.From.Hex()),
-				helpers.ShortenAddr(ev.To.Hex()),
+				helpers.HyperAddr(ev.From),
+				helpers.HyperAddr(ev.To),
 				ev.Block,
+				helpers.HyperTxHash(ev.TxHash),
 			))
 		}
 		return m, nil

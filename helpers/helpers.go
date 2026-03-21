@@ -32,6 +32,14 @@ func HyperAddr(a common.Address) string {
 	return ansi.SetHyperlink("https://etherscan.io/address/"+a.Hex()) + display + ansi.ResetHyperlink()
 }
 
+// HyperTxHash returns a FadeString-coloured shortened tx hash hyperlinked to its Etherscan page.
+// Uses the green→blue gradient matching the V4 pool ID style.
+func HyperTxHash(h common.Hash) string {
+	short := h.Hex()[:10] + "…" + h.Hex()[len(h.Hex())-6:]
+	display := FadeString(short, "#7EE787", "#82CFFD")
+	return ansi.SetHyperlink("https://etherscan.io/tx/"+h.Hex()) + display + ansi.ResetHyperlink()
+}
+
 // IsValidEthAddress checks if a string is a valid Ethereum address
 func IsValidEthAddress(s string) bool {
 	re := regexp.MustCompile("^0x[0-9a-fA-F]{40}$")

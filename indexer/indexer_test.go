@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -59,11 +60,20 @@ func TestFetchRangeUSDCTransfer(t *testing.T) {
 	allEvents := idx.fetchRange(ctx, client, testBlock, testBlock, tokenAddrs, nil, tokenByAddr)
 	t.Logf("  %d total USDC transfer(s) found", len(allEvents))
 	for _, ev := range allEvents {
-		t.Logf("  from=%s  to=%s  value=%s", ev.From.Hex(), ev.To.Hex(), ev.Value.String())
+		t.Logf("  from=%s  to=%s  value=%s  block=%d  tx=%s",
+			helpers.HyperAddr(ev.From),
+			helpers.HyperAddr(ev.To),
+			ev.Value.String(),
+			ev.Block,
+			helpers.HyperTxHash(ev.TxHash),
+		)
 	}
 
 	// ── Filtered query using the provided topic hash ──────────────────────────
-	t.Logf("Filtered: querying for address %s (topic %s)", testAddr.Hex(), testAddrTopic.Hex())
+	t.Logf("Filtered: querying for address %s (topic %s)",
+		helpers.HyperAddr(testAddr),
+		helpers.HyperTxHash(testAddrTopic),
+	)
 	watchedTopics := []common.Hash{testAddrTopic}
 	events := idx.fetchRange(ctx, client, testBlock, testBlock, tokenAddrs, watchedTopics, tokenByAddr)
 
@@ -78,12 +88,12 @@ func TestFetchRangeUSDCTransfer(t *testing.T) {
 		humanAmt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
 
 		t.Logf("Event #%d", i+1)
-		t.Logf("  Token   : %s (%s)", ev.Symbol, ev.Token.Hex())
+		t.Logf("  Token   : %s (%s)", ev.Symbol, helpers.HyperAddr(ev.Token))
 		t.Logf("  Block   : %d", ev.Block)
-		t.Logf("  TxHash  : %s", ev.TxHash.Hex())
+		t.Logf("  TxHash  : %s", helpers.HyperTxHash(ev.TxHash))
 		t.Logf("  LogIndex: %d", ev.LogIndex)
-		t.Logf("  From    : %s", ev.From.Hex())
-		t.Logf("  To      : %s", ev.To.Hex())
+		t.Logf("  From    : %s", helpers.HyperAddr(ev.From))
+		t.Logf("  To      : %s", helpers.HyperAddr(ev.To))
 		t.Logf("  Value   : %s raw  (%s %s)", ev.Value.String(), fmt.Sprintf("%.6f", humanAmt), ev.Symbol)
 		t.Logf("  Decimals: %d", ev.Decimals)
 		t.Logf("─────────────────────────────────────────────────────────")
