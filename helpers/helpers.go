@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/lucasb-eyer/go-colorful"
@@ -23,6 +24,12 @@ func ShortenAddr(addr string) string {
 		return addr
 	}
 	return addr[:6] + "…" + addr[len(addr)-4:]
+}
+
+// HyperAddr returns a FadeString-coloured shortened address hyperlinked to its Etherscan page.
+func HyperAddr(a common.Address) string {
+	display := FadeString(ShortenAddr(a.Hex()), "#F25D94", "#EDFF82")
+	return ansi.SetHyperlink("https://etherscan.io/address/"+a.Hex()) + display + ansi.ResetHyperlink()
 }
 
 // IsValidEthAddress checks if a string is a valid Ethereum address

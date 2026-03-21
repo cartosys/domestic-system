@@ -487,7 +487,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.txIndexer = indexer.New()
 				m.txIndexer.Start(m.rpcURL, addrs, m.tokenWatch)
 				m.txIndexerActive = true
-				m.addLog("info", fmt.Sprintf("Address indexer started — watching %d address(es), scanning backward from current block", len(addrs)))
+				addrLabels := make([]string, len(addrs))
+			for i, a := range addrs {
+				addrLabels[i] = helpers.HyperAddr(a)
+			}
+			m.addLog("info", fmt.Sprintf("Address indexer started — scanning backward from current block, watching: %s", strings.Join(addrLabels, "  ")))
 				startCmds := []tea.Cmd{waitForIndexedEvent(m.txIndexer), waitForV4SwapEvent(m.txIndexer), waitForIndexerProgress(m.txIndexer)}
 				if m.eventStore != nil {
 					startCmds = append(startCmds, loadRecentEvents(m.eventStore, 50))
