@@ -113,6 +113,11 @@ type v4SwapEventMsg struct {
 // v4SwapIndexerStoppedMsg signals that the V4 swap channel has closed
 type v4SwapIndexerStoppedMsg struct{}
 
+// indexerProgressMsg carries a backward-scan progress block number
+type indexerProgressMsg struct {
+	block uint64
+}
+
 // recentEventsMsg carries historical events loaded from the local SQLite store
 type recentEventsMsg struct {
 	events []indexer.IndexedEvent

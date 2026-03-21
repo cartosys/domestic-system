@@ -478,6 +478,18 @@ func waitForV4SwapEvent(idx *indexer.Indexer) tea.Cmd {
 	}
 }
 
+// waitForIndexerProgress blocks on the next backward-scan progress tick.
+// Returns nil when the channel is closed (indexer stopped).
+func waitForIndexerProgress(idx *indexer.Indexer) tea.Cmd {
+	return func() tea.Msg {
+		block, ok := <-idx.Progress()
+		if !ok {
+			return nil
+		}
+		return indexerProgressMsg{block: block}
+	}
+}
+
 // openInBrowser opens url in the system default browser (macOS: open, Linux: xdg-open).
 func openInBrowser(url string) tea.Cmd {
 	return func() tea.Msg {

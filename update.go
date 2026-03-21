@@ -274,6 +274,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case v4SwapIndexerStoppedMsg:
 		return m, nil
 
+	case indexerProgressMsg:
+		count := int64(0)
+		if m.eventStore != nil {
+			count, _ = m.eventStore.Count()
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color("#7EE787")).Bold(true).Render("[INDEXER]")
+		m.addLog("info", fmt.Sprintf("%s backscan block=%d  indexed=%d records", prefix, msg.block, count))
+		if m.txIndexerActive && m.txIndexer != nil {
+			return m, waitForIndexerProgress(m.txIndexer)
+		}
+		return m, nil
+
 	case recentEventsMsg:
 		if msg.err != nil {
 			m.addLog("warn", fmt.Sprintf("[indexer] failed to load history: %s", msg.err.Error()))
@@ -476,7 +488,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.txIndexer.Start(m.rpcURL, addrs, m.tokenWatch)
 				m.txIndexerActive = true
 				m.addLog("info", fmt.Sprintf("Address indexer started — watching %d address(es), scanning backward from current block", len(addrs)))
-				startCmds := []tea.Cmd{waitForIndexedEvent(m.txIndexer), waitForV4SwapEvent(m.txIndexer)}
+				startCmds := []tea.Cmd{waitForIndexedEvent(m.txIndexer), waitForV4SwapEvent(m.txIndexer), waitForIndexerProgress(m.txIndexer)}
 				if m.eventStore != nil {
 					startCmds = append(startCmds, loadRecentEvents(m.eventStore, 50))
 				} else if m.eventStoreErr != "" {

@@ -74,18 +74,20 @@ type V4SwapEvent struct {
 
 // Indexer polls for ERC-20 Transfer events and Uniswap V4 Swap events involving saved wallet addresses.
 type Indexer struct {
-	events  chan IndexedEvent
-	v4swaps chan V4SwapEvent
-	cancel  context.CancelFunc
-	mu      sync.Mutex
-	cursor  uint64
+	events   chan IndexedEvent
+	v4swaps  chan V4SwapEvent
+	progress chan uint64
+	cancel   context.CancelFunc
+	mu       sync.Mutex
+	cursor   uint64
 }
 
 // New creates a new Indexer. Call Start to begin indexing.
 func New() *Indexer {
 	return &Indexer{
-		events:  make(chan IndexedEvent, 256),
-		v4swaps: make(chan V4SwapEvent, 256),
+		events:   make(chan IndexedEvent, 256),
+		v4swaps:  make(chan V4SwapEvent, 256),
+		progress: make(chan uint64, 32),
 	}
 }
 
@@ -113,6 +115,12 @@ func (idx *Indexer) V4Swaps() <-chan V4SwapEvent {
 	return idx.v4swaps
 }
 
+// Progress returns a read-only channel that emits the current block number each
+// time the backward scanner crosses a 10,000-block boundary.
+func (idx *Indexer) Progress() <-chan uint64 {
+	return idx.progress
+}
+
 func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Address, tokens []rpc.WatchedToken) {
 	// runCtx is cancelled when run() exits for any reason, stopping sub-goroutines.
 	runCtx, runCancel := context.WithCancel(ctx)
@@ -122,6 +130,7 @@ func (idx *Indexer) run(ctx context.Context, rpcURL string, addrs []common.Addre
 		wg.Wait()
 		close(idx.events)
 		close(idx.v4swaps)
+		close(idx.progress)
 	}()
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, 8*time.Second)
@@ -255,6 +264,14 @@ func (idx *Indexer) runBackscan(
 		for _, ev := range v4swaps {
 			select {
 			case idx.v4swaps <- ev:
+			default:
+			}
+		}
+
+		// Emit a progress tick when the chunk crosses a 10,000-block boundary.
+		if boundary := (high / 10_000) * 10_000; low <= boundary {
+			select {
+			case idx.progress <- boundary:
 			default:
 			}
 		}
