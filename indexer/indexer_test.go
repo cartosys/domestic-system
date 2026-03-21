@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	testBlock  = uint64(24697898)
+	testBlock  = uint64(24708660)
 	testRPCEnv = "ETH_RPC_URL"
 )
 
@@ -26,11 +26,8 @@ var (
 		Decimals: 6,
 		Address:  common.HexToAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
 	}
-	// The user-supplied value is 32 bytes — used as a raw topic hash for the
-	// Transfer(address,address,uint256) filter, matching it in the `to` position.
-	// The corresponding 20-byte address is the rightmost 20 bytes of this hash.
-	testAddrTopic = common.HexToHash("0xdc1ac815dd526d73cda52f5702d74605d47394beaee99f15b01df13c80724fd5")
-	testAddr      = common.BytesToAddress(testAddrTopic.Bytes())
+	testAddr      = common.HexToAddress("0x5B576BdAd96Cd7EB643b3229B499130B55e8CA4d")
+	testAddrTopic = common.BytesToHash(testAddr.Bytes())
 )
 
 func TestFetchRangeUSDCTransfer(t *testing.T) {
