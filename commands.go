@@ -572,6 +572,21 @@ func packageTerraClaimTx(fromAddr, message string) tea.Cmd {
 // -------------------- MODEL HELPER METHODS --------------------
 // These methods help with state management and command generation
 
+// logIndexedEvent logs a single IndexedEvent in the same detailed format used by the test output.
+func (m *model) logIndexedEvent(ev indexer.IndexedEvent) {
+	divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(ev.Decimals)), nil))
+	humanAmt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
+	m.addLog("info", fmt.Sprintf("  Token   : %s (%s)", ev.Symbol, helpers.HyperAddr(ev.Token)))
+	m.addLog("info", fmt.Sprintf("  Block   : %d", ev.Block))
+	m.addLog("info", fmt.Sprintf("  TxHash  : %s", helpers.HyperTxHash(ev.TxHash)))
+	m.addLog("info", fmt.Sprintf("  LogIndex: %d", ev.LogIndex))
+	m.addLog("info", fmt.Sprintf("  From    : %s", helpers.HyperAddr(ev.From)))
+	m.addLog("info", fmt.Sprintf("  To      : %s", helpers.HyperAddr(ev.To)))
+	m.addLog("info", fmt.Sprintf("  Value   : %s raw  (%s %s)", ev.Value.String(), fmt.Sprintf("%.6f", humanAmt), ev.Symbol))
+	m.addLog("info", fmt.Sprintf("  Decimals: %d", ev.Decimals))
+	m.addLog("info", "  ─────────────────────────────────────────────────────────")
+}
+
 // addLog adds a log entry with timestamp and type
 func (m *model) addLog(logType, message string) {
 	if !m.logEnabled || !m.logReady || m.logger == nil {

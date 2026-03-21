@@ -218,16 +218,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addLog("warn", fmt.Sprintf("[indexer] db write error: %s", err.Error()))
 			}
 		}
-		divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(ev.Decimals)), nil))
-		amt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
-		m.addLog("info", fmt.Sprintf(
-			"[indexer] %s %s  %s → %s  block %d  tx %s",
-			amt.Text('f', 6), ev.Symbol,
-			helpers.HyperAddr(ev.From),
-			helpers.HyperAddr(ev.To),
-			ev.Block,
-			helpers.HyperTxHash(ev.TxHash),
-		))
+		m.addLog("info", "[indexer] transfer detected")
+		m.logIndexedEvent(ev)
 		if m.txIndexerActive && m.txIndexer != nil {
 			return m, waitForIndexedEvent(m.txIndexer)
 		}
@@ -294,17 +286,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog("info", fmt.Sprintf("[indexer] %d events in store — showing last %d", msg.count, len(msg.events)))
 		// Log events in chronological order (they arrive newest-first from DB)
 		for i := len(msg.events) - 1; i >= 0; i-- {
-			ev := msg.events[i]
-			divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(ev.Decimals)), nil))
-			amt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
-			m.addLog("info", fmt.Sprintf(
-				"[history] %s %s  %s → %s  block %d  tx %s",
-				amt.Text('f', 6), ev.Symbol,
-				helpers.HyperAddr(ev.From),
-				helpers.HyperAddr(ev.To),
-				ev.Block,
-				helpers.HyperTxHash(ev.TxHash),
-			))
+			m.addLog("info", fmt.Sprintf("[history] event %d of %d", len(msg.events)-i, len(msg.events)))
+			m.logIndexedEvent(msg.events[i])
 		}
 		return m, nil
 
