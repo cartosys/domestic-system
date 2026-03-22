@@ -328,25 +328,35 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 				printedReceipts[lg.TxHash] = true
 				t.Logf("")
 				t.Logf("    ── Full transaction ─────────────────────────────────────")
-				tx, _, txErr := client.TransactionByHash(ctx, lg.TxHash)
-				if txErr != nil {
-					t.Logf("    tx fetch error: %v", txErr)
-				} else {
-					from, _ := types.Sender(signer, tx)
-					t.Logf("    from      : %s", from.Hex())
-					t.Logf("    to        : %s", addrOrCreate(tx.To()))
-					t.Logf("    type      : %d", tx.Type())
-					t.Logf("    nonce     : %d", tx.Nonce())
-					t.Logf("    value     : %s wei", tx.Value().String())
-					t.Logf("    gas limit : %d", tx.Gas())
-					t.Logf("    gas price : %s wei", tx.GasPrice().String())
-					if tx.Type() >= 2 {
-						t.Logf("    tip cap   : %s wei", tx.GasTipCap().String())
-						t.Logf("    fee cap   : %s wei", tx.GasFeeCap().String())
+
+				// Look up the tx from the already-fetched block rather than a
+				// separate TransactionByHash RPC call (some providers return
+				// "not found" for eth_getTransactionByHash on archived blocks).
+				var matchTx *types.Transaction
+				for _, btx := range block.Transactions() {
+					if btx.Hash() == lg.TxHash {
+						matchTx = btx
+						break
 					}
-					t.Logf("    data size : %d bytes", len(tx.Data()))
-					if len(tx.Data()) >= 4 {
-						t.Logf("    selector  : 0x%s", hex.EncodeToString(tx.Data()[:4]))
+				}
+				if matchTx == nil {
+					t.Logf("    (tx hash %s not found in block %d)", lg.TxHash.Hex(), v4TestBlock)
+				} else {
+					from, _ := types.Sender(signer, matchTx)
+					t.Logf("    from      : %s", from.Hex())
+					t.Logf("    to        : %s", addrOrCreate(matchTx.To()))
+					t.Logf("    type      : %d", matchTx.Type())
+					t.Logf("    nonce     : %d", matchTx.Nonce())
+					t.Logf("    value     : %s wei", matchTx.Value().String())
+					t.Logf("    gas limit : %d", matchTx.Gas())
+					t.Logf("    gas price : %s wei", matchTx.GasPrice().String())
+					if matchTx.Type() >= 2 {
+						t.Logf("    tip cap   : %s wei", matchTx.GasTipCap().String())
+						t.Logf("    fee cap   : %s wei", matchTx.GasFeeCap().String())
+					}
+					t.Logf("    data size : %d bytes", len(matchTx.Data()))
+					if len(matchTx.Data()) >= 4 {
+						t.Logf("    selector  : 0x%s", hex.EncodeToString(matchTx.Data()[:4]))
 					}
 				}
 
@@ -362,25 +372,28 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 					t.Logf("    gas used  : %d", rcpt.GasUsed)
 					t.Logf("    log count : %d", len(rcpt.Logs))
 					t.Logf("")
-					t.Logf("    ── All logs in this receipt ─────────────────────────")
+					t.Logf("    ── All logs in this receipt (%d) ────────────────────", len(rcpt.Logs))
 					for rli, rlg := range rcpt.Logs {
-						t.Logf("    [%d] emitter=%s  logIndex=%d", rli, rlg.Address.Hex(), rlg.Index)
+						t.Logf("")
+						t.Logf("      log [%d/%d]  emitter=%s  logIndex=%d",
+							rli+1, len(rcpt.Logs), rlg.Address.Hex(), rlg.Index)
+						t.Logf("      topics (%d):", len(rlg.Topics))
 						for ti, topic := range rlg.Topics {
-							mark := "     "
+							mark := "        "
 							if strings.Contains(strings.ToLower(topic.Hex()), needle) {
-								mark = "  -> "
+								mark = "     -> "
 							}
-							t.Logf("    %stopic[%d]: %s", mark, ti, topic.Hex())
+							t.Logf("      %s[%d] %s", mark, ti, topic.Hex())
 						}
 						if len(rlg.Data) > 0 {
-							t.Logf("         data: 0x%s", hex.EncodeToString(rlg.Data))
+							t.Logf("      data  : 0x%s", hex.EncodeToString(rlg.Data))
 						}
 						if rlg.Address == poolManager {
 							rline, rErr := v4FormatLog(&parsedABI, *rlg, eventNames, &mu, poolKeys, ctx, client, syms)
 							if rErr != nil {
-								t.Logf("         [V4 decode error] %v", rErr)
+								t.Logf("      [V4 decode error] %v", rErr)
 							} else if rline != "" {
-								t.Logf("         [V4] %s", rline)
+								t.Logf("      [V4] %s", rline)
 							}
 						} else if len(rlg.Topics) > 0 && rlg.Topics[0] == common.HexToHash(erc721TransferSig) {
 							decodeERC721Transfer(t, rlg)
