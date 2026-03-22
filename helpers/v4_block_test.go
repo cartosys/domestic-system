@@ -174,12 +174,12 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		}
 	}
 
-	if len(targetTxs) == 0 {
-		t.Errorf("no transactions from %s found in block %d", targetAddr.Hex(), v4TestBlock)
-		return
-	}
 	t.Logf("")
-	t.Logf("  Found %d transaction(s) from target address", len(targetTxs))
+	if len(targetTxs) == 0 {
+		t.Logf("  (no transactions directly from target address in this block — address likely acts as a topic)")
+	} else {
+		t.Logf("  Found %d transaction(s) from target address", len(targetTxs))
+	}
 
 	// ── Step 3: For each tx, get receipt + decode all logs ────────────────────
 	var allPoolIDs []common.Hash
@@ -248,9 +248,154 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		hr(t)
 	}
 
-	// ── Step 4: Broad PoolManager scan (no address filter) ───────────────────
-	// Catch Initialize / ModifyLiquidity / Transfer events that may be in the
-	// same block but from a different origin address (e.g. a router calling PM).
+	// ── Step 4: Targeted PoolManager topic search ────────────────────────────
+	// In V4, the EOA address appears as an indexed topic inside PoolManager
+	// events (e.g. sender in ModifyLiquidity = topic[2]), not necessarily as
+	// tx.From. Search each topic position independently and show full tx detail
+	// for every matching event.
+	section(t, fmt.Sprintf("Targeted PoolManager topic search · addr=%s", targetAddr.Hex()))
+
+	addrTopic := common.BytesToHash(targetAddr.Bytes()) // left-padded to 32 bytes
+	t.Logf("  topic hash: %s", addrTopic.Hex())
+
+	topicLabels := map[int]string{
+		1: "topic[1] — poolId  / from  / owner",
+		2: "topic[2] — currency0 / sender / operator / to",
+		3: "topic[3] — currency1 / tokenId",
+	}
+
+	// Track tx hashes whose receipt we've already printed to avoid duplication.
+	printedReceipts := map[common.Hash]bool{}
+
+	for _, pos := range []int{1, 2, 3} {
+		// Build a topics filter that matches any event sig (topic[0] = nil)
+		// with the target address at the given position.
+		topics := make([][]common.Hash, pos+1)
+		topics[pos] = []common.Hash{addrTopic}
+
+		matchLogs, filterErr := client.FilterLogs(ctx, ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(v4TestBlock),
+			ToBlock:   new(big.Int).SetUint64(v4TestBlock),
+			Addresses: []common.Address{poolManager},
+			Topics:    topics,
+		})
+		t.Logf("")
+		t.Logf("  %s: %d match(es)", topicLabels[pos], func() int {
+			if filterErr != nil {
+				return -1
+			}
+			return len(matchLogs)
+		}())
+		if filterErr != nil {
+			t.Logf("    FilterLogs error: %v", filterErr)
+			continue
+		}
+
+		for li, lg := range matchLogs {
+			t.Logf("")
+			t.Logf("  ── Match [topic[%d]] #%d  tx=%s  logIndex=%d", pos, li, lg.TxHash.Hex(), lg.Index)
+
+			// Decode the event itself.
+			line, fmtErr := v4FormatLog(&parsedABI, lg, eventNames, &mu, poolKeys, ctx, client, syms)
+			if fmtErr != nil {
+				t.Logf("    decode error: %v", fmtErr)
+			} else if line != "" {
+				t.Logf("    %s", line)
+			}
+
+			// Raw topics + data.
+			for ti, topic := range lg.Topics {
+				marker := "  "
+				if ti == pos {
+					marker = "->"
+				}
+				t.Logf("    %s topic[%d]: %s", marker, ti, topic.Hex())
+			}
+			if len(lg.Data) > 0 {
+				t.Logf("    data: 0x%s", hex.EncodeToString(lg.Data))
+			}
+
+			// Collect pool IDs from Initialize events.
+			if len(lg.Topics) > 1 {
+				if name, ok := eventNames[lg.Topics[0]]; ok && name == "Initialize" {
+					allPoolIDs = appendPoolID(allPoolIDs, lg.Topics[1])
+				}
+			}
+
+			// Print the full tx + receipt once per tx hash.
+			if !printedReceipts[lg.TxHash] {
+				printedReceipts[lg.TxHash] = true
+				t.Logf("")
+				t.Logf("    ── Full transaction ─────────────────────────────────────")
+				tx, _, txErr := client.TransactionByHash(ctx, lg.TxHash)
+				if txErr != nil {
+					t.Logf("    tx fetch error: %v", txErr)
+				} else {
+					from, _ := types.Sender(signer, tx)
+					t.Logf("    from      : %s", from.Hex())
+					t.Logf("    to        : %s", addrOrCreate(tx.To()))
+					t.Logf("    type      : %d", tx.Type())
+					t.Logf("    nonce     : %d", tx.Nonce())
+					t.Logf("    value     : %s wei", tx.Value().String())
+					t.Logf("    gas limit : %d", tx.Gas())
+					t.Logf("    gas price : %s wei", tx.GasPrice().String())
+					if tx.Type() >= 2 {
+						t.Logf("    tip cap   : %s wei", tx.GasTipCap().String())
+						t.Logf("    fee cap   : %s wei", tx.GasFeeCap().String())
+					}
+					t.Logf("    data size : %d bytes", len(tx.Data()))
+					if len(tx.Data()) >= 4 {
+						t.Logf("    selector  : 0x%s", hex.EncodeToString(tx.Data()[:4]))
+					}
+				}
+
+				rcpt, rcptErr := client.TransactionReceipt(ctx, lg.TxHash)
+				if rcptErr != nil {
+					t.Logf("    receipt fetch error: %v", rcptErr)
+				} else {
+					statusStr := "FAILED"
+					if rcpt.Status == 1 {
+						statusStr = "SUCCESS"
+					}
+					t.Logf("    status    : %s", statusStr)
+					t.Logf("    gas used  : %d", rcpt.GasUsed)
+					t.Logf("    log count : %d", len(rcpt.Logs))
+					t.Logf("")
+					t.Logf("    ── All logs in this receipt ─────────────────────────")
+					for rli, rlg := range rcpt.Logs {
+						t.Logf("    [%d] emitter=%s  logIndex=%d", rli, rlg.Address.Hex(), rlg.Index)
+						for ti, topic := range rlg.Topics {
+							t.Logf("         topic[%d]: %s", ti, topic.Hex())
+						}
+						if len(rlg.Data) > 0 {
+							t.Logf("         data: 0x%s", hex.EncodeToString(rlg.Data))
+						}
+						if rlg.Address == poolManager {
+							rline, rErr := v4FormatLog(&parsedABI, *rlg, eventNames, &mu, poolKeys, ctx, client, syms)
+							if rErr != nil {
+								t.Logf("         [V4 decode error] %v", rErr)
+							} else if rline != "" {
+								t.Logf("         [V4] %s", rline)
+							}
+						} else if len(rlg.Topics) > 0 && rlg.Topics[0] == common.HexToHash(erc721TransferSig) {
+							decodeERC721Transfer(t, rlg)
+						} else if len(rlg.Topics) > 0 && rlg.Topics[0] == common.HexToHash(increaseLiqSig) {
+							decodeIncreaseLiquidity(t, rlg)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(printedReceipts) == 0 {
+		t.Logf("")
+		t.Logf("  (address not found in any PoolManager event topic at block %d)", v4TestBlock)
+		t.Logf("  Falling through to broad scan below to show all events in this block.")
+	}
+
+	// ── Step 5: Broad PoolManager scan (no address filter) ───────────────────
+	// Shows every PoolManager event in the block for cross-reference.
 	section(t, fmt.Sprintf("Broad PoolManager scan at block %d (all senders)", v4TestBlock))
 
 	allSigs := make([]common.Hash, 0, len(parsedABI.Events))
@@ -275,18 +420,9 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 				t.Logf("  [%d] %s", li, line)
 			}
 			// Collect pool IDs from Initialize events
-			if len(lg.Topics) > 0 {
-				if name, ok := eventNames[lg.Topics[0]]; ok && name == "Initialize" && len(lg.Topics) > 1 {
-					found := false
-					for _, id := range allPoolIDs {
-						if id == lg.Topics[1] {
-							found = true
-							break
-						}
-					}
-					if !found {
-						allPoolIDs = append(allPoolIDs, lg.Topics[1])
-					}
+			if len(lg.Topics) > 1 {
+				if name, ok := eventNames[lg.Topics[0]]; ok && name == "Initialize" {
+					allPoolIDs = appendPoolID(allPoolIDs, lg.Topics[1])
 				}
 			}
 		}
@@ -353,6 +489,17 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 	}
 
 	section(t, "Done")
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func appendPoolID(ids []common.Hash, id common.Hash) []common.Hash {
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
 }
 
 // ── Decoders ──────────────────────────────────────────────────────────────────
