@@ -211,6 +211,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case v4BlockScanLineMsg:
+		if m.logBuffer != nil {
+			m.logBuffer.WriteString(msg.line + "\n")
+			if m.logReady {
+				m.updateLogViewport()
+			}
+		}
+		if m.v4BlockScanActive && m.v4BlockScanner != nil {
+			return m, waitForV4BlockScanLine(m.v4BlockScanner)
+		}
+		return m, nil
+
+	case v4BlockScanDoneMsg:
+		m.v4BlockScanActive = false
+		m.v4BlockScanner = nil
+		return m, nil
+
 	case indexedEventMsg:
 		ev := msg.event
 		if m.eventStore != nil {

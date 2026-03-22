@@ -187,6 +187,10 @@ type model struct {
 	poolEventMonitorActive bool
 	poolEventMonitor       *helpers.PoolEventMonitor
 
+	// V4 Block Scanner state (one-shot historical scan)
+	v4BlockScanActive  bool
+	v4BlockScanner     *helpers.V4BlockScanner
+
 	// Address indexer state (toggleable via "i")
 	txIndexerActive bool
 	txIndexer       *indexer.Indexer

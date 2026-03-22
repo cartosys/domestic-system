@@ -125,6 +125,14 @@ type recentEventsMsg struct {
 	err    error
 }
 
+// v4BlockScanLineMsg carries a single formatted line from V4BlockScanner.
+type v4BlockScanLineMsg struct {
+	line string
+}
+
+// v4BlockScanDoneMsg signals that the V4BlockScanner has finished.
+type v4BlockScanDoneMsg struct{}
+
 // liquidityPositionsMsg carries the result of a V4 liquidity position lookup
 type liquidityPositionsMsg struct {
 	positions   []helpers.LiquidityPosition

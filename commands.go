@@ -524,6 +524,18 @@ func fetchPoolKey(rpcURL, poolIDHex string) tea.Cmd {
 	}
 }
 
+// waitForV4BlockScanLine blocks until the next line arrives from a V4BlockScanner.
+// Returns v4BlockScanDoneMsg when the channel is closed (scan finished or stopped).
+func waitForV4BlockScanLine(scanner *helpers.V4BlockScanner) tea.Cmd {
+	return func() tea.Msg {
+		line, ok := <-scanner.Lines()
+		if !ok {
+			return v4BlockScanDoneMsg{}
+		}
+		return v4BlockScanLineMsg{line: line}
+	}
+}
+
 // waitForPoolEvent blocks until the next line arrives from the pool event monitor channel.
 // Returns poolEventLineMsg when a line is received, or poolEventMonitorStoppedMsg when
 // the channel is closed (monitor stopped or error).

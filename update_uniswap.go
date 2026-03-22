@@ -342,6 +342,24 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, waitForPoolEvent(monitor)
 		}
 		return m, nil
+
+	case "b", "B":
+		if m.v4BlockScanActive {
+			if m.v4BlockScanner != nil {
+				m.v4BlockScanner.Stop()
+				m.v4BlockScanner = nil
+			}
+			m.v4BlockScanActive = false
+			m.addLog("info", "V4 block scan cancelled")
+		} else {
+			scanner := helpers.NewV4BlockScanner()
+			scanner.Start(m.rpcURL, 24686488, common.HexToAddress("0x5857bCe5490545a89598b9992DD0D409C4C20d86"))
+			m.v4BlockScanner = scanner
+			m.v4BlockScanActive = true
+			m.addLog("info", "V4 block scan started (block 24686488)…")
+			return m, waitForV4BlockScanLine(scanner)
+		}
+		return m, nil
 	}
 	return m, nil
 }
