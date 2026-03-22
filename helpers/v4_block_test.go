@@ -585,7 +585,52 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		}
 	}
 
-	// ── Step 7: FetchPoolInfo for every Initialize event found ────────────────
+	// ── Step 7: PositionManager — dedicated 'from' field search ───────────────
+	// ERC-721 Transfer: topic[0]=sig, topic[1]=from, topic[2]=to, topic[3]=tokenId.
+	// Filter at the RPC level with the target address pinned at topic[1].
+	// This is independent of the broad scan and will match even if the address
+	// only appears as the sender of a transfer (e.g. the account transferred an
+	// existing LP NFT rather than minting a new one).
+	section(t, fmt.Sprintf("PositionManager 'from' field search · block %d", v4TestBlock))
+
+	addrTopic := common.BytesToHash(targetAddr.Bytes())
+	t.Logf("  topic[1] filter: %s  (addr=%s)", addrTopic.Hex(), targetAddr.Hex())
+
+	fromLogs, fromErr := client.FilterLogs(ctx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(v4TestBlock),
+		ToBlock:   new(big.Int).SetUint64(v4TestBlock),
+		Addresses: []common.Address{posManager},
+		Topics:    [][]common.Hash{nil, {addrTopic}},
+	})
+	if fromErr != nil {
+		t.Logf("  FilterLogs error: %v", fromErr)
+	} else {
+		t.Logf("  %d event(s) with target address at topic[1]", len(fromLogs))
+		for li, lg := range fromLogs {
+			t.Logf("")
+			t.Logf("  [%d]  tx=%s  logIndex=%d  emitter=%s",
+				li, lg.TxHash.Hex(), lg.Index, lg.Address.Hex())
+			t.Logf("  topics (%d):", len(lg.Topics))
+			for ti, topic := range lg.Topics {
+				mark := "        "
+				if strings.Contains(strings.ToLower(topic.Hex()), needle) {
+					mark = "     -> "
+				}
+				t.Logf("  %s[%d] %s", mark, ti, topic.Hex())
+			}
+			if len(lg.Data) > 0 {
+				t.Logf("  data  : 0x%s", hex.EncodeToString(lg.Data))
+			}
+			switch {
+			case len(lg.Topics) > 0 && lg.Topics[0] == erc721Sig:
+				decodeERC721Transfer(t, &lg)
+			case len(lg.Topics) > 0 && lg.Topics[0] == incLiqSig:
+				decodeIncreaseLiquidity(t, &lg)
+			}
+		}
+	}
+
+	// ── Step 8: FetchPoolInfo for every Initialize event found ────────────────
 	if len(allPoolIDs) > 0 {
 		section(t, fmt.Sprintf("Live pool state (StateView)  ·  %d pool(s)", len(allPoolIDs)))
 		for _, poolID := range allPoolIDs {
