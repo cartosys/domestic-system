@@ -223,8 +223,17 @@ func TestV4PositionManagerFrom(t *testing.T) {
 				}
 				t.Logf("  %s[%d] %s", mark, ti, topic.Hex())
 			}
-			if len(lg.Data) > 0 {
-				t.Logf("  data : 0x%s", hex.EncodeToString(lg.Data))
+			if len(lg.Data) == 0 {
+				t.Logf("  data : (empty)")
+			} else {
+				t.Logf("  data : %d bytes  0x%s", len(lg.Data), hex.EncodeToString(lg.Data))
+				for w := 0; w < len(lg.Data); w += 32 {
+					end := w + 32
+					if end > len(lg.Data) {
+						end = len(lg.Data)
+					}
+					t.Logf("  word [%2d] 0x%s", w/32, hex.EncodeToString(lg.Data[w:end]))
+				}
 			}
 			hr(t)
 		}
