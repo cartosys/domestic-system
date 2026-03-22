@@ -455,6 +455,7 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		t.Logf("  FilterLogs error: %v", posErr)
 	} else {
 		t.Logf("  %d PositionManager event(s) in block", len(allPosLogs))
+		printedTxs6 := map[common.Hash]bool{}
 		for li, lg := range allPosLogs {
 			t.Logf("")
 			t.Logf("  event [%d]  tx=%s  logIndex=%d", li, lg.TxHash.Hex(), lg.Index)
@@ -470,6 +471,60 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 			}
 			if len(lg.Data) > 0 {
 				t.Logf("  data  : 0x%s", hex.EncodeToString(lg.Data))
+			}
+			if !printedTxs6[lg.TxHash] {
+				printedTxs6[lg.TxHash] = true
+				t.Logf("")
+				t.Logf("  ── tx / receipt  (%s) ────────────────────────────────", lg.TxHash.Hex())
+				var matchTx *types.Transaction
+				for _, btx := range block.Transactions() {
+					if btx.Hash() == lg.TxHash {
+						matchTx = btx
+						break
+					}
+				}
+				if matchTx != nil {
+					from6, _ := types.Sender(signer, matchTx)
+					t.Logf("    from      : %s", from6.Hex())
+					t.Logf("    to        : %s", addrOrCreate(matchTx.To()))
+					t.Logf("    type      : %d", matchTx.Type())
+					t.Logf("    nonce     : %d", matchTx.Nonce())
+					t.Logf("    value     : %s wei", matchTx.Value().String())
+					t.Logf("    gas limit : %d", matchTx.Gas())
+					t.Logf("    gas price : %s wei", matchTx.GasPrice().String())
+					if matchTx.Type() >= 2 {
+						t.Logf("    tip cap   : %s wei", matchTx.GasTipCap().String())
+						t.Logf("    fee cap   : %s wei", matchTx.GasFeeCap().String())
+					}
+					if len(matchTx.Data()) >= 4 {
+						t.Logf("    selector  : 0x%s", hex.EncodeToString(matchTx.Data()[:4]))
+					}
+					t.Logf("    data size : %d bytes", len(matchTx.Data()))
+				}
+				rcpt6, rcptErr6 := client.TransactionReceipt(ctx, lg.TxHash)
+				if rcptErr6 != nil {
+					t.Logf("    receipt   : error: %v", rcptErr6)
+				} else {
+					statusStr := "FAILED"
+					if rcpt6.Status == 1 {
+						statusStr = "SUCCESS"
+					}
+					t.Logf("    status    : %s", statusStr)
+					t.Logf("    gas used  : %d", rcpt6.GasUsed)
+					t.Logf("    logs (%d):", len(rcpt6.Logs))
+					for rli, rlg := range rcpt6.Logs {
+						t.Logf("")
+						t.Logf("      log [%d/%d]  emitter=%s  logIndex=%d",
+							rli+1, len(rcpt6.Logs), rlg.Address.Hex(), rlg.Index)
+						t.Logf("      topics (%d):", len(rlg.Topics))
+						for ti, topic := range rlg.Topics {
+							t.Logf("            [%d] %s", ti, topic.Hex())
+						}
+						if len(rlg.Data) > 0 {
+							t.Logf("      data  : 0x%s", hex.EncodeToString(rlg.Data))
+						}
+					}
+				}
 			}
 		}
 	}
@@ -495,6 +550,7 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		t.Logf("  RESULT: no events found with target address at topic[1]")
 	} else {
 		t.Logf("  PASS: %d event(s) found with target address at topic[1]", len(fromLogs))
+		printedTxs7 := map[common.Hash]bool{}
 		for li, lg := range fromLogs {
 			t.Logf("")
 			t.Logf("  [%d]  tx=%s  logIndex=%d  emitter=%s",
@@ -515,6 +571,64 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 				decodeERC721Transfer(t, &lg)
 			case len(lg.Topics) > 0 && lg.Topics[0] == incLiqSig:
 				decodeIncreaseLiquidity(t, &lg)
+			}
+			if !printedTxs7[lg.TxHash] {
+				printedTxs7[lg.TxHash] = true
+				t.Logf("")
+				t.Logf("  ── tx / receipt  (%s) ────────────────────────────────", lg.TxHash.Hex())
+				var matchTx *types.Transaction
+				for _, btx := range block.Transactions() {
+					if btx.Hash() == lg.TxHash {
+						matchTx = btx
+						break
+					}
+				}
+				if matchTx != nil {
+					from7, _ := types.Sender(signer, matchTx)
+					t.Logf("    from      : %s", from7.Hex())
+					t.Logf("    to        : %s", addrOrCreate(matchTx.To()))
+					t.Logf("    type      : %d", matchTx.Type())
+					t.Logf("    nonce     : %d", matchTx.Nonce())
+					t.Logf("    value     : %s wei", matchTx.Value().String())
+					t.Logf("    gas limit : %d", matchTx.Gas())
+					t.Logf("    gas price : %s wei", matchTx.GasPrice().String())
+					if matchTx.Type() >= 2 {
+						t.Logf("    tip cap   : %s wei", matchTx.GasTipCap().String())
+						t.Logf("    fee cap   : %s wei", matchTx.GasFeeCap().String())
+					}
+					if len(matchTx.Data()) >= 4 {
+						t.Logf("    selector  : 0x%s", hex.EncodeToString(matchTx.Data()[:4]))
+					}
+					t.Logf("    data size : %d bytes", len(matchTx.Data()))
+				}
+				rcpt7, rcptErr7 := client.TransactionReceipt(ctx, lg.TxHash)
+				if rcptErr7 != nil {
+					t.Logf("    receipt   : error: %v", rcptErr7)
+				} else {
+					statusStr := "FAILED"
+					if rcpt7.Status == 1 {
+						statusStr = "SUCCESS"
+					}
+					t.Logf("    status    : %s", statusStr)
+					t.Logf("    gas used  : %d", rcpt7.GasUsed)
+					t.Logf("    logs (%d):", len(rcpt7.Logs))
+					for rli, rlg := range rcpt7.Logs {
+						t.Logf("")
+						t.Logf("      log [%d/%d]  emitter=%s  logIndex=%d",
+							rli+1, len(rcpt7.Logs), rlg.Address.Hex(), rlg.Index)
+						t.Logf("      topics (%d):", len(rlg.Topics))
+						for ti, topic := range rlg.Topics {
+							mark := "        "
+							if ti == 1 && strings.Contains(strings.ToLower(topic.Hex()), needle) {
+								mark = "     -> "
+							}
+							t.Logf("      %s[%d] %s", mark, ti, topic.Hex())
+						}
+						if len(rlg.Data) > 0 {
+							t.Logf("      data  : 0x%s", hex.EncodeToString(rlg.Data))
+						}
+					}
+				}
 			}
 		}
 	}
