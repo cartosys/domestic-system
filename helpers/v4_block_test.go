@@ -323,8 +323,8 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 				}
 			}
 
-			// Full tx + receipt only for address-matched events (once per tx).
-			if matchedPos >= 0 && !printedReceipts[lg.TxHash] {
+			// Full tx + receipt for every event, deduplicated by tx hash.
+			if !printedReceipts[lg.TxHash] {
 				printedReceipts[lg.TxHash] = true
 				t.Logf("")
 				t.Logf("    ── Full transaction ─────────────────────────────────────")
