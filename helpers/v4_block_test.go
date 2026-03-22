@@ -439,16 +439,13 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		}
 	}
 
-	// ── Step 6: PositionManager scan + address substring match ───────────────
+	// ── Step 6: PositionManager — all events (reference) ─────────────────────
 	posManager := common.HexToAddress(v4PositionManagerAddress)
-	section(t, fmt.Sprintf("PositionManager scan + address substring match · block %d", v4TestBlock))
-	t.Logf("  contract : %s", posManager.Hex())
-	t.Logf("  searching topic hashes for substring: %q", needle)
+	section(t, fmt.Sprintf("PositionManager all events · block %d · %s", v4TestBlock, posManager.Hex()))
 
 	erc721Sig := common.HexToHash(erc721TransferSig)
 	incLiqSig := common.HexToHash(increaseLiqSig)
 
-	// Fetch all events from the PositionManager in this block (no topic filter).
 	allPosLogs, posErr := client.FilterLogs(ctx, ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(v4TestBlock),
 		ToBlock:   new(big.Int).SetUint64(v4TestBlock),
@@ -457,147 +454,34 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 	if posErr != nil {
 		t.Logf("  FilterLogs error: %v", posErr)
 	} else {
-		t.Logf("  %d PositionManager event(s) in block — scanning topics…", len(allPosLogs))
-
-		posReceipts := map[common.Hash]bool{}
-
+		t.Logf("  %d PositionManager event(s) in block", len(allPosLogs))
 		for li, lg := range allPosLogs {
-			matchedPos := -1
-			for ti, topic := range lg.Topics {
-				if strings.Contains(strings.ToLower(topic.Hex()), needle) {
-					matchedPos = ti
-					break
-				}
-			}
-
 			t.Logf("")
-			if matchedPos >= 0 {
-				t.Logf("  ★ MATCH [%d]  tx=%s  logIndex=%d  address in topic[%d]",
-					li, lg.TxHash.Hex(), lg.Index, matchedPos)
-			} else {
-				t.Logf("  event  [%d]  tx=%s  logIndex=%d",
-					li, lg.TxHash.Hex(), lg.Index)
-			}
-
-			// Decode known event types.
+			t.Logf("  event [%d]  tx=%s  logIndex=%d", li, lg.TxHash.Hex(), lg.Index)
 			switch {
 			case len(lg.Topics) > 0 && lg.Topics[0] == erc721Sig:
 				decodeERC721Transfer(t, &lg)
 			case len(lg.Topics) > 0 && lg.Topics[0] == incLiqSig:
 				decodeIncreaseLiquidity(t, &lg)
 			}
-
-			// Print all topics, marking any containing the address.
 			t.Logf("  topics (%d):", len(lg.Topics))
 			for ti, topic := range lg.Topics {
-				mark := "        "
-				if ti == matchedPos {
-					mark = "     -> "
-				}
-				t.Logf("  %s[%d] %s", mark, ti, topic.Hex())
+				t.Logf("          [%d] %s", ti, topic.Hex())
 			}
 			if len(lg.Data) > 0 {
 				t.Logf("  data  : 0x%s", hex.EncodeToString(lg.Data))
 			}
-
-			// Full tx + receipt for every unique tx hash.
-			if !posReceipts[lg.TxHash] {
-				posReceipts[lg.TxHash] = true
-				t.Logf("")
-				t.Logf("    ── Full transaction ─────────────────────────────────────")
-
-				var matchTx *types.Transaction
-				for _, btx := range block.Transactions() {
-					if btx.Hash() == lg.TxHash {
-						matchTx = btx
-						break
-					}
-				}
-				if matchTx == nil {
-					t.Logf("    (tx hash %s not found in block %d)", lg.TxHash.Hex(), v4TestBlock)
-				} else {
-					from, _ := types.Sender(signer, matchTx)
-					t.Logf("    from      : %s", from.Hex())
-					t.Logf("    to        : %s", addrOrCreate(matchTx.To()))
-					t.Logf("    type      : %d", matchTx.Type())
-					t.Logf("    nonce     : %d", matchTx.Nonce())
-					t.Logf("    value     : %s wei", matchTx.Value().String())
-					t.Logf("    gas limit : %d", matchTx.Gas())
-					t.Logf("    gas price : %s wei", matchTx.GasPrice().String())
-					if matchTx.Type() >= 2 {
-						t.Logf("    tip cap   : %s wei", matchTx.GasTipCap().String())
-						t.Logf("    fee cap   : %s wei", matchTx.GasFeeCap().String())
-					}
-					t.Logf("    data size : %d bytes", len(matchTx.Data()))
-					if len(matchTx.Data()) >= 4 {
-						t.Logf("    selector  : 0x%s", hex.EncodeToString(matchTx.Data()[:4]))
-					}
-				}
-
-				rcpt, rcptErr := client.TransactionReceipt(ctx, lg.TxHash)
-				if rcptErr != nil {
-					t.Logf("    receipt fetch error: %v", rcptErr)
-				} else {
-					statusStr := "FAILED"
-					if rcpt.Status == 1 {
-						statusStr = "SUCCESS"
-					}
-					t.Logf("    status    : %s", statusStr)
-					t.Logf("    gas used  : %d", rcpt.GasUsed)
-					t.Logf("    log count : %d", len(rcpt.Logs))
-					t.Logf("")
-					t.Logf("    ── All logs in this receipt (%d) ────────────────────", len(rcpt.Logs))
-					for rli, rlg := range rcpt.Logs {
-						t.Logf("")
-						t.Logf("      log [%d/%d]  emitter=%s  logIndex=%d",
-							rli+1, len(rcpt.Logs), rlg.Address.Hex(), rlg.Index)
-						t.Logf("      topics (%d):", len(rlg.Topics))
-						for ti, topic := range rlg.Topics {
-							mark := "        "
-							if strings.Contains(strings.ToLower(topic.Hex()), needle) {
-								mark = "     -> "
-							}
-							t.Logf("      %s[%d] %s", mark, ti, topic.Hex())
-						}
-						if len(rlg.Data) > 0 {
-							t.Logf("      data  : 0x%s", hex.EncodeToString(rlg.Data))
-						}
-						switch {
-						case rlg.Address == poolManager:
-							rline, rErr := v4FormatLog(&parsedABI, *rlg, eventNames, &mu, poolKeys, ctx, client, syms)
-							if rErr != nil {
-								t.Logf("      [V4 decode error] %v", rErr)
-							} else if rline != "" {
-								t.Logf("      [V4] %s", rline)
-							}
-						case len(rlg.Topics) > 0 && rlg.Topics[0] == erc721Sig:
-							decodeERC721Transfer(t, rlg)
-						case len(rlg.Topics) > 0 && rlg.Topics[0] == incLiqSig:
-							decodeIncreaseLiquidity(t, rlg)
-						}
-					}
-				}
-			}
-		}
-
-		if len(posReceipts) == 0 {
-			t.Logf("  (no PositionManager events at block %d)", v4TestBlock)
 		}
 	}
 
-	// ── Step 7: PositionManager — dedicated 'from' field search ───────────────
-	// ERC-721 Transfer: topic[0]=sig, topic[1]=from, topic[2]=to, topic[3]=tokenId.
-	// Filter at the RPC level with the target address pinned at topic[1].
-	// This is independent of the broad scan and will match even if the address
-	// only appears as the sender of a transfer (e.g. the account transferred an
-	// existing LP NFT rather than minting a new one).
+	// ── Step 7: PositionManager — 'from' field (topic[1]) match ──────────────
+	// ERC-721 Transfer layout: topic[0]=sig, topic[1]=from, topic[2]=to, topic[3]=tokenId.
+	// Pinning the target address at topic[1] is the definitive check: if any
+	// result is returned the PositionManager portion of the test passes.
 	section(t, fmt.Sprintf("PositionManager 'from' field search · block %d", v4TestBlock))
 
 	addrTopic := common.BytesToHash(targetAddr.Bytes())
 	t.Logf("  topic[1] filter : %s", addrTopic.Hex())
-	t.Logf("  substring needle: %q  (0x prefix stripped, lowercase)", needle)
-	t.Logf("  needle present in topic[1] filter string: %v",
-		strings.Contains(strings.ToLower(addrTopic.Hex()), needle))
 
 	fromLogs, fromErr := client.FilterLogs(ctx, ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(v4TestBlock),
@@ -606,9 +490,11 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		Topics:    [][]common.Hash{nil, {addrTopic}},
 	})
 	if fromErr != nil {
-		t.Logf("  FilterLogs error: %v", fromErr)
+		t.Errorf("  FilterLogs error: %v", fromErr)
+	} else if len(fromLogs) == 0 {
+		t.Logf("  RESULT: no events found with target address at topic[1]")
 	} else {
-		t.Logf("  %d event(s) with target address at topic[1]", len(fromLogs))
+		t.Logf("  PASS: %d event(s) found with target address at topic[1]", len(fromLogs))
 		for li, lg := range fromLogs {
 			t.Logf("")
 			t.Logf("  [%d]  tx=%s  logIndex=%d  emitter=%s",
@@ -616,7 +502,7 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 			t.Logf("  topics (%d):", len(lg.Topics))
 			for ti, topic := range lg.Topics {
 				mark := "        "
-				if strings.Contains(strings.ToLower(topic.Hex()), needle) {
+				if ti == 1 {
 					mark = "     -> "
 				}
 				t.Logf("  %s[%d] %s", mark, ti, topic.Hex())
