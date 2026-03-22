@@ -27,7 +27,7 @@ const (
 
 	// V4 PositionManager (NonfungiblePositionManager equivalent for V4) on mainnet.
 	// This contract emits ERC-721 Transfer events when LP NFTs are minted.
-	v4PositionManagerAddress = "0xbD216513d74C8cf14cf4747E6D3B7356D9Ef3B34"
+	v4PositionManagerAddress = "0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e"
 )
 
 // ERC-721 Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
@@ -439,37 +439,153 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		}
 	}
 
-	// ── Step 5: Broad PositionManager scan ────────────────────────────────────
+	// ── Step 6: PositionManager scan + address substring match ───────────────
 	posManager := common.HexToAddress(v4PositionManagerAddress)
-	section(t, fmt.Sprintf("PositionManager scan at block %d  (%s)", v4TestBlock, posManager.Hex()))
+	section(t, fmt.Sprintf("PositionManager scan + address substring match · block %d", v4TestBlock))
+	t.Logf("  contract : %s", posManager.Hex())
+	t.Logf("  searching topic hashes for substring: %q", needle)
 
 	erc721Sig := common.HexToHash(erc721TransferSig)
 	incLiqSig := common.HexToHash(increaseLiqSig)
-	posLogs, err := client.FilterLogs(ctx, ethereum.FilterQuery{
+
+	// Fetch all events from the PositionManager in this block (no topic filter).
+	allPosLogs, posErr := client.FilterLogs(ctx, ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(v4TestBlock),
 		ToBlock:   new(big.Int).SetUint64(v4TestBlock),
 		Addresses: []common.Address{posManager},
-		Topics:    [][]common.Hash{{erc721Sig, incLiqSig}},
 	})
-	if err != nil {
-		t.Logf("  FilterLogs (PositionManager): %v", err)
+	if posErr != nil {
+		t.Logf("  FilterLogs error: %v", posErr)
 	} else {
-		t.Logf("  %d PositionManager event(s) in this block", len(posLogs))
-		for li, lg := range posLogs {
+		t.Logf("  %d PositionManager event(s) in block — scanning topics…", len(allPosLogs))
+
+		posReceipts := map[common.Hash]bool{}
+
+		for li, lg := range allPosLogs {
+			matchedPos := -1
+			for ti, topic := range lg.Topics {
+				if strings.Contains(strings.ToLower(topic.Hex()), needle) {
+					matchedPos = ti
+					break
+				}
+			}
+
 			t.Logf("")
-			t.Logf("  Log #%d  logIndex=%d  tx=%s", li, lg.Index, lg.TxHash.Hex())
+			if matchedPos >= 0 {
+				t.Logf("  ★ MATCH [%d]  tx=%s  logIndex=%d  address in topic[%d]",
+					li, lg.TxHash.Hex(), lg.Index, matchedPos)
+			} else {
+				t.Logf("  event  [%d]  tx=%s  logIndex=%d",
+					li, lg.TxHash.Hex(), lg.Index)
+			}
+
+			// Decode known event types.
 			switch {
 			case len(lg.Topics) > 0 && lg.Topics[0] == erc721Sig:
 				decodeERC721Transfer(t, &lg)
 			case len(lg.Topics) > 0 && lg.Topics[0] == incLiqSig:
 				decodeIncreaseLiquidity(t, &lg)
-			default:
-				t.Logf("    [unknown]  topic0=%s", lg.Topics[0].Hex())
 			}
+
+			// Print all topics, marking any containing the address.
+			t.Logf("  topics (%d):", len(lg.Topics))
+			for ti, topic := range lg.Topics {
+				mark := "        "
+				if ti == matchedPos {
+					mark = "     -> "
+				}
+				t.Logf("  %s[%d] %s", mark, ti, topic.Hex())
+			}
+			if len(lg.Data) > 0 {
+				t.Logf("  data  : 0x%s", hex.EncodeToString(lg.Data))
+			}
+
+			// Full tx + receipt for every unique tx hash.
+			if !posReceipts[lg.TxHash] {
+				posReceipts[lg.TxHash] = true
+				t.Logf("")
+				t.Logf("    ── Full transaction ─────────────────────────────────────")
+
+				var matchTx *types.Transaction
+				for _, btx := range block.Transactions() {
+					if btx.Hash() == lg.TxHash {
+						matchTx = btx
+						break
+					}
+				}
+				if matchTx == nil {
+					t.Logf("    (tx hash %s not found in block %d)", lg.TxHash.Hex(), v4TestBlock)
+				} else {
+					from, _ := types.Sender(signer, matchTx)
+					t.Logf("    from      : %s", from.Hex())
+					t.Logf("    to        : %s", addrOrCreate(matchTx.To()))
+					t.Logf("    type      : %d", matchTx.Type())
+					t.Logf("    nonce     : %d", matchTx.Nonce())
+					t.Logf("    value     : %s wei", matchTx.Value().String())
+					t.Logf("    gas limit : %d", matchTx.Gas())
+					t.Logf("    gas price : %s wei", matchTx.GasPrice().String())
+					if matchTx.Type() >= 2 {
+						t.Logf("    tip cap   : %s wei", matchTx.GasTipCap().String())
+						t.Logf("    fee cap   : %s wei", matchTx.GasFeeCap().String())
+					}
+					t.Logf("    data size : %d bytes", len(matchTx.Data()))
+					if len(matchTx.Data()) >= 4 {
+						t.Logf("    selector  : 0x%s", hex.EncodeToString(matchTx.Data()[:4]))
+					}
+				}
+
+				rcpt, rcptErr := client.TransactionReceipt(ctx, lg.TxHash)
+				if rcptErr != nil {
+					t.Logf("    receipt fetch error: %v", rcptErr)
+				} else {
+					statusStr := "FAILED"
+					if rcpt.Status == 1 {
+						statusStr = "SUCCESS"
+					}
+					t.Logf("    status    : %s", statusStr)
+					t.Logf("    gas used  : %d", rcpt.GasUsed)
+					t.Logf("    log count : %d", len(rcpt.Logs))
+					t.Logf("")
+					t.Logf("    ── All logs in this receipt (%d) ────────────────────", len(rcpt.Logs))
+					for rli, rlg := range rcpt.Logs {
+						t.Logf("")
+						t.Logf("      log [%d/%d]  emitter=%s  logIndex=%d",
+							rli+1, len(rcpt.Logs), rlg.Address.Hex(), rlg.Index)
+						t.Logf("      topics (%d):", len(rlg.Topics))
+						for ti, topic := range rlg.Topics {
+							mark := "        "
+							if strings.Contains(strings.ToLower(topic.Hex()), needle) {
+								mark = "     -> "
+							}
+							t.Logf("      %s[%d] %s", mark, ti, topic.Hex())
+						}
+						if len(rlg.Data) > 0 {
+							t.Logf("      data  : 0x%s", hex.EncodeToString(rlg.Data))
+						}
+						switch {
+						case rlg.Address == poolManager:
+							rline, rErr := v4FormatLog(&parsedABI, *rlg, eventNames, &mu, poolKeys, ctx, client, syms)
+							if rErr != nil {
+								t.Logf("      [V4 decode error] %v", rErr)
+							} else if rline != "" {
+								t.Logf("      [V4] %s", rline)
+							}
+						case len(rlg.Topics) > 0 && rlg.Topics[0] == erc721Sig:
+							decodeERC721Transfer(t, rlg)
+						case len(rlg.Topics) > 0 && rlg.Topics[0] == incLiqSig:
+							decodeIncreaseLiquidity(t, rlg)
+						}
+					}
+				}
+			}
+		}
+
+		if len(posReceipts) == 0 {
+			t.Logf("  (no PositionManager events at block %d)", v4TestBlock)
 		}
 	}
 
-	// ── Step 6: FetchPoolInfo for every Initialize event found ────────────────
+	// ── Step 7: FetchPoolInfo for every Initialize event found ────────────────
 	if len(allPoolIDs) > 0 {
 		section(t, fmt.Sprintf("Live pool state (StateView)  ·  %d pool(s)", len(allPoolIDs)))
 		for _, poolID := range allPoolIDs {
