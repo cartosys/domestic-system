@@ -594,7 +594,10 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 	section(t, fmt.Sprintf("PositionManager 'from' field search · block %d", v4TestBlock))
 
 	addrTopic := common.BytesToHash(targetAddr.Bytes())
-	t.Logf("  topic[1] filter: %s  (addr=%s)", addrTopic.Hex(), targetAddr.Hex())
+	t.Logf("  topic[1] filter : %s", addrTopic.Hex())
+	t.Logf("  substring needle: %q  (0x prefix stripped, lowercase)", needle)
+	t.Logf("  needle present in topic[1] filter string: %v",
+		strings.Contains(strings.ToLower(addrTopic.Hex()), needle))
 
 	fromLogs, fromErr := client.FilterLogs(ctx, ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(v4TestBlock),
