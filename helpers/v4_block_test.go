@@ -248,81 +248,80 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		hr(t)
 	}
 
-	// ── Step 4: Targeted PoolManager topic search ────────────────────────────
-	// In V4, the EOA address appears as an indexed topic inside PoolManager
-	// events (e.g. sender in ModifyLiquidity = topic[2]), not necessarily as
-	// tx.From. Search each topic position independently and show full tx detail
-	// for every matching event.
-	section(t, fmt.Sprintf("Targeted PoolManager topic search · addr=%s", targetAddr.Hex()))
+	// ── Step 4: Broad PoolManager scan + client-side address substring match ──
+	// Fetch every PoolManager event in the block (no topic filter), then check
+	// each topic hex string for the address as a substring. Addresses are
+	// ABI-encoded as 32-byte left-zero-padded values, so the 40-char hex of the
+	// address (without 0x) will always appear verbatim inside the topic string.
+	section(t, fmt.Sprintf("PoolManager scan + address substring match · block %d", v4TestBlock))
 
-	addrTopic := common.BytesToHash(targetAddr.Bytes()) // left-padded to 32 bytes
-	t.Logf("  topic hash: %s", addrTopic.Hex())
+	// needle is the lowercase address without 0x prefix.
+	needle := strings.ToLower(strings.TrimPrefix(targetAddr.Hex(), "0x"))
+	t.Logf("  searching topic hashes for substring: %q", needle)
 
-	topicLabels := map[int]string{
-		1: "topic[1] — poolId  / from  / owner",
-		2: "topic[2] — currency0 / sender / operator / to",
-		3: "topic[3] — currency1 / tokenId",
+	allSigs := make([]common.Hash, 0, len(parsedABI.Events))
+	for _, ev := range parsedABI.Events {
+		allSigs = append(allSigs, ev.ID)
 	}
+	allPMLogs, pmErr := client.FilterLogs(ctx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(v4TestBlock),
+		ToBlock:   new(big.Int).SetUint64(v4TestBlock),
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{allSigs},
+	})
+	if pmErr != nil {
+		t.Logf("  FilterLogs error: %v", pmErr)
+	} else {
+		t.Logf("  %d PoolManager event(s) in block — scanning topics…", len(allPMLogs))
 
-	// Track tx hashes whose receipt we've already printed to avoid duplication.
-	printedReceipts := map[common.Hash]bool{}
+		// Track receipts already printed.
+		printedReceipts := map[common.Hash]bool{}
 
-	for _, pos := range []int{1, 2, 3} {
-		// Build a topics filter that matches any event sig (topic[0] = nil)
-		// with the target address at the given position.
-		topics := make([][]common.Hash, pos+1)
-		topics[pos] = []common.Hash{addrTopic}
-
-		matchLogs, filterErr := client.FilterLogs(ctx, ethereum.FilterQuery{
-			FromBlock: new(big.Int).SetUint64(v4TestBlock),
-			ToBlock:   new(big.Int).SetUint64(v4TestBlock),
-			Addresses: []common.Address{poolManager},
-			Topics:    topics,
-		})
-		t.Logf("")
-		t.Logf("  %s: %d match(es)", topicLabels[pos], func() int {
-			if filterErr != nil {
-				return -1
+		for _, lg := range allPMLogs {
+			// Client-side: does any topic contain the address substring?
+			matchedPos := -1
+			for ti, topic := range lg.Topics {
+				if strings.Contains(strings.ToLower(topic.Hex()), needle) {
+					matchedPos = ti
+					break
+				}
 			}
-			return len(matchLogs)
-		}())
-		if filterErr != nil {
-			t.Logf("    FilterLogs error: %v", filterErr)
-			continue
-		}
+			if matchedPos < 0 {
+				continue
+			}
 
-		for li, lg := range matchLogs {
 			t.Logf("")
-			t.Logf("  ── Match [topic[%d]] #%d  tx=%s  logIndex=%d", pos, li, lg.TxHash.Hex(), lg.Index)
+			t.Logf("  ★ MATCH  tx=%s  logIndex=%d  address in topic[%d]",
+				lg.TxHash.Hex(), lg.Index, matchedPos)
 
-			// Decode the event itself.
+			// Decode the V4 event.
 			line, fmtErr := v4FormatLog(&parsedABI, lg, eventNames, &mu, poolKeys, ctx, client, syms)
 			if fmtErr != nil {
-				t.Logf("    decode error: %v", fmtErr)
+				t.Logf("    [V4 decode error] %v", fmtErr)
 			} else if line != "" {
-				t.Logf("    %s", line)
+				t.Logf("    [V4] %s", line)
 			}
 
-			// Raw topics + data.
+			// Print all topics, marking the matching one.
 			for ti, topic := range lg.Topics {
-				marker := "  "
-				if ti == pos {
-					marker = "->"
+				marker := "     "
+				if ti == matchedPos {
+					marker = "  -> "
 				}
-				t.Logf("    %s topic[%d]: %s", marker, ti, topic.Hex())
+				t.Logf("  %stopic[%d]: %s", marker, ti, topic.Hex())
 			}
 			if len(lg.Data) > 0 {
 				t.Logf("    data: 0x%s", hex.EncodeToString(lg.Data))
 			}
 
-			// Collect pool IDs from Initialize events.
+			// Collect pool IDs.
 			if len(lg.Topics) > 1 {
 				if name, ok := eventNames[lg.Topics[0]]; ok && name == "Initialize" {
 					allPoolIDs = appendPoolID(allPoolIDs, lg.Topics[1])
 				}
 			}
 
-			// Print the full tx + receipt once per tx hash.
+			// Full tx + receipt (once per tx).
 			if !printedReceipts[lg.TxHash] {
 				printedReceipts[lg.TxHash] = true
 				t.Logf("")
@@ -365,7 +364,11 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 					for rli, rlg := range rcpt.Logs {
 						t.Logf("    [%d] emitter=%s  logIndex=%d", rli, rlg.Address.Hex(), rlg.Index)
 						for ti, topic := range rlg.Topics {
-							t.Logf("         topic[%d]: %s", ti, topic.Hex())
+							mark := "     "
+							if strings.Contains(strings.ToLower(topic.Hex()), needle) {
+								mark = "  -> "
+							}
+							t.Logf("    %stopic[%d]: %s", mark, ti, topic.Hex())
 						}
 						if len(rlg.Data) > 0 {
 							t.Logf("         data: 0x%s", hex.EncodeToString(rlg.Data))
@@ -386,22 +389,15 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 				}
 			}
 		}
+
+		if len(printedReceipts) == 0 {
+			t.Logf("  (address not found in any PoolManager topic at block %d)", v4TestBlock)
+		}
 	}
 
-	if len(printedReceipts) == 0 {
-		t.Logf("")
-		t.Logf("  (address not found in any PoolManager event topic at block %d)", v4TestBlock)
-		t.Logf("  Falling through to broad scan below to show all events in this block.")
-	}
-
-	// ── Step 5: Broad PoolManager scan (no address filter) ───────────────────
-	// Shows every PoolManager event in the block for cross-reference.
+	// ── Step 5: Full broad PoolManager scan (all events, for reference) ───────
 	section(t, fmt.Sprintf("Broad PoolManager scan at block %d (all senders)", v4TestBlock))
 
-	allSigs := make([]common.Hash, 0, len(parsedABI.Events))
-	for _, ev := range parsedABI.Events {
-		allSigs = append(allSigs, ev.ID)
-	}
 	pmLogs, err := client.FilterLogs(ctx, ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(v4TestBlock),
 		ToBlock:   new(big.Int).SetUint64(v4TestBlock),
