@@ -277,7 +277,7 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 		// Track receipts already printed.
 		printedReceipts := map[common.Hash]bool{}
 
-		for _, lg := range allPMLogs {
+		for li, lg := range allPMLogs {
 			// Client-side: does any topic contain the address substring?
 			matchedPos := -1
 			for ti, topic := range lg.Topics {
@@ -286,13 +286,15 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 					break
 				}
 			}
-			if matchedPos < 0 {
-				continue
-			}
 
 			t.Logf("")
-			t.Logf("  ★ MATCH  tx=%s  logIndex=%d  address in topic[%d]",
-				lg.TxHash.Hex(), lg.Index, matchedPos)
+			if matchedPos >= 0 {
+				t.Logf("  ★ MATCH [%d]  tx=%s  logIndex=%d  address in topic[%d]",
+					li, lg.TxHash.Hex(), lg.Index, matchedPos)
+			} else {
+				t.Logf("  event  [%d]  tx=%s  logIndex=%d",
+					li, lg.TxHash.Hex(), lg.Index)
+			}
 
 			// Decode the V4 event.
 			line, fmtErr := v4FormatLog(&parsedABI, lg, eventNames, &mu, poolKeys, ctx, client, syms)
@@ -302,7 +304,7 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 				t.Logf("    [V4] %s", line)
 			}
 
-			// Print all topics, marking the matching one.
+			// Print all topics, marking any that contain the address.
 			for ti, topic := range lg.Topics {
 				marker := "     "
 				if ti == matchedPos {
@@ -321,8 +323,8 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 				}
 			}
 
-			// Full tx + receipt (once per tx).
-			if !printedReceipts[lg.TxHash] {
+			// Full tx + receipt only for address-matched events (once per tx).
+			if matchedPos >= 0 && !printedReceipts[lg.TxHash] {
 				printedReceipts[lg.TxHash] = true
 				t.Logf("")
 				t.Logf("    ── Full transaction ─────────────────────────────────────")
