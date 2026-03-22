@@ -208,6 +208,20 @@ func TestV4PositionManagerFrom(t *testing.T) {
 			t.Logf("  Created    : %s", receipt.ContractAddress.Hex())
 		}
 
+		// ── Internal call trace (debug_traceTransaction) ──────────────────
+		// Event logs cannot show internal ETH transfers or nested calls.
+		// The call tracer exposes the full execution tree.
+		t.Logf("")
+		t.Logf("  ── Internal call trace ──────────────────────────────────────────")
+		var callTrace callFrame
+		traceErr := client.Client().Call(&callTrace, "debug_traceTransaction",
+			txHash, map[string]string{"tracer": "callTracer"})
+		if traceErr != nil {
+			t.Logf("  (debug_traceTransaction unavailable: %v)", traceErr)
+		} else {
+			printCallTree(t, callTrace, 0, needle)
+		}
+
 		// ── Flat topic summary ─────────────────────────────────────────────
 		totalTopics := 0
 		for _, lg := range receipt.Logs {
@@ -321,4 +335,57 @@ func appendPoolID(ids []common.Hash, id common.Hash) []common.Hash {
 		}
 	}
 	return append(ids, id)
+}
+
+// ── Call trace types and printer ──────────────────────────────────────────────
+
+// callFrame mirrors the output of geth's "callTracer".
+type callFrame struct {
+	Type    string      `json:"type"`
+	From    string      `json:"from"`
+	To      string      `json:"to"`
+	Value   string      `json:"value,omitempty"`
+	Gas     string      `json:"gas"`
+	GasUsed string      `json:"gasUsed"`
+	Input   string      `json:"input"`
+	Output  string      `json:"output,omitempty"`
+	Error   string      `json:"error,omitempty"`
+	Calls   []callFrame `json:"calls,omitempty"`
+}
+
+// printCallTree recursively prints a call frame and all its subcalls.
+// needle is the lowercase address (without 0x) used to mark matching lines.
+func printCallTree(t *testing.T, f callFrame, depth int, needle string) {
+	t.Helper()
+	indent := strings.Repeat("    ", depth)
+
+	valueStr := f.Value
+	if valueStr == "" || valueStr == "0x0" {
+		valueStr = "0"
+	}
+
+	fromLower := strings.ToLower(f.From)
+	toLower := strings.ToLower(f.To)
+	marker := ""
+	if strings.Contains(fromLower, needle) || strings.Contains(toLower, needle) {
+		marker = "  ★"
+	}
+
+	inputSel := ""
+	if len(f.Input) >= 10 {
+		inputSel = "  sel=" + f.Input[:10]
+	}
+
+	errStr := ""
+	if f.Error != "" {
+		errStr = "  ERR=" + f.Error
+	}
+
+	t.Logf("  %s%s  from=%s  to=%s  value=%s  gas=%s  gasUsed=%s%s%s%s",
+		indent, f.Type, f.From, f.To, valueStr, f.Gas, f.GasUsed,
+		inputSel, errStr, marker)
+
+	for _, sub := range f.Calls {
+		printCallTree(t, sub, depth+1, needle)
+	}
 }
