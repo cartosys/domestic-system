@@ -53,15 +53,16 @@ func section(t *testing.T, title string) {
 	t.Logf("════════════════════════════════════════════════════════════════════════")
 }
 
-func logTxDetails(t *testing.T, tx *types.Transaction, receipt *types.Receipt, idx int) {
+func logTxDetails(t *testing.T, tx *types.Transaction, from common.Address, receipt *types.Receipt, idx int) {
 	t.Helper()
 	section(t, fmt.Sprintf("Transaction #%d", idx+1))
 
 	// Basic tx fields
 	t.Logf("  Hash       : %s", tx.Hash().Hex())
+	t.Logf("  From       : %s", from.Hex())
+	t.Logf("  To         : %s", addrOrCreate(tx.To()))
 	t.Logf("  Type       : %d (0=legacy, 1=access list, 2=EIP-1559, 3=blob)", tx.Type())
 	t.Logf("  Nonce      : %d", tx.Nonce())
-	t.Logf("  To         : %s", addrOrCreate(tx.To()))
 	t.Logf("  Value      : %s wei", tx.Value().String())
 	t.Logf("  Gas limit  : %d", tx.Gas())
 	t.Logf("  Gas price  : %s wei", tx.GasPrice().String())
@@ -70,14 +71,11 @@ func logTxDetails(t *testing.T, tx *types.Transaction, receipt *types.Receipt, i
 		t.Logf("  GasFeeCap  : %s wei", tx.GasFeeCap().String())
 	}
 	t.Logf("  Data size  : %d bytes", len(tx.Data()))
-	if len(tx.Data()) > 0 {
-		t.Logf("  Calldata   : 0x%s", hex.EncodeToString(tx.Data()))
-		if len(tx.Data()) >= 4 {
-			t.Logf("  Selector   : 0x%s", hex.EncodeToString(tx.Data()[:4]))
-		}
+	if len(tx.Data()) >= 4 {
+		t.Logf("  Selector   : 0x%s", hex.EncodeToString(tx.Data()[:4]))
 	}
 
-	// Receipt fields
+	// Receipt fields + flat topic dump
 	if receipt != nil {
 		status := "FAILED"
 		if receipt.Status == 1 {
@@ -87,12 +85,31 @@ func logTxDetails(t *testing.T, tx *types.Transaction, receipt *types.Receipt, i
 		t.Logf("  GasUsed    : %d (%.1f%% of limit)", receipt.GasUsed,
 			float64(receipt.GasUsed)/float64(tx.Gas())*100)
 		t.Logf("  CumulGasUsed: %d", receipt.CumulativeGasUsed)
-		t.Logf("  Log count  : %d", len(receipt.Logs))
 		if receipt.ContractAddress != (common.Address{}) {
 			t.Logf("  Contract   : %s (created)", receipt.ContractAddress.Hex())
 		}
 		t.Logf("  Block      : %d", receipt.BlockNumber.Uint64())
 		t.Logf("  TxIndex    : %d", receipt.TransactionIndex)
+
+		// Count and list every topic across every log in one block so they
+		// are easy to find without scrolling through the per-log detail.
+		totalTopics := 0
+		for _, lg := range receipt.Logs {
+			totalTopics += len(lg.Topics)
+		}
+		t.Logf("  Log count  : %d  ·  %d total topics", len(receipt.Logs), totalTopics)
+		if totalTopics > 0 {
+			t.Logf("")
+			t.Logf("  ── All topics (%d across %d logs) ──────────────────────────", totalTopics, len(receipt.Logs))
+			n := 0
+			for li, lg := range receipt.Logs {
+				for ti, topic := range lg.Topics {
+					t.Logf("  [log %2d · topic %d · #%3d]  %s  (emitter %s)",
+						li, ti, n, topic.Hex(), lg.Address.Hex())
+					n++
+				}
+			}
+		}
 	}
 }
 
@@ -191,7 +208,8 @@ func TestV4PoolCreatedAndMint(t *testing.T) {
 			continue
 		}
 
-		logTxDetails(t, tx, receipt, i)
+		txFrom, _ := types.Sender(signer, tx)
+		logTxDetails(t, tx, txFrom, receipt, i)
 
 		if len(receipt.Logs) == 0 {
 			t.Logf("  (no logs emitted)")
