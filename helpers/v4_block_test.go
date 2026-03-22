@@ -126,6 +126,11 @@ func TestV4PositionManagerFrom(t *testing.T) {
 		}
 	}
 
+	t.Logf("  Matched tx hashes (%d):", len(uniqueTxHashes))
+	for i, h := range uniqueTxHashes {
+		t.Logf("    [%d] %s", i, h.Hex())
+	}
+
 	// ── Per-tx output ─────────────────────────────────────────────────────────
 	for txIdx, txHash := range uniqueTxHashes {
 		section(t, fmt.Sprintf("Transaction %d / %d  ·  %s", txIdx+1, len(uniqueTxHashes), txHash.Hex()))
