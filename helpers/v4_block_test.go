@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,31 +91,45 @@ func TestV4PositionManagerFrom(t *testing.T) {
 	t.Logf("  Miner      : %s", block.Coinbase().Hex())
 
 	// ── PositionManager topic[1] filter ───────────────────────────────────────
-	// ERC-721 Transfer layout: topic[0]=sig, topic[1]=from, topic[2]=to, topic[3]=tokenId.
-	// Pinning the address at topic[1] finds all transfers/mints sent FROM the address.
-	section(t, fmt.Sprintf("PositionManager topic[1] search · addr=%s · block=%d",
+	// Fetch all PositionManager events in the block, then match the target
+	// address by substring search across every topic. Addresses are ABI-encoded
+	// as 32-byte left-zero-padded values, so the 40-char hex of the address
+	// (without 0x) always appears verbatim inside the topic hex string.
+	// This works regardless of which topic position the address occupies
+	// (topic[1]=from for transfers, topic[2]=to for mints, etc.).
+	section(t, fmt.Sprintf("PositionManager address search · addr=%s · block=%d",
 		targetAddr.Hex(), v4TestBlock))
 
-	addrTopic := common.BytesToHash(targetAddr.Bytes())
+	needle := strings.ToLower(strings.TrimPrefix(targetAddr.Hex(), "0x"))
 	t.Logf("  PositionManager : %s", posManager.Hex())
 	t.Logf("  Target address  : %s", targetAddr.Hex())
-	t.Logf("  topic[1] filter : %s", addrTopic.Hex())
+	t.Logf("  Needle          : %s", needle)
 
-	matchedLogs, filterErr := client.FilterLogs(ctx, ethereum.FilterQuery{
+	allPosLogs, filterErr := client.FilterLogs(ctx, ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(v4TestBlock),
 		ToBlock:   new(big.Int).SetUint64(v4TestBlock),
 		Addresses: []common.Address{posManager},
-		Topics:    [][]common.Hash{nil, {addrTopic}},
 	})
 	if filterErr != nil {
 		t.Fatalf("FilterLogs: %v", filterErr)
 	}
+	t.Logf("  Total PositionManager events in block: %d", len(allPosLogs))
+
+	var matchedLogs []types.Log
+	for _, lg := range allPosLogs {
+		for _, topic := range lg.Topics {
+			if strings.Contains(strings.ToLower(topic.Hex()), needle) {
+				matchedLogs = append(matchedLogs, lg)
+				break
+			}
+		}
+	}
 
 	if len(matchedLogs) == 0 {
-		t.Logf("  RESULT: no PositionManager events with target address at topic[1]")
+		t.Logf("  RESULT: address not found in any PositionManager topic at block %d", v4TestBlock)
 		return
 	}
-	t.Logf("  PASS: %d event(s) matched", len(matchedLogs))
+	t.Logf("  PASS: %d event(s) contain target address in a topic", len(matchedLogs))
 
 	// Deduplicate tx hashes so we only fetch each receipt once.
 	seen := map[common.Hash]bool{}
@@ -204,7 +219,7 @@ func TestV4PositionManagerFrom(t *testing.T) {
 		for li, lg := range receipt.Logs {
 			for ti, topic := range lg.Topics {
 				mark := "  "
-				if ti == 1 && lg.Address == posManager {
+				if strings.Contains(strings.ToLower(topic.Hex()), needle) {
 					mark = "->"
 				}
 				t.Logf("  %s [log %2d · topic %d · #%3d]  %s  (emitter %s)",
@@ -223,7 +238,7 @@ func TestV4PositionManagerFrom(t *testing.T) {
 			t.Logf("  topics (%d):", len(lg.Topics))
 			for ti, topic := range lg.Topics {
 				mark := "     "
-				if ti == 1 && lg.Address == posManager {
+				if strings.Contains(strings.ToLower(topic.Hex()), needle) {
 					mark = "  -> "
 				}
 				t.Logf("  %s[%d] %s", mark, ti, topic.Hex())
