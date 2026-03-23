@@ -343,6 +343,11 @@ func v4DecodeInt24Slot(slot []byte) int32 {
 	return int32(raw)
 }
 
+// ComputePoolId is the exported form of v4ComputePoolId, for use by external packages (e.g. indexer).
+func ComputePoolId(currency0, currency1, hooks common.Address, fee uint32, tickSpacing int32) common.Hash {
+	return v4ComputePoolId(currency0, currency1, hooks, fee, tickSpacing)
+}
+
 // ---- StateView: per-position liquidity ----
 
 // v4ComputePoolId computes the V4 PoolId = keccak256(abi.encode(currency0, currency1, fee, tickSpacing, hooks)).

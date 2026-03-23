@@ -19,12 +19,16 @@ import (
 )
 
 var (
-	transferSig    = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
-	v4SwapSig      = crypto.Keccak256Hash([]byte("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"))
-	v4ModifyLiqSig = crypto.Keccak256Hash([]byte("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"))
-	v4DonateSig    = crypto.Keccak256Hash([]byte("Donate(bytes32,address,uint256,uint256)"))
-	v4TransferSig  = crypto.Keccak256Hash([]byte("Transfer(address,address,address,uint256,uint256)"))
+	transferSig      = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	v4InitializeSig  = crypto.Keccak256Hash([]byte("Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)"))
+	v4SwapSig        = crypto.Keccak256Hash([]byte("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"))
+	v4ModifyLiqSig   = crypto.Keccak256Hash([]byte("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"))
+	v4DonateSig      = crypto.Keccak256Hash([]byte("Donate(bytes32,address,uint256,uint256)"))
+	v4TransferSig    = crypto.Keccak256Hash([]byte("Transfer(address,address,address,uint256,uint256)"))
 )
+
+// V4DeployBlock is the approximate block at which the V4 PoolManager was deployed on mainnet.
+const V4DeployBlock = uint64(21_688_000)
 
 const pollInterval      = 12 * time.Second
 const backChunkSize     = uint64(500)
@@ -35,7 +39,8 @@ const v4PoolManagerAddress = "0x000000000004444c5dc75cB358380D2e3dE08A90"
 type V4EventKind uint8
 
 const (
-	V4KindSwap            V4EventKind = iota // Swap(bytes32,address,...)
+	V4KindInitialize      V4EventKind = iota // Initialize(bytes32,address,address,...) — pool creation
+	V4KindSwap                               // Swap(bytes32,address,...)
 	V4KindModifyLiquidity                    // ModifyLiquidity(bytes32,address,...)
 	V4KindDonate                             // Donate(bytes32,address,...)
 	V4KindTransfer                           // Transfer(address,address,address,...) — ERC-6909 claims
@@ -43,6 +48,8 @@ const (
 
 func (k V4EventKind) String() string {
 	switch k {
+	case V4KindInitialize:
+		return "initialize"
 	case V4KindSwap:
 		return "swap"
 	case V4KindModifyLiquidity:
@@ -56,7 +63,7 @@ func (k V4EventKind) String() string {
 	}
 }
 
-// V4PoolEvent represents any Uniswap V4 PoolManager event involving a watched address.
+// V4PoolEvent represents any Uniswap V4 PoolManager event.
 // Fields are populated according to Kind; unused fields are zero/nil.
 type V4PoolEvent struct {
 	Kind     V4EventKind
@@ -64,19 +71,29 @@ type V4PoolEvent struct {
 	TxHash   common.Hash
 	LogIndex uint
 
-	// Swap, ModifyLiquidity, Donate
+	// Initialize, Swap, ModifyLiquidity, Donate
 	PoolID common.Hash
+
+	// Initialize only: pool key components
+	Currency0   common.Address
+	Currency1   common.Address
+	TickSpacing *big.Int
+	Hooks       common.Address
+
+	// Swap, ModifyLiquidity, Donate: direct PoolManager caller (often a router)
 	Sender common.Address
 
-	// Swap: signed int128; Donate: unsigned uint256
+	// Swap: signed int128; Donate: unsigned uint256; Initialize: unused
 	Amount0 *big.Int
 	Amount1 *big.Int
 
-	// Swap only
+	// Initialize + Swap
 	SqrtPriceX96 *big.Int
-	Liquidity    *big.Int
 	Tick         *big.Int
-	Fee          *big.Int
+
+	// Swap only
+	Liquidity *big.Int
+	Fee       *big.Int
 
 	// ModifyLiquidity only
 	TickLower      *big.Int
@@ -157,6 +174,21 @@ const v4PoolManagerABI = `[
 {
 	"anonymous": false,
 	"inputs": [
+		{"indexed": true,  "name": "id",           "type": "bytes32"},
+		{"indexed": true,  "name": "currency0",    "type": "address"},
+		{"indexed": true,  "name": "currency1",    "type": "address"},
+		{"indexed": false, "name": "fee",          "type": "uint24"},
+		{"indexed": false, "name": "tickSpacing",  "type": "int24"},
+		{"indexed": false, "name": "hooks",        "type": "address"},
+		{"indexed": false, "name": "sqrtPriceX96", "type": "uint160"},
+		{"indexed": false, "name": "tick",         "type": "int24"}
+	],
+	"name": "Initialize",
+	"type": "event"
+},
+{
+	"anonymous": false,
+	"inputs": [
 		{"indexed": true,  "name": "id",          "type": "bytes32"},
 		{"indexed": true,  "name": "sender",       "type": "address"},
 		{"indexed": false, "name": "amount0",      "type": "int128"},
@@ -207,6 +239,16 @@ const v4PoolManagerABI = `[
 }]`
 
 // ABI unpack targets — one per non-indexed data shape.
+
+// v4InitData holds the non-indexed fields of the Initialize event.
+// Indexed fields (id, currency0, currency1) are read from Topics directly.
+type v4InitData struct {
+	Fee          *big.Int
+	TickSpacing  *big.Int
+	Hooks        common.Address
+	SqrtPriceX96 *big.Int
+	Tick         *big.Int
+}
 
 type v4SwapData struct {
 	Amount0      *big.Int
@@ -493,6 +535,26 @@ func decodeV4PoolEvent(l types.Log, pmABI *abi.ABI) *V4PoolEvent {
 		LogIndex: uint(l.Index),
 	}
 	switch l.Topics[0] {
+	case v4InitializeSig:
+		// topics: [sig, id(poolId), currency0, currency1]
+		if len(l.Topics) < 4 {
+			return nil
+		}
+		var d v4InitData
+		if err := pmABI.UnpackIntoInterface(&d, "Initialize", l.Data); err != nil {
+			return nil
+		}
+		base.Kind = V4KindInitialize
+		base.PoolID = l.Topics[1]
+		base.Currency0 = common.BytesToAddress(l.Topics[2].Bytes()[12:])
+		base.Currency1 = common.BytesToAddress(l.Topics[3].Bytes()[12:])
+		base.Fee = d.Fee
+		base.TickSpacing = d.TickSpacing
+		base.Hooks = d.Hooks
+		base.SqrtPriceX96 = d.SqrtPriceX96
+		base.Tick = d.Tick
+		return &base
+
 	case v4SwapSig:
 		if len(l.Topics) < 3 {
 			return nil
@@ -560,6 +622,111 @@ func decodeV4PoolEvent(l types.Log, pmABI *abi.ABI) *V4PoolEvent {
 		return &base
 	}
 	return nil
+}
+
+// FetchAllInitializeEvents returns all pool-creation (Initialize) events from the PoolManager
+// in the given block range without any address filter.  For large ranges this may return
+// thousands of results; keep ranges narrow when calling interactively.
+func FetchAllInitializeEvents(ctx context.Context, client *ethclient.Client, fromBlock, toBlock uint64) ([]V4PoolEvent, error) {
+	pmABI, err := abi.JSON(strings.NewReader(v4PoolManagerABI))
+	if err != nil {
+		return nil, err
+	}
+	poolManager := common.HexToAddress(v4PoolManagerAddress)
+	fCtx, fCancel := context.WithTimeout(ctx, 30*time.Second)
+	logs, err := client.FilterLogs(fCtx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(fromBlock),
+		ToBlock:   new(big.Int).SetUint64(toBlock),
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{{v4InitializeSig}},
+	})
+	fCancel()
+	if err != nil {
+		return nil, err
+	}
+	var events []V4PoolEvent
+	for _, l := range logs {
+		if ev := decodeV4PoolEvent(l, &pmABI); ev != nil {
+			events = append(events, *ev)
+		}
+	}
+	return events, nil
+}
+
+// FetchPoolCreation looks up the single Initialize event for poolID between fromBlock and toBlock.
+// Returns nil, nil when no matching event is found.
+// The pool can only be initialized once, so at most one event will be returned.
+func FetchPoolCreation(ctx context.Context, client *ethclient.Client, poolID common.Hash, fromBlock, toBlock uint64) (*V4PoolEvent, error) {
+	pmABI, err := abi.JSON(strings.NewReader(v4PoolManagerABI))
+	if err != nil {
+		return nil, err
+	}
+	poolManager := common.HexToAddress(v4PoolManagerAddress)
+	fCtx, fCancel := context.WithTimeout(ctx, 30*time.Second)
+	logs, err := client.FilterLogs(fCtx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(fromBlock),
+		ToBlock:   new(big.Int).SetUint64(toBlock),
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{{v4InitializeSig}, {poolID}},
+	})
+	fCancel()
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range logs {
+		if ev := decodeV4PoolEvent(l, &pmABI); ev != nil {
+			return ev, nil
+		}
+	}
+	return nil, nil
+}
+
+// FetchPoolEvents returns all PoolManager events of the given kinds for poolID
+// between fromBlock and toBlock. Pass nil kinds to get all event types.
+func FetchPoolEvents(ctx context.Context, client *ethclient.Client, poolID common.Hash, fromBlock, toBlock uint64, kinds ...V4EventKind) ([]V4PoolEvent, error) {
+	pmABI, err := abi.JSON(strings.NewReader(v4PoolManagerABI))
+	if err != nil {
+		return nil, err
+	}
+
+	wantSigs := make([]common.Hash, 0, len(kinds))
+	for _, k := range kinds {
+		switch k {
+		case V4KindInitialize:
+			wantSigs = append(wantSigs, v4InitializeSig)
+		case V4KindSwap:
+			wantSigs = append(wantSigs, v4SwapSig)
+		case V4KindModifyLiquidity:
+			wantSigs = append(wantSigs, v4ModifyLiqSig)
+		case V4KindDonate:
+			wantSigs = append(wantSigs, v4DonateSig)
+		}
+	}
+	if len(wantSigs) == 0 {
+		// default: Swap + ModifyLiquidity (the most common post-creation events)
+		wantSigs = []common.Hash{v4SwapSig, v4ModifyLiqSig, v4DonateSig}
+	}
+
+	poolManager := common.HexToAddress(v4PoolManagerAddress)
+	fCtx, fCancel := context.WithTimeout(ctx, 30*time.Second)
+	logs, err := client.FilterLogs(fCtx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(fromBlock),
+		ToBlock:   new(big.Int).SetUint64(toBlock),
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{wantSigs, {poolID}},
+	})
+	fCancel()
+	if err != nil {
+		return nil, err
+	}
+
+	var events []V4PoolEvent
+	for _, l := range logs {
+		if ev := decodeV4PoolEvent(l, &pmABI); ev != nil {
+			events = append(events, *ev)
+		}
+	}
+	return events, nil
 }
 
 func decodeTransfer(l types.Log, tokenByAddr map[common.Address]rpc.WatchedToken) *IndexedEvent {
