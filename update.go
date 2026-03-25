@@ -202,6 +202,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case poolMonitorEventMsg:
+		if m.eventStore != nil {
+			if err := m.eventStore.SaveV4PoolEvent(msg.event); err != nil {
+				m.addLog("warn", fmt.Sprintf("[pool-monitor] db write error: %s", err.Error()))
+			}
+		}
+		if m.poolEventMonitorActive && m.poolEventMonitor != nil {
+			return m, waitForPoolEventData(m.poolEventMonitor)
+		}
+		return m, nil
+
 	case poolEventMonitorStoppedMsg:
 		wasActive := m.poolEventMonitorActive
 		m.poolEventMonitorActive = false
@@ -514,17 +525,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		// Consume all clicks while Pool Info popup is showing; close on OK button.
+		// Consume all clicks while Pool Info popup is showing.
 		if m.activeDialog == dialogPoolInfo {
-			if msg.Type == tea.MouseLeft &&
-				msg.Y == m.poolInfoOKBtnY &&
-				msg.X >= m.poolInfoOKBtnX1 && msg.X < m.poolInfoOKBtnX2 {
-				m.activeDialog = dialogNone
-				m.poolInfoData = nil
-				m.poolInfoErr = ""
-				m.poolInfoID = ""
-				m.poolInfoKeyLoading = false
-				m.poolInfoKeyErr = ""
+			if msg.Type == tea.MouseLeft {
+				switch {
+				case msg.Y == m.poolInfoOKBtnY &&
+					msg.X >= m.poolInfoOKBtnX1 && msg.X < m.poolInfoOKBtnX2:
+					m.activeDialog = dialogNone
+					m.poolInfoData = nil
+					m.poolInfoErr = ""
+					m.poolInfoID = ""
+					m.poolInfoCopied = false
+					m.poolInfoKeyLoading = false
+					m.poolInfoKeyErr = ""
+				case msg.Y == m.poolInfoCopyBtnY &&
+					msg.X >= m.poolInfoCopyBtnX1 && msg.X < m.poolInfoCopyBtnX2:
+					return m, copyPoolIDToClipboard(m.poolInfoID)
+				}
 			}
 			return m, nil
 		}
@@ -718,6 +735,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
+	case poolIDCopiedMsg:
+		m.poolInfoCopied = true
+		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+			return struct{ clearPoolIDCopied bool }{true}
+		})
+
+	case struct{ clearPoolIDCopied bool }:
+		m.poolInfoCopied = false
+		return m, nil
 
 	case clipboardCopiedMsg:
 		m.copiedMsg = "✓ Copied address to clipboard"

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"charm-wallet-tui/indexer"
+
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -553,16 +555,19 @@ func v4FormatLog(
 // ---- PoolEventMonitor ----
 
 // PoolEventMonitor subscribes to Uniswap V4 PoolManager events and streams
-// formatted event lines through a channel for display in the TUI log panel.
+// formatted event lines through Lines() for display and structured events
+// through Events() for storage.
 type PoolEventMonitor struct {
 	lines  chan string
+	events chan indexer.V4PoolEvent
 	cancel context.CancelFunc
 }
 
 // NewPoolEventMonitor creates a new PoolEventMonitor ready to be started.
 func NewPoolEventMonitor() *PoolEventMonitor {
 	return &PoolEventMonitor{
-		lines: make(chan string, 512),
+		lines:  make(chan string, 512),
+		events: make(chan indexer.V4PoolEvent, 512),
 	}
 }
 
@@ -589,16 +594,30 @@ func (m *PoolEventMonitor) Lines() <-chan string {
 	return m.lines
 }
 
+// Events returns the read-only channel of structured V4PoolEvent values.
+// Each event corresponds to a parseable log from the PoolManager.
+// The channel is closed when the monitor stops.
+func (m *PoolEventMonitor) Events() <-chan indexer.V4PoolEvent {
+	return m.events
+}
+
 func (m *PoolEventMonitor) emit(line string) {
 	select {
 	case m.lines <- line:
 	default:
-		// Drop if buffer full to avoid blocking the subscription loop.
+	}
+}
+
+func (m *PoolEventMonitor) emitEvent(ev indexer.V4PoolEvent) {
+	select {
+	case m.events <- ev:
+	default:
 	}
 }
 
 func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
 	defer close(m.lines)
+	defer close(m.events)
 
 	if wsURL == "" {
 		m.emit("[PoolMonitor] ERROR: no RPC URL configured")
@@ -677,6 +696,10 @@ func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
 				m.emit(fmt.Sprintf("[PoolMonitor] decode error: %v", fmtErr))
 			} else if line != "" {
 				m.emit(line)
+			}
+			// Emit the structured event for SQLite indexing regardless of display outcome.
+			if ev := indexer.DecodeV4PoolEvent(lg, &parsedABI); ev != nil {
+				m.emitEvent(*ev)
 			}
 		}
 	}

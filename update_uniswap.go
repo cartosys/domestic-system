@@ -339,7 +339,10 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.poolEventMonitor = monitor
 			m.poolEventMonitorActive = true
 			m.addLog("info", "Pool Event Monitor starting… (requires wss:// RPC endpoint)")
-			return m, waitForPoolEvent(monitor)
+			return m, tea.Batch(
+				waitForPoolEvent(monitor),
+				waitForPoolEventData(monitor),
+			)
 		}
 		return m, nil
 

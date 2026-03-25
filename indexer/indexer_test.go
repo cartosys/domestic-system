@@ -8,12 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
+
+func shortAddr(a common.Address) string {
+	h := a.Hex()
+	return h[:6] + "…" + h[len(h)-4:]
+}
+
+func shortHash(h common.Hash) string {
+	s := h.Hex()
+	return s[:10] + "…" + s[len(s)-6:]
+}
 
 // v4ScanBlock is a block used for V4 event tests.
 const v4ScanBlock = uint64(24686488)
@@ -61,18 +70,18 @@ func TestFetchRangeUSDCTransfer(t *testing.T) {
 	t.Logf("  %d total USDC transfer(s) found", len(allEvents))
 	for _, ev := range allEvents {
 		t.Logf("  from=%s  to=%s  value=%s  block=%d  tx=%s",
-			helpers.HyperAddr(ev.From),
-			helpers.HyperAddr(ev.To),
+			shortAddr(ev.From),
+			shortAddr(ev.To),
 			ev.Value.String(),
 			ev.Block,
-			helpers.HyperTxHash(ev.TxHash),
+			shortHash(ev.TxHash),
 		)
 	}
 
 	// ── Filtered query using the provided topic hash ──────────────────────────
 	t.Logf("Filtered: querying for address %s (topic %s)",
-		helpers.HyperAddr(testAddr),
-		helpers.HyperTxHash(testAddrTopic),
+		shortAddr(testAddr),
+		shortHash(testAddrTopic),
 	)
 	watchedTopics := []common.Hash{testAddrTopic}
 	events := idx.fetchRange(ctx, client, testBlock, testBlock, tokenAddrs, watchedTopics, tokenByAddr)
@@ -88,12 +97,12 @@ func TestFetchRangeUSDCTransfer(t *testing.T) {
 		humanAmt := new(big.Float).Quo(new(big.Float).SetInt(ev.Value), divisor)
 
 		t.Logf("Event #%d", i+1)
-		t.Logf("  Token   : %s (%s)", ev.Symbol, helpers.HyperAddr(ev.Token))
+		t.Logf("  Token   : %s (%s)", ev.Symbol, shortAddr(ev.Token))
 		t.Logf("  Block   : %d", ev.Block)
-		t.Logf("  TxHash  : %s", helpers.HyperTxHash(ev.TxHash))
+		t.Logf("  TxHash  : %s", shortHash(ev.TxHash))
 		t.Logf("  LogIndex: %d", ev.LogIndex)
-		t.Logf("  From    : %s", helpers.HyperAddr(ev.From))
-		t.Logf("  To      : %s", helpers.HyperAddr(ev.To))
+		t.Logf("  From    : %s", shortAddr(ev.From))
+		t.Logf("  To      : %s", shortAddr(ev.To))
 		t.Logf("  Value   : %s raw  (%s %s)", ev.Value.String(), fmt.Sprintf("%.6f", humanAmt), ev.Symbol)
 		t.Logf("  Decimals: %d", ev.Decimals)
 		t.Logf("─────────────────────────────────────────────────────────")

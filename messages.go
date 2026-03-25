@@ -18,6 +18,9 @@ type clipboardCopiedMsg struct{}
 // txJsonCopiedMsg indicates transaction JSON was copied to clipboard
 type txJsonCopiedMsg struct{}
 
+// poolIDCopiedMsg indicates the pool ID was copied to clipboard from the Pool Info popup
+type poolIDCopiedMsg struct{}
+
 // ensLookupResultMsg contains result of reverse ENS lookup (address -> name)
 type ensLookupResultMsg struct {
 	address   string
@@ -82,6 +85,11 @@ type poolEventLineMsg struct {
 
 // poolEventMonitorStoppedMsg signals that the pool event monitor has stopped
 type poolEventMonitorStoppedMsg struct{}
+
+// poolMonitorEventMsg carries a structured V4PoolEvent from the live monitor for SQLite indexing
+type poolMonitorEventMsg struct {
+	event indexer.V4PoolEvent
+}
 
 // poolInfoResultMsg carries the result of a FetchPoolInfo call
 type poolInfoResultMsg struct {

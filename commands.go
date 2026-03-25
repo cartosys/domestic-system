@@ -181,6 +181,16 @@ func copyToClipboard(text string) tea.Cmd {
 	}
 }
 
+// copyPoolIDToClipboard copies a V4 pool ID to the clipboard and signals the Pool Info popup.
+func copyPoolIDToClipboard(poolID string) tea.Cmd {
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(poolID); err == nil {
+			return poolIDCopiedMsg{}
+		}
+		return nil
+	}
+}
+
 // copyTxJsonToClipboard copies transaction JSON to clipboard
 func copyTxJsonToClipboard(text string) tea.Cmd {
 	return func() tea.Msg {
@@ -533,6 +543,18 @@ func waitForV4BlockScanLine(scanner *helpers.V4BlockScanner) tea.Cmd {
 			return v4BlockScanDoneMsg{}
 		}
 		return v4BlockScanLineMsg{line: line}
+	}
+}
+
+// waitForPoolEventData blocks until the next structured V4PoolEvent arrives from the monitor.
+// Returns poolMonitorEventMsg, or poolEventMonitorStoppedMsg when the channel is closed.
+func waitForPoolEventData(monitor *helpers.PoolEventMonitor) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-monitor.Events()
+		if !ok {
+			return poolEventMonitorStoppedMsg{}
+		}
+		return poolMonitorEventMsg{event: ev}
 	}
 }
 

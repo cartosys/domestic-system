@@ -104,6 +104,7 @@ type V4PoolEvent struct {
 	// Transfer (ERC-6909) only; Amount reuses Amount0
 	From    common.Address
 	To      common.Address
+	Caller  common.Address // non-indexed initiator of the transfer
 	TokenID *big.Int
 }
 
@@ -518,14 +519,14 @@ func (idx *Indexer) fetchV4PoolEvents(
 			continue
 		}
 		seen[key] = struct{}{}
-		if ev := decodeV4PoolEvent(l, pmABI); ev != nil {
+		if ev := DecodeV4PoolEvent(l, pmABI); ev != nil {
 			events = append(events, *ev)
 		}
 	}
 	return events
 }
 
-func decodeV4PoolEvent(l types.Log, pmABI *abi.ABI) *V4PoolEvent {
+func DecodeV4PoolEvent(l types.Log, pmABI *abi.ABI) *V4PoolEvent {
 	if len(l.Topics) < 1 {
 		return nil
 	}
@@ -617,6 +618,7 @@ func decodeV4PoolEvent(l types.Log, pmABI *abi.ABI) *V4PoolEvent {
 		base.Kind = V4KindTransfer
 		base.From = common.BytesToAddress(l.Topics[1].Bytes()[12:])
 		base.To = common.BytesToAddress(l.Topics[2].Bytes()[12:])
+		base.Caller = d.Caller
 		base.TokenID = d.Id
 		base.Amount0 = d.Amount
 		return &base
@@ -646,7 +648,7 @@ func FetchAllInitializeEvents(ctx context.Context, client *ethclient.Client, fro
 	}
 	var events []V4PoolEvent
 	for _, l := range logs {
-		if ev := decodeV4PoolEvent(l, &pmABI); ev != nil {
+		if ev := DecodeV4PoolEvent(l, &pmABI); ev != nil {
 			events = append(events, *ev)
 		}
 	}
@@ -674,7 +676,7 @@ func FetchPoolCreation(ctx context.Context, client *ethclient.Client, poolID com
 		return nil, err
 	}
 	for _, l := range logs {
-		if ev := decodeV4PoolEvent(l, &pmABI); ev != nil {
+		if ev := DecodeV4PoolEvent(l, &pmABI); ev != nil {
 			return ev, nil
 		}
 	}
@@ -722,7 +724,36 @@ func FetchPoolEvents(ctx context.Context, client *ethclient.Client, poolID commo
 
 	var events []V4PoolEvent
 	for _, l := range logs {
-		if ev := decodeV4PoolEvent(l, &pmABI); ev != nil {
+		if ev := DecodeV4PoolEvent(l, &pmABI); ev != nil {
+			events = append(events, *ev)
+		}
+	}
+	return events, nil
+}
+
+// FetchAllV4PoolEvents returns every PoolManager event of any kind in the given
+// block range with no address filter. Intended for full backfill scans.
+func FetchAllV4PoolEvents(ctx context.Context, client *ethclient.Client, fromBlock, toBlock uint64) ([]V4PoolEvent, error) {
+	pmABI, err := abi.JSON(strings.NewReader(v4PoolManagerABI))
+	if err != nil {
+		return nil, err
+	}
+	allSigs := []common.Hash{v4InitializeSig, v4SwapSig, v4ModifyLiqSig, v4DonateSig, v4TransferSig}
+	poolManager := common.HexToAddress(v4PoolManagerAddress)
+	fCtx, fCancel := context.WithTimeout(ctx, 30*time.Second)
+	logs, err := client.FilterLogs(fCtx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(fromBlock),
+		ToBlock:   new(big.Int).SetUint64(toBlock),
+		Addresses: []common.Address{poolManager},
+		Topics:    [][]common.Hash{allSigs},
+	})
+	fCancel()
+	if err != nil {
+		return nil, err
+	}
+	var events []V4PoolEvent
+	for _, l := range logs {
+		if ev := DecodeV4PoolEvent(l, &pmABI); ev != nil {
 			events = append(events, *ev)
 		}
 	}

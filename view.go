@@ -287,31 +287,53 @@ func (m *model) renderPoolInfoPopup() string {
 		keyRow = lipgloss.NewStyle().Foreground(styles.CWarn).Render("⚠ " + m.poolInfoKeyErr)
 	}
 
-	// OK button (always focused)
+	// Button row: [Copy ID]  [OK]
+	// "Copy ID" is 9 visible chars with padding(0,2) = "  Copy ID  " = 11 cols.
+	// "OK" is 2 visible chars with padding(0,3) = "   OK   " = 8 cols.
+	// Gap between buttons: 4 cols.  Total: 11 + 4 + 8 = 23 cols, centred in 68.
+	copyLabel := "Copy ID"
+	if m.poolInfoCopied {
+		copyLabel = "✓ Copied!"
+	}
+	copyButton := lipgloss.NewStyle().
+		Foreground(cAccent2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(cAccent2).
+		Padding(0, 2).
+		MarginTop(1).
+		Render(copyLabel)
 	okButton := styles.ButtonPrimary.MarginTop(1).Render("OK")
-
-	okRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(okButton)
+	gap := lipgloss.NewStyle().Width(4).MarginTop(1).Render("")
+	buttonRow := lipgloss.JoinHorizontal(lipgloss.Top, copyButton, gap, okButton)
+	btnRowCentered := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(buttonRow)
 
 	rows := []string{title, poolIDLine, "", body}
 	if keyRow != "" {
 		rows = append(rows, keyRow)
 	}
-	rows = append(rows, okRow)
+	rows = append(rows, btnRowCentered)
 	ui := lipgloss.JoinVertical(lipgloss.Center, rows...)
 	dialog := dialogBoxStyle.Render(ui)
 
-	// Track OK button position for click handling.
+	// Track button positions for click handling.
 	// Dialog: Width(72) + 2 border = 74 rendered width.
-	// Content area: border(1) + padding(2) = 3 cols from dialog left edge.
-	// okButton: Padding(0,3) = "   OK   " = 8 visible chars, centered in 68.
-	// Left offset within content: (68-8)/2 = 30.
+	// Content area starts 3 cols from dialog left edge (border + padding).
+	// Button row is centred in 68 cols; total row width = 23 cols.
+	// Left offset within 68: (68-23)/2 = 22.
+	// copyButton width = 11 (border+padding+text), okButton width = 8.
 	dialogH := lipgloss.Height(dialog)
 	dialogW := lipgloss.Width(dialog)
 	dialogStartX := (m.w - dialogW) / 2
 	dialogStartY := (m.h - dialogH) / 2
-	m.poolInfoOKBtnY = dialogStartY + dialogH - 3 // above bottom padding+border
-	m.poolInfoOKBtnX1 = dialogStartX + 3 + 30
-	m.poolInfoOKBtnX2 = dialogStartX + 3 + 30 + 8
+	btnRowY := dialogStartY + dialogH - 3 // one row above bottom padding+border
+	contentLeft := dialogStartX + 3
+	btnLeft := contentLeft + 22
+	m.poolInfoCopyBtnY = btnRowY
+	m.poolInfoCopyBtnX1 = btnLeft
+	m.poolInfoCopyBtnX2 = btnLeft + 11
+	m.poolInfoOKBtnY = btnRowY
+	m.poolInfoOKBtnX1 = btnLeft + 11 + 4
+	m.poolInfoOKBtnX2 = btnLeft + 11 + 4 + 8
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
