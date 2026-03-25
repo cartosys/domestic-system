@@ -112,3 +112,31 @@ Potential improvements:
 - Multi-hop routing for better prices
 - Real-time quote updates
 - Gas estimation
+
+
+
+                                                                                                                                                                             Sqlite indexer tables:                                    
+  ┌─────────────────────┬──────────────────┬────────────────────┬────────────────────────────────────────────────────────┐                                          
+  │        Table        │        PK        │        FKs         │                        Purpose                         │                                                                                         
+  ├─────────────────────┼──────────────────┼────────────────────┼────────────────────────────────────────────────────────┤                                         
+  │ v4_pools            │ pool_id (TEXT)   │ —                  │ One row per Initialize event                           │                                                                                         
+  ├─────────────────────┼──────────────────┼────────────────────┼────────────────────────────────────────────────────────┤
+  │ v4_swaps            │ id AUTOINCREMENT │ pool_id → v4_pools │ Swap events                                            │                                                                                         
+  ├─────────────────────┼──────────────────┼────────────────────┼────────────────────────────────────────────────────────┤                                                 
+  │ v4_modify_liquidity │ id AUTOINCREMENT │ pool_id → v4_pools │ ModifyLiquidity events                                 │                                                                                         
+  ├─────────────────────┼──────────────────┼────────────────────┼────────────────────────────────────────────────────────┤                                              
+  │ v4_donates          │ id AUTOINCREMENT │ pool_id → v4_pools │ Donate events                                          │                                                                                       
+  ├─────────────────────┼──────────────────┼────────────────────┼────────────────────────────────────────────────────────┤                                            
+  │ v4_transfers        │ id AUTOINCREMENT │ —                  │ ERC-6909 transfers, indexed by caller/from/to/token_id │                                                                                       
+  └─────────────────────┴──────────────────┴────────────────────┴────────────────────────────────────────────────────────┘           
+
+  sqlite3 ~/.charm-wallet-events.db "
+  SELECT block, tx_hash, 'swap'       AS kind, sender AS actor, amount0, amount1, NULL AS extra                                                                                                                    
+  FROM v4_swaps WHERE pool_id = '0xYOUR_POOL_ID'                                                                                                                                                           UNION ALL                             
+  SELECT block, tx_hash, 'modify_liq' AS kind, sender, liq_delta, NULL,        salt AS extra                                                                                                                       
+  FROM v4_modify_liquidity WHERE pool_id = '0xYOUR_POOL_ID'
+  UNION ALL                                              
+  SELECT block, tx_hash, 'transfer'   AS kind, from_addr, amount, NULL,        to_addr AS extra                                                                                                                    
+  FROM v4_transfers WHERE token_id = '0xYOUR_POOL_ID'
+  ORDER BY block ASC, tx_hash ASC;               
+  "

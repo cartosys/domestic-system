@@ -24,6 +24,10 @@ const (
 	v4TestAddrHex = "0x5857bCe5490545a89598b9992DD0D409C4C20d86"
 	v4TestRPCEnv  = "ETH_RPC_URL"
 
+	// v4TestTxHash is the transaction in which the test address received a
+	// Uniswap V4 liquidity position at block 24686488.
+	v4TestTxHash = "0x28dd5ac87549b6098c3fc0fa321b926c11ae8adab8aded55f62a5a50873cf7ae"
+
 	v4PositionManagerAddress = "0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e"
 )
 
@@ -340,40 +344,35 @@ func appendPoolID(ids []common.Hash, id common.Hash) []common.Hash {
 
 // ── Pool-creation chain test ──────────────────────────────────────────────────
 //
-// TestV4PoolCreationFromPositionManager walks the full V4 data chain:
+// TestV4PoolCreationFromPositionManager walks the full V4 data chain starting
+// from a known transaction in which the test address received a liquidity position.
 //
-//  1. PositionManager ERC-721 Transfer events where the target address is the
-//     NFT recipient at block 24686488 — this is how we know the address holds
-//     a liquidity position in some pool.
+// V4 ownership design — why we start from the tx receipt, not from event topics:
 //
-//  2. For each tokenId, call positions(tokenId) on the PositionManager contract
-//     to recover the pool key: (currency0, currency1, fee, tickSpacing, hooks).
+//   In Uniswap V4 the PositionManager batches operations via modifyLiquidities().
+//   The primary events it emits are:
+//     • IncreaseLiquidity(uint256 indexed tokenId, ...) — tokenId only, no address
+//     • ERC-721 Transfer(from, to, tokenId) — owner IS here, but only on fresh mints
+//   For INCREASE_LIQUIDITY actions on an existing position no Transfer is emitted
+//   at all.  The recipient address is therefore not reliably present in any
+//   PositionManager topic.
 //
-//  3. Compute poolId = keccak256(abi.encode(poolKey)) — this is the canonical
-//     identifier used as indexed topic[1] in all PoolManager events.
+//   The authoritative source for "who holds a position" is the ERC-721 on-chain
+//   state (ownerOf / balanceOf / tokenOfOwnerByIndex), not event scanning.
+//   For historical indexing, ERC-721 Transfer events track ownership changes, but
+//   IncreaseLiquidity events do not.
 //
-//  4. Query the PoolManager for the Initialize event matching that poolId.
-//     Since poolId is indexed, this is a single efficient eth_getLogs call
-//     over the full deployment range.  One pool can only be initialized once.
+//   For pool creation: Initialize(poolId, currency0, currency1, fee, tickSpacing,
+//   hooks, sqrtPrice, tick) has no creator field — creator is only in tx.from.
 //
-//  5. Find all subsequent Swap and ModifyLiquidity events for the pool from
-//     its creation block through the test block.  Again, poolId is indexed so
-//     this requires only two eth_getLogs calls regardless of pool age.
-//
-// CONSTRAINTS — what this test deliberately does NOT do:
-//
-//   • Pool-creator identity: the Initialize event contains no "creator" field.
-//     Recovering the creator requires eth_getTransactionByHash(initTxHash).tx.from.
-//     Omitted here to avoid per-tx RPC calls, but the tx hash is printed so
-//     you can inspect it manually.
-//
-//   • EOA swapper identity: Swap.sender is the direct PoolManager caller (a
-//     router), not the user's wallet.  tx.from on each swap tx reveals the EOA.
-//     Omitted here for the same reason.
-//
-//   • IncreaseLiquidity events: the target address does not appear in their
-//     topics (only tokenId is indexed), so they cannot be found by address
-//     filtering alone — you must look them up by tokenId after step 1.
+// Chain walked by this test:
+//  1. Fetch the tx receipt for the known tx hash.
+//  2. Scan every log in the receipt for IncreaseLiquidity → extract tokenId(s).
+//  3. Call positions(tokenId) on the PositionManager → pool key.
+//  4. Compute poolId = keccak256(abi.encode(poolKey)).
+//  5. Query PoolManager for the Initialize event (pool creation) via poolId topic.
+//  6. Query PoolManager for all Swap events for that pool from creation → test block.
+//  7. Query PoolManager for all ModifyLiquidity events for that pool.
 //
 // Run with:
 //
@@ -394,128 +393,174 @@ func TestV4PoolCreationFromPositionManager(t *testing.T) {
 	defer client.Close()
 
 	targetAddr := common.HexToAddress(v4TestAddrHex)
-	posManager := common.HexToAddress(v4PositionManagerAddress)
 	poolManager := common.HexToAddress(V4PoolManagerAddress)
-	blockBig := new(big.Int).SetUint64(v4TestBlock)
+	blockBig    := new(big.Int).SetUint64(v4TestBlock)
+	needle      := strings.ToLower(strings.TrimPrefix(targetAddr.Hex(), "0x"))
 
-	// Event signature hashes used as log topics.
 	increaseLiqSig := common.HexToHash("0x3067048beee31b25b2f1681f88dac838c8bba36af25bfb2b7cf7473a5847e35f")
-	initializeSig     := crypto.Keccak256Hash([]byte("Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)"))
-	swapSig           := crypto.Keccak256Hash([]byte("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"))
-	modifyLiqSig      := crypto.Keccak256Hash([]byte("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"))
+	initializeSig  := crypto.Keccak256Hash([]byte("Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)"))
+	swapSig        := crypto.Keccak256Hash([]byte("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"))
+	modifyLiqSig   := crypto.Keccak256Hash([]byte("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"))
 
 	const v4DeployBlock = uint64(21_688_000)
 
-	// ── Step 1: Find PositionManager txs that involve the target address ────────
-	// Strategy: fetch ALL PositionManager events at the block (no topic filter),
-	// then search every topic for the target address hex as a substring.
-	// This is the same approach used in TestV4PositionManagerFrom and is provider-
-	// agnostic.  It works regardless of which event type the PositionManager emits
-	// for minting — whether that is a standard ERC-721 Transfer or a custom event.
-	//
-	// Note: the Uniswap V4 PositionManager may not emit Transfer(from=0,to,tokenId)
-	// with the canonical ERC-721 signature during minting, so filtering by the
-	// standard Transfer sig 0xddf252ad… is unreliable here.
-	section(t, fmt.Sprintf("Step 1  PositionManager events containing targetAddr @ block %d", v4TestBlock))
+	// ── Step 1: Fetch the tx receipt and show all logs ────────────────────────
+	// We start from the known tx hash rather than trying to find the address in
+	// event topics.  The receipt contains every log emitted by every contract
+	// called in the transaction, giving a complete picture regardless of which
+	// contract emits what.
+	section(t, fmt.Sprintf("Step 1  Tx receipt  %s", v4TestTxHash))
 
-	needle := strings.ToLower(strings.TrimPrefix(targetAddr.Hex(), "0x"))
-	allPosLogs, err := client.FilterLogs(ctx, ethereum.FilterQuery{
-		FromBlock: blockBig,
-		ToBlock:   blockBig,
-		Addresses: []common.Address{posManager},
-	})
-	if err != nil {
-		t.Fatalf("FilterLogs PositionManager (all events): %v", err)
+	txHash := common.HexToHash(v4TestTxHash)
+	var receipt *types.Receipt
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*2) * time.Second)
+		}
+		var rcptErr error
+		receipt, rcptErr = client.TransactionReceipt(ctx, txHash)
+		if rcptErr == nil {
+			break
+		}
+		msg := strings.ToLower(rcptErr.Error())
+		if !strings.Contains(msg, "429") && !strings.Contains(msg, "too many") {
+			t.Fatalf("TransactionReceipt: %v", rcptErr)
+		}
+		t.Logf("  (rate limited on receipt fetch, retrying %d/5)", attempt+1)
 	}
-	t.Logf("  Total PositionManager events in block: %d", len(allPosLogs))
+	if receipt == nil {
+		t.Fatalf("TransactionReceipt: failed after retries (rate limited)")
+	}
 
-	// Collect unique txHashes where targetAddr appears in any topic.
-	seenTx := map[common.Hash]bool{}
-	var matchedTxHashes []common.Hash
-	for _, lg := range allPosLogs {
+	status := "FAILED"
+	if receipt.Status == 1 {
+		status = "SUCCESS"
+	}
+	t.Logf("  block=%d  status=%s  logs=%d  gasUsed=%d",
+		receipt.BlockNumber.Uint64(), status, len(receipt.Logs), receipt.GasUsed)
+
+	for i, lg := range receipt.Logs {
+		sigStr := "(no topics)"
+		if len(lg.Topics) > 0 {
+			sigStr = lg.Topics[0].Hex()[:18] + "…"
+		}
+		mark := "  "
 		for _, topic := range lg.Topics {
 			if strings.Contains(strings.ToLower(topic.Hex()), needle) {
-				if !seenTx[lg.TxHash] {
-					seenTx[lg.TxHash] = true
-					matchedTxHashes = append(matchedTxHashes, lg.TxHash)
-				}
+				mark = "★ "
 				break
 			}
 		}
-	}
-	t.Logf("  Txs where targetAddr appears in a PositionManager topic: %d", len(matchedTxHashes))
-	for i, h := range matchedTxHashes {
-		t.Logf("    [%d] %s", i, h.Hex())
+		t.Logf("  %s[log %2d]  emitter=%s  sig=%s  topics=%d  data=%d bytes",
+			mark, i, lg.Address.Hex(), sigStr, len(lg.Topics), len(lg.Data))
 	}
 
-	if len(matchedTxHashes) == 0 {
-		t.Logf("  RESULT: target address not found in any PositionManager topic at block %d", v4TestBlock)
-		return
-	}
+	// ── Step 2: Extract tokenId(s) from PositionManager events ──────────────
+	// Two event types can carry a tokenId depending on the action:
+	//
+	//   MINT_POSITION   → ERC-721 Transfer(from=0x0, to=owner, tokenId indexed at topic[3])
+	//                     Emitted only on fresh mints; no IncreaseLiquidity follows.
+	//
+	//   INCREASE_LIQUIDITY → IncreaseLiquidity(uint256 indexed tokenId, ...)  topic[1]=tokenId
+	//                        Emitted on adds to an existing position; no Transfer follows.
+	//
+	// We scan for both so the test covers either transaction type.
+	section(t, "Step 2  PositionManager events → tokenIds")
 
-	// ── Step 2: Extract tokenIds from IncreaseLiquidity events in matched txs ─
-	// IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
-	// topic layout: [sig, tokenId(indexed)]
-	// The tokenId is reliably available here regardless of the mint/transfer event
-	// type, because IncreaseLiquidity is always emitted when liquidity is added.
-	section(t, "Step 2  IncreaseLiquidity events in matched txs → tokenIds")
+	posManagerAddr := common.HexToAddress(v4PositionManagerAddress)
+	// ERC-721 Transfer sig = keccak256("Transfer(address,address,uint256)")
+	erc721TransferSig := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	zeroAddr := common.Hash{} // from=0x0 for mints
 
 	seenIDs := map[string]bool{}
 	var tokenIds []*big.Int
-	for _, txHash := range matchedTxHashes {
-		for _, lg := range allPosLogs {
-			if lg.TxHash != txHash {
-				continue
-			}
-			if len(lg.Topics) < 2 || lg.Topics[0] != increaseLiqSig {
-				continue
-			}
-			tokenId := new(big.Int).SetBytes(lg.Topics[1].Bytes())
+	for _, lg := range receipt.Logs {
+		if lg.Address != posManagerAddr {
+			continue
+		}
+		if len(lg.Topics) < 2 {
+			continue
+		}
+		switch {
+		case lg.Topics[0] == erc721TransferSig && len(lg.Topics) == 4 && lg.Topics[1] == zeroAddr:
+			// Fresh mint: Transfer(from=0x0, to, tokenId)
+			tokenId := new(big.Int).SetBytes(lg.Topics[3].Bytes())
+			to := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
+			t.Logf("  [ERC-721 Mint]  to=%s  tokenId=%s", to.Hex(), tokenId.String())
 			if key := tokenId.String(); !seenIDs[key] {
 				seenIDs[key] = true
 				tokenIds = append(tokenIds, tokenId)
 			}
-			decodeIncreaseLiquidity(t, &lg)
+
+		case lg.Topics[0] == increaseLiqSig:
+			// Liquidity increase on existing position
+			tokenId := new(big.Int).SetBytes(lg.Topics[1].Bytes())
+			decodeIncreaseLiquidity(t, lg)
+			if key := tokenId.String(); !seenIDs[key] {
+				seenIDs[key] = true
+				tokenIds = append(tokenIds, tokenId)
+			}
 		}
 	}
 
 	if len(tokenIds) == 0 {
-		t.Logf("  No IncreaseLiquidity events found in matched txs — cannot derive tokenId")
-		return
+		t.Fatalf("no PositionManager mint or IncreaseLiquidity events found in tx %s — cannot derive tokenId", v4TestTxHash)
 	}
-	t.Logf("  Unique tokenIds: %v", tokenIds)
+	t.Logf("  tokenIds found: %v", tokenIds)
 
-	// ── Step 3: positions(tokenId) → pool key → poolId ───────────────────────
-	// v4FetchPosition calls the PositionManager's positions(uint256) view function
-	// and decodes the raw return bytes into a LiquidityPosition struct containing
-	// currency0, currency1, fee, tickSpacing, and hooks — the five fields that
-	// uniquely identify a V4 pool.
-	section(t, "Step 3  positions(tokenId) → pool key → poolId")
+	// ── Step 3: Extract poolId(s) from the receipt ───────────────────────────
+	// Strategy A (preferred, no archive node required):
+	//   The PoolManager emits ModifyLiquidity or Swap events with the poolId
+	//   at topic[1].  The same tx that mints a position also calls
+	//   ModifyLiquidity on the pool, so the poolId is already in the receipt.
+	//
+	// Strategy B (fallback, requires archive node):
+	//   Call positions(tokenId) on the PositionManager at the mint block to
+	//   retrieve the full pool key, then compute poolId from it.
+	section(t, "Step 3  Receipt PoolManager events → poolId(s)")
 
 	var poolIds []common.Hash
-	for _, tokenId := range tokenIds {
-		pos, err := v4FetchPosition(ctx, client, tokenId)
-		if err != nil {
-			t.Logf("  positions(%s) error: %v", tokenId, err)
+
+	// Strategy A: scan all PoolManager logs in the receipt.
+	t.Logf("  Strategy A: scan receipt for PoolManager ModifyLiquidity / Swap topic[1]=poolId")
+	for _, lg := range receipt.Logs {
+		if lg.Address != poolManager {
 			continue
 		}
-		t.Logf("  tokenId=%s", tokenId)
-		t.Logf("    currency0    = %s", pos.Token0.Hex())
-		t.Logf("    currency1    = %s", pos.Token1.Hex())
-		t.Logf("    fee          = %d  (%.4f%%)", pos.Fee, float64(pos.Fee)/10000)
-		t.Logf("    tickSpacing  = %d", pos.TickSpacing)
-		t.Logf("    hooks        = %s", pos.Hooks.Hex())
-		t.Logf("    tickLower    = %d", pos.TickLower)
-		t.Logf("    tickUpper    = %d", pos.TickUpper)
-
-		poolId := v4ComputePoolId(pos.Token0, pos.Token1, pos.Hooks, pos.Fee, pos.TickSpacing)
-		t.Logf("    poolId       = %s", poolId.Hex())
+		if len(lg.Topics) < 2 {
+			continue
+		}
+		sig := lg.Topics[0]
+		if sig != modifyLiqSig && sig != swapSig && sig != initializeSig {
+			continue
+		}
+		poolId := lg.Topics[1]
+		t.Logf("  found poolId=%s  (event sig=%s…  log=%d)",
+			poolId.Hex(), sig.Hex()[:18], lg.Index)
 		poolIds = appendPoolID(poolIds, poolId)
 	}
 
+	// Strategy B: fallback via positions(tokenId) if Strategy A found nothing.
 	if len(poolIds) == 0 {
-		t.Fatalf("could not derive any pool IDs from positions — cannot continue")
+		t.Logf("  Strategy A found nothing — falling back to positions(tokenId) at block %d", v4TestBlock)
+		for _, tokenId := range tokenIds {
+			pos, posErr := v4FetchPosition(ctx, client, tokenId, blockBig)
+			if posErr != nil {
+				t.Logf("  positions(%s) error: %v", tokenId, posErr)
+				continue
+			}
+			t.Logf("  tokenId=%s  currency0=%s  currency1=%s  fee=%d  tickSpacing=%d  hooks=%s",
+				tokenId, pos.Token0.Hex(), pos.Token1.Hex(), pos.Fee, pos.TickSpacing, pos.Hooks.Hex())
+			poolId := v4ComputePoolId(pos.Token0, pos.Token1, pos.Hooks, pos.Fee, pos.TickSpacing)
+			t.Logf("    poolId = %s", poolId.Hex())
+			poolIds = appendPoolID(poolIds, poolId)
+		}
 	}
+
+	if len(poolIds) == 0 {
+		t.Fatalf("could not derive any pool IDs from receipt or positions() call — cannot continue")
+	}
+	t.Logf("  poolIds: %v", poolIds)
 
 	// ── Step 4: PoolManager Initialize event for each poolId ─────────────────
 	// poolId is indexed as topic[1] in the Initialize event, so this is a
@@ -530,16 +575,74 @@ func TestV4PoolCreationFromPositionManager(t *testing.T) {
 	}
 	var createdPools []poolInfo
 
+	// filterLogsChunked splits a block range into ≤1000-block chunks to stay
+	// within llamarpc's eth_getLogs limit. Between chunks it sleeps 300ms to
+	// avoid rate limits. On 429 or "too many" it backs off 2s and retries (up
+	// to 3 times). stopOnFirst=true causes the scan to stop after the first
+	// non-empty result (useful for one-time events like Initialize).
+	filterLogsChunked := func(q ethereum.FilterQuery, stopOnFirst bool) ([]types.Log, error) {
+		const chunkSize = uint64(1000)
+		from := q.FromBlock.Uint64()
+		to := q.ToBlock.Uint64()
+		var all []types.Log
+		for start := from; start <= to; start += chunkSize {
+			end := start + chunkSize - 1
+			if end > to {
+				end = to
+			}
+			chunk := q
+			chunk.FromBlock = new(big.Int).SetUint64(start)
+			chunk.ToBlock = new(big.Int).SetUint64(end)
+			var logs []types.Log
+			var err error
+			for attempt := 0; attempt < 3; attempt++ {
+				if attempt > 0 {
+					time.Sleep(2 * time.Second)
+				}
+				logs, err = client.FilterLogs(ctx, chunk)
+				if err == nil {
+					break
+				}
+				msg := strings.ToLower(err.Error())
+				if !strings.Contains(msg, "429") && !strings.Contains(msg, "too many") && !strings.Contains(msg, "timeout") {
+					return all, err
+				}
+				t.Logf("  (transient error on chunk %d–%d, retrying %d/3: %v)", start, end, attempt+1, err)
+			}
+			if err != nil {
+				return all, err
+			}
+			all = append(all, logs...)
+			if stopOnFirst && len(all) > 0 {
+				break
+			}
+			time.Sleep(300 * time.Millisecond) // stay under rate limit
+		}
+		return all, nil
+	}
+
+	// maxScanBlocks caps how far back we search for Initialize/Swap/ModifyLiquidity.
+	// llamarpc limits eth_getLogs to 1000 blocks per call and ~3 req/s; a window
+	// of 10k blocks = 10 API calls which completes in ~5s.  For full historical
+	// coverage a dedicated archive node or provider with higher limits is needed.
+	const maxScanBlocks = uint64(10_000)
+	scanFrom := func(earliest uint64) uint64 {
+		if v4TestBlock <= earliest+maxScanBlocks {
+			return earliest
+		}
+		return v4TestBlock - maxScanBlocks
+	}
+
 	for _, poolId := range poolIds {
 		t.Logf("  poolId=%s", poolId.Hex())
-		t.Logf("  Scanning blocks %d–%d for Initialize event…", v4DeployBlock, v4TestBlock)
-
-		initLogs, err := client.FilterLogs(ctx, ethereum.FilterQuery{
-			FromBlock: new(big.Int).SetUint64(v4DeployBlock),
+		from4 := scanFrom(v4DeployBlock)
+		t.Logf("  Scanning blocks %d–%d for Initialize event (1000-block chunks)…", from4, v4TestBlock)
+		initLogs, err := filterLogsChunked(ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(from4),
 			ToBlock:   blockBig,
 			Addresses: []common.Address{poolManager},
 			Topics:    [][]common.Hash{{initializeSig}, {poolId}},
-		})
+		}, true)
 		if err != nil {
 			t.Logf("  FilterLogs Initialize: %v", err)
 			continue
@@ -586,9 +689,14 @@ func TestV4PoolCreationFromPositionManager(t *testing.T) {
 		createdPools = append(createdPools, poolInfo{poolId, lg.BlockNumber, lg.TxHash})
 	}
 
+	// If Initialize lookup failed (e.g. rate limiting), synthesize poolInfo
+	// entries from the poolIds we already have, using v4DeployBlock as the
+	// earliest possible start.  Steps 5-6 still produce valid results.
 	if len(createdPools) == 0 {
-		t.Logf("No Initialize events found — skipping subsequent event scan")
-		return
+		t.Logf("  Initialize not found — using v4DeployBlock as scan start for Swap/ModifyLiquidity")
+		for _, poolId := range poolIds {
+			createdPools = append(createdPools, poolInfo{poolId, v4DeployBlock, common.Hash{}})
+		}
 	}
 
 	// ── Step 5: Swap events for each pool (creation → test block) ────────────
@@ -598,14 +706,14 @@ func TestV4PoolCreationFromPositionManager(t *testing.T) {
 	section(t, "Step 5  PoolManager Swap events (creation block → test block)")
 
 	for _, pool := range createdPools {
-		swapLogs, err := client.FilterLogs(ctx, ethereum.FilterQuery{
-			FromBlock: new(big.Int).SetUint64(pool.CreatedAt),
+		swapLogs, swapErr := filterLogsChunked(ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(scanFrom(pool.CreatedAt)),
 			ToBlock:   blockBig,
 			Addresses: []common.Address{poolManager},
 			Topics:    [][]common.Hash{{swapSig}, {pool.PoolId}},
-		})
-		if err != nil {
-			t.Logf("  FilterLogs Swap: %v", err)
+		}, false)
+		if swapErr != nil {
+			t.Logf("  FilterLogs Swap: %v", swapErr)
 			continue
 		}
 		t.Logf("  pool=%s  Swap events: %d  (blocks %d–%d)",
@@ -629,14 +737,14 @@ func TestV4PoolCreationFromPositionManager(t *testing.T) {
 	section(t, "Step 6  PoolManager ModifyLiquidity events (creation block → test block)")
 
 	for _, pool := range createdPools {
-		modLogs, err := client.FilterLogs(ctx, ethereum.FilterQuery{
-			FromBlock: new(big.Int).SetUint64(pool.CreatedAt),
+		modLogs, modErr := filterLogsChunked(ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(scanFrom(pool.CreatedAt)),
 			ToBlock:   blockBig,
 			Addresses: []common.Address{poolManager},
 			Topics:    [][]common.Hash{{modifyLiqSig}, {pool.PoolId}},
-		})
-		if err != nil {
-			t.Logf("  FilterLogs ModifyLiquidity: %v", err)
+		}, false)
+		if modErr != nil {
+			t.Logf("  FilterLogs ModifyLiquidity: %v", modErr)
 			continue
 		}
 		t.Logf("  pool=%s  ModifyLiquidity events: %d  (blocks %d–%d)",
@@ -653,12 +761,14 @@ func TestV4PoolCreationFromPositionManager(t *testing.T) {
 			// data: tickLower(int24), tickUpper(int24), liquidityDelta(int256), salt(bytes32)
 			action := "modify"
 			if len(lg.Data) >= 96 {
-				delta := new(big.Int).SetBytes(lg.Data[64:96])
 				// int256 sign: top bit of first byte
 				if lg.Data[64]&0x80 != 0 {
 					action = "remove"
-				} else if delta.Sign() > 0 {
-					action = "add"
+				} else {
+					delta := new(big.Int).SetBytes(lg.Data[64:96])
+					if delta.Sign() > 0 {
+						action = "add"
+					}
 				}
 			}
 			t.Logf("    [%d] block=%d  action=%s  sender=%s  tx=%s",

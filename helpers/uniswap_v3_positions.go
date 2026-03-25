@@ -293,7 +293,7 @@ func v4OwnerOf(ctx context.Context, client *ethclient.Client, tokenId *big.Int) 
 //   Slot 6 (bytes 192–223): feeGrowthInside0LastX128 (uint256, skipped)
 //   Slot 7 (bytes 224–255): feeGrowthInside1LastX128 (uint256, skipped)
 
-func v4FetchPosition(ctx context.Context, client *ethclient.Client, tokenId *big.Int) (LiquidityPosition, error) {
+func v4FetchPosition(ctx context.Context, client *ethclient.Client, tokenId *big.Int, blockNumber ...*big.Int) (LiquidityPosition, error) {
 	var pos LiquidityPosition
 	pos.TokenID = tokenId
 
@@ -303,7 +303,11 @@ func v4FetchPosition(ctx context.Context, client *ethclient.Client, tokenId *big
 	idBytes := tokenId.Bytes()
 	copy(data[36-len(idBytes):36], idBytes)
 
-	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &v4NftPositionManager, Data: data}, nil)
+	var atBlock *big.Int
+	if len(blockNumber) > 0 {
+		atBlock = blockNumber[0]
+	}
+	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &v4NftPositionManager, Data: data}, atBlock)
 	if err != nil {
 		return pos, err
 	}
