@@ -2,13 +2,16 @@ package uniswap
 
 import (
 	"charm-wallet-tui/helpers"
+	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
 	"fmt"
 	"math"
 	"math/big"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // TokenOption represents a token available for swapping
@@ -487,6 +490,164 @@ func liquidityFormatPrice(price float64) string {
 		return fmt.Sprintf("%.2f", price)
 	default:
 		return fmt.Sprintf("%.4f", price)
+	}
+}
+
+// v4scrollbarTrack builds a vertical scrollbar track (one char per visible line).
+// Returns nil when there is nothing to scroll.
+func v4scrollbarTrack(vpHeight, totalLines, yOffset int) []string {
+	if totalLines <= vpHeight || vpHeight <= 0 {
+		return nil
+	}
+	thumbSize := vpHeight * vpHeight / totalLines
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
+	maxOffset := totalLines - vpHeight
+	thumbTop := 0
+	if maxOffset > 0 {
+		thumbTop = (yOffset * (vpHeight - thumbSize)) / maxOffset
+	}
+	track := make([]string, vpHeight)
+	for i := range track {
+		if i >= thumbTop && i < thumbTop+thumbSize {
+			track[i] = "█"
+		} else {
+			track[i] = "░"
+		}
+	}
+	return track
+}
+
+// V4EventsContent builds the scrollable body string (pool cards) for the V4 Events panel.
+// width is the outer panel width; the content is sized to fit inside it.
+func V4EventsContent(width int, pools []store.PoolRow) string {
+	containerWidth := helpers.Min(width-2, 120)
+
+	if len(pools) == 0 {
+		return lipgloss.NewStyle().
+			Foreground(styles.CMuted).
+			Align(lipgloss.Center).
+			Width(containerWidth).
+			Render("Listening for V4 pool events…")
+	}
+
+	labelStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+	accentStyle := lipgloss.NewStyle().Foreground(styles.CAccent)
+	accent2Style := lipgloss.NewStyle().Foreground(styles.CAccent2)
+	boldStyle := lipgloss.NewStyle().Foreground(styles.CText).Bold(true)
+	warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn)
+	cardWidth := containerWidth - 4
+	card := styles.CardNormal.Width(cardWidth)
+
+	var cards []string
+	for _, r := range pools {
+		poolLink := helpers.HyperPoolID(common.HexToHash(r.PoolID))
+
+		tok0Sym := r.Token0Sym
+		if tok0Sym == "" {
+			tok0Sym = helpers.ShortenAddr(r.Currency0)
+		}
+		tok1Sym := r.Token1Sym
+		if tok1Sym == "" {
+			tok1Sym = helpers.ShortenAddr(r.Currency1)
+		}
+
+		pair := boldStyle.Render(tok0Sym) + labelStyle.Render(" / ") + accent2Style.Render(tok1Sym)
+		feeStr := fmt.Sprintf("%.4f%%", float64(r.Fee)/10000.0)
+
+		headerLine := pair +
+			"   " + labelStyle.Render("fee:") + " " + accentStyle.Render(feeStr) +
+			"   " + labelStyle.Render("swaps:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Swaps)) +
+			"   " + labelStyle.Render("liq events:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.LiqEvents))
+
+		tok0Name := r.Token0Name
+		if tok0Name == "" {
+			tok0Name = labelStyle.Render("(unknown)")
+		} else {
+			tok0Name = labelStyle.Render(tok0Name)
+		}
+		tok1Name := r.Token1Name
+		if tok1Name == "" {
+			tok1Name = labelStyle.Render("(unknown)")
+		} else {
+			tok1Name = labelStyle.Render(tok1Name)
+		}
+
+		tok0Line := labelStyle.Render("Token0: ") +
+			accentStyle.Render(tok0Sym) + "  " + tok0Name +
+			"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency0))) +
+			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(r.SwapVolume0))
+
+		tok1Line := labelStyle.Render("Token1: ") +
+			accent2Style.Render(tok1Sym) + "  " + tok1Name +
+			"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency1))) +
+			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(r.SwapVolume1))
+
+		metaLine := labelStyle.Render("liq vol:") + " " + accentStyle.Render(v4FormatVolume(r.LiqVolume)) +
+			"   " + labelStyle.Render("pool:") + " " + poolLink +
+			"   " + labelStyle.Render("seen:") + " " + labelStyle.Render(r.SeenAt)
+
+		content := headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine
+		cards = append(cards, card.Render(content))
+	}
+	return strings.Join(cards, "\n")
+}
+
+// RenderV4Events renders the V4 Events panel shown when the Pool Event Monitor is active.
+// vp must have its content pre-set via V4EventsContent; width/height are the available dimensions.
+func RenderV4Events(width, height int, vp viewport.Model) string {
+	containerWidth := helpers.Min(width-2, 120)
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(containerWidth)
+	title := titleStyle.Render("🦄 Uniswap V4 Events")
+
+	infoText := lipgloss.NewStyle().
+		Foreground(styles.CMuted).
+		Width(containerWidth).
+		Align(lipgloss.Center).
+		Render("click pool ID → pool info   click address → Etherscan   ↑↓/PgUp/PgDn to scroll")
+
+	// Reserve lines for title (1), blank (1), info (1), blank (1) = 4 lines overhead.
+	vpHeight := helpers.Max(1, height-4)
+	vp.Height = vpHeight
+
+	vpContent := vp.View()
+	track := v4scrollbarTrack(vpHeight, vp.TotalLineCount(), vp.YOffset)
+	if len(track) > 0 {
+		trackStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+		vpLines := strings.Split(vpContent, "\n")
+		for i := range vpLines {
+			if i < len(track) {
+				vpLines[i] = vpLines[i] + " " + trackStyle.Render(track[i])
+			}
+		}
+		vpContent = strings.Join(vpLines, "\n")
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", vpContent, "", infoText)
+	return lipgloss.NewStyle().Width(width).Render(content)
+}
+
+// v4FormatVolume formats a raw token volume (float64) with K/M/B suffixes.
+func v4FormatVolume(v float64) string {
+	switch {
+	case v == 0:
+		return "0"
+	case v >= 1e12:
+		return fmt.Sprintf("%.2fT", v/1e12)
+	case v >= 1e9:
+		return fmt.Sprintf("%.2fB", v/1e9)
+	case v >= 1e6:
+		return fmt.Sprintf("%.2fM", v/1e6)
+	case v >= 1e3:
+		return fmt.Sprintf("%.2fK", v/1e3)
+	default:
+		return fmt.Sprintf("%.2f", v)
 	}
 }
 

@@ -40,6 +40,14 @@ func HyperTxHash(h common.Hash) string {
 	return ansi.SetHyperlink("https://etherscan.io/tx/"+h.Hex()) + display + ansi.ResetHyperlink()
 }
 
+// HyperPoolID returns a FadeString-coloured shortened pool ID hyperlinked to the
+// pool info popup via the poolinfo:// scheme (intercepted by the TUI click handler).
+func HyperPoolID(h common.Hash) string {
+	short := h.Hex()[:10] + "…" + h.Hex()[len(h.Hex())-6:]
+	display := FadeString(short, "#7EE787", "#82CFFD")
+	return ansi.SetHyperlink("poolinfo://"+h.Hex()) + display + ansi.ResetHyperlink()
+}
+
 // IsValidEthAddress checks if a string is a valid Ethereum address
 func IsValidEthAddress(s string) bool {
 	re := regexp.MustCompile("^0x[0-9a-fA-F]{40}$")

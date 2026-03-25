@@ -385,3 +385,67 @@ func (s *Store) LatestBlock() (uint64, error) {
 	}
 	return uint64(b.Int64), nil
 }
+
+// PoolRow holds the aggregated result of the V4 pools stats query.
+type PoolRow struct {
+	PoolID      string
+	Token0Sym   string
+	Token0Name  string
+	Currency0   string
+	SwapVolume0 float64
+	Token1Sym   string
+	Token1Name  string
+	Currency1   string
+	SwapVolume1 float64
+	Fee         int64
+	Swaps       int64
+	LiqEvents   int64
+	LiqVolume   float64
+	SeenAt      string
+}
+
+// V4PoolStats returns all indexed pools with aggregated swap and liquidity metrics,
+// ordered by swap count descending.
+func (s *Store) V4PoolStats() ([]PoolRow, error) {
+	rows, err := s.db.Query(`
+		SELECT
+			p.pool_id,
+			COALESCE(t0.symbol, '') AS token0, COALESCE(t0.name, '') AS name0,
+			p.currency0 AS name0_address,
+			COALESCE(SUM(ABS(s.amount0)), 0) AS swap_volume0,
+			COALESCE(t1.symbol, '') AS token1, COALESCE(t1.name, '') AS name1,
+			p.currency1 AS name1_address,
+			COALESCE(SUM(ABS(s.amount1)), 0) AS swap_volume1,
+			p.fee,
+			COUNT(DISTINCT s.id)  AS swaps,
+			COUNT(DISTINCT ml.id) AS liq_events,
+			COALESCE(SUM(ABS(ml.liq_delta)), 0) AS liq_volume,
+			p.seen_at
+		FROM v4_pools p
+		LEFT JOIN erc20_tokens        t0 ON t0.address = p.currency0
+		LEFT JOIN erc20_tokens        t1 ON t1.address = p.currency1
+		LEFT JOIN v4_swaps            s  ON s.pool_id  = p.pool_id
+		LEFT JOIN v4_modify_liquidity ml ON ml.pool_id = p.pool_id
+		GROUP BY p.pool_id
+		ORDER BY p.seen_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []PoolRow
+	for rows.Next() {
+		var r PoolRow
+		if err := rows.Scan(
+			&r.PoolID,
+			&r.Token0Sym, &r.Token0Name, &r.Currency0, &r.SwapVolume0,
+			&r.Token1Sym, &r.Token1Name, &r.Currency1, &r.SwapVolume1,
+			&r.Fee, &r.Swaps, &r.LiqEvents, &r.LiqVolume,
+			&r.SeenAt,
+		); err != nil {
+			continue
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}

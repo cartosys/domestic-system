@@ -199,6 +199,10 @@ type model struct {
 	eventStore    *store.Store
 	eventStoreErr string // set if store failed to open
 
+	// V4 Events panel (shown when pool event monitor is active)
+	v4PoolRows     []store.PoolRow
+	v4EventsViewport viewport.Model
+
 	// Pool Info popup state
 	poolInfoLoading    bool
 	poolInfoID         string
@@ -343,6 +347,12 @@ func newModel() model {
 		Foreground(styles.CText).
 		Background(styles.CPanel)
 
+	// Initialize V4 events viewport
+	v4vp := viewport.New(0, 20) // Will be resized on first WindowSizeMsg
+	v4vp.Style = lipgloss.NewStyle().
+		Foreground(styles.CText).
+		Background(styles.CPanel)
+
 	// Initialize log spinner
 	logSpin := spinner.New()
 	logSpin.Spinner = spinner.Dot
@@ -367,6 +377,7 @@ func newModel() model {
 		configPath:         configPath,
 		logEnabled:         cfg.Logger,
 		logViewport:        vp,
+		v4EventsViewport:   v4vp,
 		logBuffer:          &strings.Builder{},
 		logSpinner:         logSpin,
 		detailsCache:       make(map[string]config.WalletDetails),

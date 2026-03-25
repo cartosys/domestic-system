@@ -131,15 +131,18 @@ Potential improvements:
   └─────────────────────┴──────────────────┴────────────────────┴────────────────────────────────────────────────────────┘           
 
   sqlite3 ~/.charm-wallet-events.db "
-  SELECT
+  SELECT 
     p.pool_id,
     t0.symbol AS token0, t0.name AS name0,
     p.currency0 as name0_address,
+    SUM(ABS(s.amount0)) AS swap_volume0,
     t1.symbol AS token1, t1.name AS name1,
     p.currency1 as name1_address,
+    SUM(ABS(s.amount1)) AS swap_volume1,
     p.fee,
     COUNT(DISTINCT s.id)  AS swaps,
-    COUNT(DISTINCT ml.id) AS liq_events,
+    COUNT(DISTINCT ml.id) AS liq _events,
+    SUM(ABS(ml.liq_delta)) AS liq_volume,
     p.seen_at
   FROM v4_pools p
   LEFT JOIN erc20_tokens        t0 ON t0.address = p.currency0

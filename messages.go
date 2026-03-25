@@ -7,6 +7,7 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
+	"charm-wallet-tui/store"
 )
 
 // -------------------- TEA MESSAGES --------------------
@@ -150,4 +151,9 @@ type liquidityPositionsMsg struct {
 	nftCount    uint64    // total NFTs reported by balanceOf before filtering
 	diagnostics []string  // per-step diagnostic lines for the logger
 	err         error
+}
+
+// v4PoolTableMsg carries a freshly-queried snapshot of indexed V4 pools for the events panel
+type v4PoolTableMsg struct {
+	rows []store.PoolRow
 }

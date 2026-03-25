@@ -9,6 +9,7 @@ import (
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
+	uniswap "charm-wallet-tui/views/uniswap"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -122,6 +123,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// V4 events viewport width (scrollbar takes 2 cols, border takes 2)
+		m.v4EventsViewport.Width = max(0, msg.Width-6)
+
 		return m, nil
 
 	case spinner.TickMsg:
@@ -215,8 +219,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.eventStore != nil && ev.Kind == indexer.V4KindInitialize {
 			cmds = append(cmds, indexERC20TokensCmd(m.eventStore, m.rpcURL, ev.Currency0, ev.Currency1))
+			cmds = append(cmds, loadV4PoolTableCmd(m.eventStore))
 		}
 		return m, tea.Batch(cmds...)
+
+	case v4PoolTableMsg:
+		m.v4PoolRows = msg.rows
+		m.v4EventsViewport.SetContent(uniswap.V4EventsContent(m.w-2, msg.rows))
+		return m, nil
 
 	case poolEventMonitorStoppedMsg:
 		wasActive := m.poolEventMonitorActive
@@ -508,7 +518,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(startCmds...)
 
-			case "pageup", "pagedown":
+			case "pageup", "pagedown", "up", "down":
+				// V4 Events panel scroll takes priority when active
+				if m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity {
+					var cmd tea.Cmd
+					m.v4EventsViewport, cmd = m.v4EventsViewport.Update(msg)
+					return m, cmd
+				}
 				// Allow scrolling in log viewport when enabled
 				if m.logEnabled && m.logReady {
 					var cmd tea.Cmd
@@ -556,6 +572,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+
+		// Route mouse wheel to V4 events panel when it is visible.
+		if m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity &&
+			(msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown) {
+			var cmd tea.Cmd
+			m.v4EventsViewport, cmd = m.v4EventsViewport.Update(msg)
+			return m, cmd
 		}
 
 		// Route mouse wheel events to the log viewport.

@@ -520,6 +520,11 @@ func (m *model) View() string {
 			)
 			pageContent = panelStyle.Width(m.contentW).Render(liquidityView)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
+		} else if m.poolEventMonitorActive {
+			// Pool event monitor is active — show the V4 Events panel
+			v4View := uniswap.RenderV4Events(m.w-2, m.h-8, m.v4EventsViewport)
+			pageContent = panelStyle.Width(m.contentW).Render(v4View)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
 		} else {
 			// Render main swap interface
 			uniswapView := uniswap.Render(

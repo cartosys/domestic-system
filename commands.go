@@ -561,6 +561,20 @@ func waitForV4BlockScanLine(scanner *helpers.V4BlockScanner) tea.Cmd {
 	}
 }
 
+// loadV4PoolTableCmd queries all indexed V4 pools with aggregated stats and returns a v4PoolTableMsg.
+func loadV4PoolTableCmd(s *store.Store) tea.Cmd {
+	return func() tea.Msg {
+		if s == nil {
+			return v4PoolTableMsg{}
+		}
+		rows, err := s.V4PoolStats()
+		if err != nil {
+			return v4PoolTableMsg{}
+		}
+		return v4PoolTableMsg{rows: rows}
+	}
+}
+
 // waitForPoolEventData blocks until the next structured V4PoolEvent arrives from the monitor.
 // Returns poolMonitorEventMsg, or poolEventMonitorStoppedMsg when the channel is closed.
 func waitForPoolEventData(monitor *helpers.PoolEventMonitor) tea.Cmd {
