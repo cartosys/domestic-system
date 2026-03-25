@@ -523,7 +523,11 @@ func (m *model) View() string {
 		} else if m.poolEventMonitorActive {
 			// Pool event monitor is active — show the V4 Events panel
 			v4View := uniswap.RenderV4Events(m.w-2, m.h-8, m.v4EventsViewport)
-			pageContent = panelStyle.Width(m.contentW).Render(v4View)
+			v4BorderColor := styles.CBorder
+			if m.focusedPanel == focusedPanelV4Events {
+				v4BorderColor = styles.CAccent
+			}
+			pageContent = panelStyle.BorderForeground(v4BorderColor).Width(m.contentW).Render(v4View)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
 		} else {
 			// Render main swap interface
@@ -594,7 +598,9 @@ func (m *model) View() string {
 		viewportHeight := helpers.Max(3, m.h-usedHeight-4)
 		m.logViewport.Height = viewportHeight
 
-		logPanel = logview.Render(m.w, viewportHeight, m.logReady, m.logSpinner.View(), m.logViewport)
+		logFocused := m.poolEventMonitorActive && !m.uniswapShowingLiquidity && m.activePage == config.PageUniswap &&
+			m.focusedPanel == focusedPanelLog
+		logPanel = logview.Render(m.w, viewportHeight, m.logReady, m.logSpinner.View(), m.logViewport, logFocused)
 		// Record where the log viewport content rows start (used for click-to-open-URL).
 		// Layout: top border(1) + title(1) + blank(1) = 3 rows into the log panel.
 		m.logPanelTop = lipgloss.Height(headerPanel) + lipgloss.Height(pageContent) + lipgloss.Height(nav) + 3

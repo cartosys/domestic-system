@@ -44,7 +44,7 @@ func scrollbarTrack(vpHeight, totalLines, yOffset int) []string {
 // Render renders the log panel.
 // viewportHeight is the number of content lines the viewport should display;
 // the caller is responsible for computing this from available screen space.
-func Render(width, viewportHeight int, logReady bool, logSpinnerView string, vp viewport.Model) string {
+func Render(width, viewportHeight int, logReady bool, logSpinnerView string, vp viewport.Model, focused bool) string {
 	title := lipgloss.NewStyle().
 		Foreground(styles.CAccent2).
 		Bold(true).
@@ -55,9 +55,13 @@ func Render(width, viewportHeight int, logReady bool, logSpinnerView string, vp 
 	// Update viewport height dynamically
 	vp.Height = logPanelHeight
 
+	borderColor := styles.CBorder
+	if focused {
+		borderColor = styles.CAccent
+	}
 	border := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.CBorder).
+		BorderForeground(borderColor).
 		Padding(0, 1).
 		Width(helpers.Max(0, width-2)).
 		Height(logPanelHeight + 2) // +2 for title and spacing

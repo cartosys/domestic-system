@@ -519,16 +519,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(startCmds...)
 
 			case "pageup", "pagedown", "up", "down":
-				// V4 Events panel scroll takes priority when active
-				if m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity {
-					var cmd tea.Cmd
-					m.v4EventsViewport, cmd = m.v4EventsViewport.Update(msg)
-					return m, cmd
-				}
-				// Allow scrolling in log viewport when enabled
-				if m.logEnabled && m.logReady {
-					var cmd tea.Cmd
+				v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
+				bothVisible := v4Visible && m.logEnabled && m.logReady
+				var cmd tea.Cmd
+				switch {
+				case bothVisible && m.focusedPanel == focusedPanelLog:
 					m.logViewport, cmd = m.logViewport.Update(msg)
+				case v4Visible:
+					m.v4EventsViewport, cmd = m.v4EventsViewport.Update(msg)
+				case m.logEnabled && m.logReady:
+					m.logViewport, cmd = m.logViewport.Update(msg)
+				}
+				if cmd != nil {
 					return m, cmd
 				}
 			}
@@ -574,19 +576,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Route mouse wheel to V4 events panel when it is visible.
-		if m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity &&
-			(msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown) {
+		// Route mouse wheel events to the focused panel.
+		if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown {
+			v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
+			bothVisible := v4Visible && m.logEnabled && m.logReady
 			var cmd tea.Cmd
-			m.v4EventsViewport, cmd = m.v4EventsViewport.Update(msg)
-			return m, cmd
-		}
-
-		// Route mouse wheel events to the log viewport.
-		if m.logEnabled && m.logReady && (msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown) {
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			return m, cmd
+			switch {
+			case bothVisible && m.focusedPanel == focusedPanelLog:
+				m.logViewport, cmd = m.logViewport.Update(msg)
+			case v4Visible:
+				m.v4EventsViewport, cmd = m.v4EventsViewport.Update(msg)
+			case m.logEnabled && m.logReady:
+				m.logViewport, cmd = m.logViewport.Update(msg)
+			}
+			if cmd != nil {
+				return m, cmd
+			}
 		}
 
 		// Scrollbar drag: release ends drag regardless of position.
@@ -602,6 +607,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.Type == tea.MouseLeft {
+			// Panel focus: when both V4 events and log panels are visible, set focus
+			// based on which region was clicked. Does not consume the click.
+			if m.activePage == config.PageUniswap && m.poolEventMonitorActive &&
+				!m.uniswapShowingLiquidity && m.logEnabled && m.logPanelTop > 3 {
+				if msg.Y >= m.logPanelTop-3 {
+					m.focusedPanel = focusedPanelLog
+				} else {
+					m.focusedPanel = focusedPanelV4Events
+				}
+			}
+
 			// Scrollbar click: detect click near the scrollbar column and start dragging.
 			// ±1 tolerance accounts for terminal/lipgloss coordinate rounding.
 			if m.logEnabled && m.logReady && m.logPanelTop > 0 {

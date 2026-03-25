@@ -338,6 +338,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			monitor.Start(m.rpcURL)
 			m.poolEventMonitor = monitor
 			m.poolEventMonitorActive = true
+			m.focusedPanel = focusedPanelV4Events
 			m.addLog("info", "Pool Event Monitor starting… (requires wss:// RPC endpoint)")
 			var startCmds []tea.Cmd
 			startCmds = append(startCmds, waitForPoolEvent(monitor), waitForPoolEventData(monitor))

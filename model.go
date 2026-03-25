@@ -25,6 +25,14 @@ import (
 
 // -------------------- MODEL --------------------
 
+// focusedPanelKind identifies which scrollable panel (if any) currently has keyboard/wheel focus.
+type focusedPanelKind uint8
+
+const (
+	focusedPanelV4Events focusedPanelKind = iota
+	focusedPanelLog
+)
+
 // dialogKind identifies which overlay dialog (if any) is currently visible.
 // Only one dialog can be shown at a time.
 type dialogKind uint8
@@ -200,8 +208,9 @@ type model struct {
 	eventStoreErr string // set if store failed to open
 
 	// V4 Events panel (shown when pool event monitor is active)
-	v4PoolRows     []store.PoolRow
+	v4PoolRows       []store.PoolRow
 	v4EventsViewport viewport.Model
+	focusedPanel     focusedPanelKind // which panel (V4 events or log) has scroll focus
 
 	// Pool Info popup state
 	poolInfoLoading    bool
