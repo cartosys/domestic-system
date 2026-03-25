@@ -601,9 +601,11 @@ func (m *model) View() string {
 		logFocused := m.poolEventMonitorActive && !m.uniswapShowingLiquidity && m.activePage == config.PageUniswap &&
 			m.focusedPanel == focusedPanelLog
 		logPanel = logview.Render(m.w, viewportHeight, m.logReady, m.logSpinner.View(), m.logViewport, logFocused)
-		// Record where the log viewport content rows start (used for click-to-open-URL).
-		// Layout: top border(1) + title(1) + blank(1) = 3 rows into the log panel.
-		m.logPanelTop = lipgloss.Height(headerPanel) + lipgloss.Height(pageContent) + lipgloss.Height(nav) + 3
+		// Compute the on-screen Y of the log content start from the bottom of the terminal.
+		// Using lipgloss.Height(logPanel) is robust when the content above overflows m.h
+		// (the terminal shows the bottom m.h rows, so log border top = m.h - height(logPanel)).
+		// +3 accounts for top border(1) + title(1) + blank line(1).
+		m.logPanelTop = (m.h - lipgloss.Height(logPanel)) + 3
 		content := lipgloss.JoinVertical(lipgloss.Left, headerPanel, pageContent, nav, logPanel)
 		baseView := appStyle.Render(content)
 
