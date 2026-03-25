@@ -181,6 +181,21 @@ func copyToClipboard(text string) tea.Cmd {
 	}
 }
 
+// indexERC20TokensCmd looks up name/symbol/decimals for each address via eth_call
+// and stores the results in the erc20_tokens table. Addresses already in the
+// table are skipped. Fires erc20TokenIndexedMsg when done (errors are silently
+// swallowed so a non-standard token never breaks the caller's flow).
+func indexERC20TokensCmd(s *store.Store, rpcURL string, addrs ...common.Address) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		for _, addr := range addrs {
+			_ = s.EnsureERC20Token(ctx, rpcURL, addr)
+		}
+		return erc20TokenIndexedMsg{}
+	}
+}
+
 // copyPoolIDToClipboard copies a V4 pool ID to the clipboard and signals the Pool Info popup.
 func copyPoolIDToClipboard(poolID string) tea.Cmd {
 	return func() tea.Msg {

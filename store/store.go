@@ -12,6 +12,15 @@ import (
 
 // baseSchema creates tables that exist in every schema version.
 const baseSchema = `
+CREATE TABLE IF NOT EXISTS erc20_tokens (
+	address  TEXT    NOT NULL PRIMARY KEY,
+	name     TEXT    NOT NULL DEFAULT '',
+	symbol   TEXT    NOT NULL DEFAULT '',
+	decimals INTEGER NOT NULL DEFAULT 0,
+	seen_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_erc20_symbol ON erc20_tokens(symbol);
+
 CREATE TABLE IF NOT EXISTS indexed_events (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
 	block      INTEGER NOT NULL,

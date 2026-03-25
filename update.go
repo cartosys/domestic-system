@@ -203,15 +203,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case poolMonitorEventMsg:
+		ev := msg.event
 		if m.eventStore != nil {
-			if err := m.eventStore.SaveV4PoolEvent(msg.event); err != nil {
+			if err := m.eventStore.SaveV4PoolEvent(ev); err != nil {
 				m.addLog("warn", fmt.Sprintf("[pool-monitor] db write error: %s", err.Error()))
 			}
 		}
+		var cmds []tea.Cmd
 		if m.poolEventMonitorActive && m.poolEventMonitor != nil {
-			return m, waitForPoolEventData(m.poolEventMonitor)
+			cmds = append(cmds, waitForPoolEventData(m.poolEventMonitor))
 		}
-		return m, nil
+		if m.eventStore != nil && ev.Kind == indexer.V4KindInitialize {
+			cmds = append(cmds, indexERC20TokensCmd(m.eventStore, m.rpcURL, ev.Currency0, ev.Currency1))
+		}
+		return m, tea.Batch(cmds...)
 
 	case poolEventMonitorStoppedMsg:
 		wasActive := m.poolEventMonitorActive
@@ -262,6 +267,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case erc20TokenIndexedMsg:
+		return m, nil
+
 	case v4PoolEventMsg:
 		ev := msg.event
 		if m.eventStore != nil {
@@ -270,10 +278,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.logV4PoolEvent(ev)
+		var cmds []tea.Cmd
 		if m.txIndexerActive && m.txIndexer != nil {
-			return m, waitForV4PoolEvent(m.txIndexer)
+			cmds = append(cmds, waitForV4PoolEvent(m.txIndexer))
 		}
-		return m, nil
+		if m.eventStore != nil && ev.Kind == indexer.V4KindInitialize {
+			cmds = append(cmds, indexERC20TokensCmd(m.eventStore, m.rpcURL, ev.Currency0, ev.Currency1))
+		}
+		return m, tea.Batch(cmds...)
 
 	case v4PoolIndexerStoppedMsg:
 		return m, nil

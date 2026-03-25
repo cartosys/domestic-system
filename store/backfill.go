@@ -70,6 +70,7 @@ func (s *Store) IndexV4Backfill(ctx context.Context, httpURL string, fromBlock, 
 			}
 
 			// Save Initialize events first so pool rows exist before FK-referencing rows.
+			// Also look up ERC-20 metadata for both currencies while the client is open.
 			saved := 0
 			for _, ev := range events {
 				if ev.Kind == indexer.V4KindInitialize {
@@ -78,6 +79,8 @@ func (s *Store) IndexV4Backfill(ctx context.Context, httpURL string, fromBlock, 
 					} else {
 						saved++
 					}
+					_ = s.EnsureERC20TokenWithClient(ctx, client, ev.Currency0)
+					_ = s.EnsureERC20TokenWithClient(ctx, client, ev.Currency1)
 				}
 			}
 			for _, ev := range events {

@@ -21,6 +21,9 @@ type txJsonCopiedMsg struct{}
 // poolIDCopiedMsg indicates the pool ID was copied to clipboard from the Pool Info popup
 type poolIDCopiedMsg struct{}
 
+// erc20TokenIndexedMsg signals that one or more ERC-20 token lookups completed
+type erc20TokenIndexedMsg struct{}
+
 // ensLookupResultMsg contains result of reverse ENS lookup (address -> name)
 type ensLookupResultMsg struct {
 	address   string

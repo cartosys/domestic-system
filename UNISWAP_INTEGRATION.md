@@ -131,12 +131,23 @@ Potential improvements:
   └─────────────────────┴──────────────────┴────────────────────┴────────────────────────────────────────────────────────┘           
 
   sqlite3 ~/.charm-wallet-events.db "
-  SELECT block, tx_hash, 'swap'       AS kind, sender AS actor, amount0, amount1, NULL AS extra                                                                                                                    
-  FROM v4_swaps WHERE pool_id = '0xYOUR_POOL_ID'                                                                                                                                                           UNION ALL                             
-  SELECT block, tx_hash, 'modify_liq' AS kind, sender, liq_delta, NULL,        salt AS extra                                                                                                                       
-  FROM v4_modify_liquidity WHERE pool_id = '0xYOUR_POOL_ID'
-  UNION ALL                                              
-  SELECT block, tx_hash, 'transfer'   AS kind, from_addr, amount, NULL,        to_addr AS extra                                                                                                                    
-  FROM v4_transfers WHERE token_id = '0xYOUR_POOL_ID'
-  ORDER BY block ASC, tx_hash ASC;               
+  SELECT
+    p.pool_id,
+    t0.symbol AS token0, t0.name AS name0,
+    p.currency0 as name0_address,
+    t1.symbol AS token1, t1.name AS name1,
+    p.currency1 as name1_address,
+    p.fee,
+    COUNT(DISTINCT s.id)  AS swaps,
+    COUNT(DISTINCT ml.id) AS liq_events,
+    p.seen_at
+  FROM v4_pools p
+  LEFT JOIN erc20_tokens        t0 ON t0.address = p.currency0
+  LEFT JOIN erc20_tokens        t1 ON t1.address = p.currency1
+  LEFT JOIN v4_swaps            s  ON s.pool_id  = p.pool_id
+  LEFT JOIN v4_modify_liquidity ml ON ml.pool_id = p.pool_id
+  GROUP BY p.pool_id
+  ORDER BY swaps DESC;
   "
+
+or use rindexer ;) https://rindexer.xyz/
