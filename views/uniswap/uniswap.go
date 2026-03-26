@@ -26,7 +26,7 @@ type TokenOption struct {
 // poolMonitorActive controls the color of the pool event monitor hotkey.
 // liquidityActive controls the color of the liquidity hotkey.
 // blockScanActive controls the color of the block scan hotkey.
-func Nav(width int, poolMonitorActive, liquidityActive, indexerActive, blockScanActive bool) string {
+func Nav(width int, poolMonitorActive, liquidityActive, blockScanActive bool) string {
 	var pItem string
 	if poolMonitorActive {
 		pKey := lipgloss.NewStyle().Foreground(styles.CError).Bold(true).Render("p")
@@ -45,15 +45,6 @@ func Nav(width int, poolMonitorActive, liquidityActive, indexerActive, blockScan
 		qItem = styles.Key("q") + " liquidity positions"
 	}
 
-	var iItem string
-	if indexerActive {
-		iKey := lipgloss.NewStyle().Foreground(styles.CAccent).Bold(true).Render("i")
-		iLabel := lipgloss.NewStyle().Foreground(styles.CAccent).Render("indexer")
-		iItem = iKey + " " + iLabel
-	} else {
-		iItem = styles.Key("i") + " indexer"
-	}
-
 	var bItem string
 	if blockScanActive {
 		bKey := lipgloss.NewStyle().Foreground(styles.CAccent).Bold(true).Render("b")
@@ -65,13 +56,8 @@ func Nav(width int, poolMonitorActive, liquidityActive, indexerActive, blockScan
 
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " navigate",
-		styles.Key("Tab") + " next",
-		styles.Key("Shift+Tab") + " prev",
 		styles.Key("m") + " max",
-		styles.Key("Enter") + " select/swap",
-		styles.Key("Esc") + " back",
 		styles.Key("l") + " logger",
-		iItem,
 		pItem,
 		qItem,
 		bItem,

@@ -507,7 +507,7 @@ func (m *model) View() string {
 				m.uniswapSelectorFor == 0,
 			)
 			pageContent = uniswapView
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
 		} else if m.uniswapShowingLiquidity {
 			liquidityView := uniswap.RenderLiquidity(
 				m.w-2,
@@ -519,7 +519,7 @@ func (m *model) View() string {
 				m.spin.View(),
 			)
 			pageContent = panelStyle.Width(m.contentW).Render(liquidityView)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
 		} else if m.poolEventMonitorActive {
 			// Pool event monitor is active — show the V4 Events panel capped at 50% window height.
 			// panelStyle adds 4 vertical lines (border+padding); RenderV4Events overhead is 4 more.
@@ -530,7 +530,7 @@ func (m *model) View() string {
 				v4BorderColor = styles.CAccent
 			}
 			pageContent = panelStyle.BorderForeground(v4BorderColor).Width(m.contentW).Render(v4View)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
 		} else {
 			// Render main swap interface
 			uniswapView := uniswap.Render(
@@ -547,7 +547,7 @@ func (m *model) View() string {
 			)
 			// Wrap in panel style to constrain properly
 			pageContent = panelStyle.Width(m.contentW).Render(uniswapView)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
+			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
 		}
 
 		// Show pool info popup overlay if active
