@@ -521,8 +521,10 @@ func (m *model) View() string {
 			pageContent = panelStyle.Width(m.contentW).Render(liquidityView)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.txIndexerActive, m.v4BlockScanActive)
 		} else if m.poolEventMonitorActive {
-			// Pool event monitor is active — show the V4 Events panel
-			v4View := uniswap.RenderV4Events(m.w-2, m.h-8, m.v4EventsViewport)
+			// Pool event monitor is active — show the V4 Events panel capped at 50% window height.
+			// panelStyle adds 4 vertical lines (border+padding); RenderV4Events overhead is 4 more.
+			// Passing (m.h/2 - 4) yields an outer panel height of exactly m.h/2.
+			v4View := uniswap.RenderV4Events(m.w-2, helpers.Max(1, m.h/2-4), m.v4EventsViewport)
 			v4BorderColor := styles.CBorder
 			if m.focusedPanel == focusedPanelV4Events {
 				v4BorderColor = styles.CAccent
