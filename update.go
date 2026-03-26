@@ -123,8 +123,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// V4 events viewport width (scrollbar takes 2 cols, border takes 2)
-		m.v4EventsViewport.Width = max(0, msg.Width-6)
+		// V4 events viewport width: panelStyle wraps at Width-(leftPad+rightPad) = (w-2)-4 = w-6.
+		// Scrollbar appends 2 chars, so viewport must be w-8 to keep content+scrollbar ≤ w-6.
+		m.v4EventsViewport.Width = max(0, msg.Width-8)
 
 		return m, nil
 
