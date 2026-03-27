@@ -531,6 +531,8 @@ func (m *model) View() string {
 			}
 			pageContent = panelStyle.BorderForeground(v4BorderColor).Width(m.contentW).Render(v4View)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
+			// headerPanel rows + panelStyle overhead (1 border + 1 padding = 2) + title line + blank line = +4
+			m.v4ViewportTop = lipgloss.Height(headerPanel) + 4
 		} else {
 			// Render main swap interface
 			uniswapView := uniswap.Render(

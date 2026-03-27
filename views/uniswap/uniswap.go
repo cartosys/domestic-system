@@ -574,7 +574,10 @@ func V4EventsContent(width int, pools []store.PoolRow) string {
 			"   " + labelStyle.Render("pool:") + " " + poolLink +
 			"   " + labelStyle.Render("seen:") + " " + labelStyle.Render(r.SeenAt)
 
-		content := headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine
+		blockLine := labelStyle.Render("block:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Block)) +
+			"   " + labelStyle.Render("tx:") + " " + helpers.HyperTxHash(common.HexToHash(r.TxHash))
+
+		content := headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine + "\n" + blockLine
 		cards = append(cards, card.Render(content))
 	}
 	return strings.Join(cards, "\n")

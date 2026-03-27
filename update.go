@@ -691,6 +691,39 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// V4 events panel click: detect OSC 8 poolinfo:// hyperlinks in viewport content.
+			// panelStyle X offset: 1 border + 2 padding = 3.  Viewport starts at m.v4ViewportTop.
+			if m.activePage == config.PageUniswap && m.poolEventMonitorActive &&
+				!m.uniswapShowingLiquidity && m.v4ViewportTop > 0 {
+				vpHeight := m.v4EventsViewport.Height
+				if msg.Y >= m.v4ViewportTop && msg.Y < m.v4ViewportTop+vpHeight {
+					viewportLine := msg.Y - m.v4ViewportTop
+					absoluteLine := viewportLine + m.v4EventsViewport.YOffset
+					rawContent := uniswap.V4EventsContent(m.w-2, m.v4PoolRows)
+					lines := strings.Split(rawContent, "\n")
+					if absoluteLine < len(lines) {
+						lineCol := msg.X - 3 // subtract panelStyle: 1 border + 2 padding
+						if url := urlAtCol(lines[absoluteLine], lineCol); url != "" {
+							if strings.HasPrefix(url, "poolinfo://") {
+								poolIDHex := strings.TrimPrefix(url, "poolinfo://")
+								m.activeDialog = dialogPoolInfo
+								m.poolInfoLoading = true
+								m.poolInfoID = poolIDHex
+								m.poolInfoData = nil
+								m.poolInfoErr = ""
+								shortID := poolIDHex
+								if len(shortID) > 16 {
+									shortID = shortID[:10] + "…" + shortID[len(shortID)-6:]
+								}
+								m.addLog("info", fmt.Sprintf("Pool Info: querying pool %s", shortID))
+								return m, fetchPoolInfo(m.rpcURL, poolIDHex)
+							}
+							return m, openInBrowser(url)
+						}
+					}
+				}
+			}
+
 			// Log all clicks for debugging (suppressed during scrollbar drag)
 			if !m.logScrollDragging {
 				m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr='%s', X=%d, Y=%d", msg.X, msg.Y, m.activeAddress, m.headerAddrX, m.headerAddrY))

@@ -211,6 +211,7 @@ type model struct {
 	v4PoolRows       []store.PoolRow
 	v4EventsViewport viewport.Model
 	focusedPanel     focusedPanelKind // which panel (V4 events or log) has scroll focus
+	v4ViewportTop    int              // Y row where V4 events viewport content starts (set each render)
 
 	// Pool Info popup state
 	poolInfoLoading    bool

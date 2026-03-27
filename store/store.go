@@ -389,6 +389,8 @@ func (s *Store) LatestBlock() (uint64, error) {
 // PoolRow holds the aggregated result of the V4 pools stats query.
 type PoolRow struct {
 	PoolID      string
+	Block       uint64
+	TxHash      string
 	Token0Sym   string
 	Token0Name  string
 	Currency0   string
@@ -410,6 +412,8 @@ func (s *Store) V4PoolStats() ([]PoolRow, error) {
 	rows, err := s.db.Query(`
 		SELECT
 			p.pool_id,
+			p.block,
+			p.tx_hash,
 			COALESCE(t0.symbol, '') AS token0, COALESCE(t0.name, '') AS name0,
 			p.currency0 AS name0_address,
 			COALESCE(SUM(ABS(s.amount0)), 0) AS swap_volume0,
@@ -438,6 +442,7 @@ func (s *Store) V4PoolStats() ([]PoolRow, error) {
 		var r PoolRow
 		if err := rows.Scan(
 			&r.PoolID,
+			&r.Block, &r.TxHash,
 			&r.Token0Sym, &r.Token0Name, &r.Currency0, &r.SwapVolume0,
 			&r.Token1Sym, &r.Token1Name, &r.Currency1, &r.SwapVolume1,
 			&r.Fee, &r.Swaps, &r.LiqEvents, &r.LiqVolume,
