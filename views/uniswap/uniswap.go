@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -574,8 +575,13 @@ func V4EventsContent(width int, pools []store.PoolRow) string {
 			"   " + labelStyle.Render("pool:") + " " + poolLink +
 			"   " + labelStyle.Render("seen:") + " " + labelStyle.Render(r.SeenAt)
 
+		txHash := common.HexToHash(r.TxHash)
+		txShort := txHash.Hex()[:10] + "…" + txHash.Hex()[len(txHash.Hex())-6:]
+		txLink := ansi.SetHyperlink("https://etherscan.io/tx/"+txHash.Hex()) +
+			helpers.FadeString(txShort, "#7D5AFC", "#FF87D7") +
+			ansi.ResetHyperlink()
 		blockLine := labelStyle.Render("block:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Block)) +
-			"   " + labelStyle.Render("tx:") + " " + helpers.HyperTxHash(common.HexToHash(r.TxHash))
+			"   " + labelStyle.Render("tx:") + " " + txLink
 
 		content := headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine + "\n" + blockLine
 		cards = append(cards, card.Render(content))
