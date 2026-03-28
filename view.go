@@ -287,53 +287,47 @@ func (m *model) renderPoolInfoPopup() string {
 		keyRow = lipgloss.NewStyle().Foreground(styles.CWarn).Render("⚠ " + m.poolInfoKeyErr)
 	}
 
-	// Button row: [Copy ID]  [OK]
-	// "Copy ID" is 9 visible chars with padding(0,2) = "  Copy ID  " = 11 cols.
-	// "OK" is 2 visible chars with padding(0,3) = "   OK   " = 8 cols.
-	// Gap between buttons: 4 cols.  Total: 11 + 4 + 8 = 23 cols, centred in 68.
-	copyLabel := "Copy ID"
-	if m.poolInfoCopied {
-		copyLabel = "✓ Copied!"
-	}
-	copyButton := lipgloss.NewStyle().
-		Foreground(cAccent2).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(cAccent2).
-		Padding(0, 2).
-		MarginTop(1).
-		Render(copyLabel)
+	// "OK" button centred in 68 cols. ButtonPrimary has Padding(0,3) → 8 cols wide.
+	// Centre offset: (68-8)/2 = 30.
 	okButton := styles.ButtonPrimary.MarginTop(1).Render("OK")
-	gap := lipgloss.NewStyle().Width(4).MarginTop(1).Render("")
-	buttonRow := lipgloss.JoinHorizontal(lipgloss.Top, copyButton, gap, okButton)
-	btnRowCentered := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(buttonRow)
+	btnRowCentered := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(okButton)
+
+	// "Pool ID Copied" confirmation shown above OK button when copy succeeds.
+	var copiedRow string
+	if m.poolInfoCopied {
+		copiedRow = lipgloss.NewStyle().
+			Foreground(styles.CAccent).
+			Align(lipgloss.Center).
+			Width(68).
+			Render("✓ Pool ID Copied")
+	}
 
 	rows := []string{title, poolIDLine, "", body}
 	if keyRow != "" {
 		rows = append(rows, keyRow)
 	}
+	if copiedRow != "" {
+		rows = append(rows, copiedRow)
+	}
 	rows = append(rows, btnRowCentered)
 	ui := lipgloss.JoinVertical(lipgloss.Center, rows...)
 	dialog := dialogBoxStyle.Render(ui)
 
-	// Track button positions for click handling.
-	// Dialog: Width(72) + 2 border = 74 rendered width.
-	// Content area starts 3 cols from dialog left edge (border + padding).
-	// Button row is centred in 68 cols; total row width = 23 cols.
-	// Left offset within 68: (68-23)/2 = 22.
-	// copyButton width = 11 (border+padding+text), okButton width = 8.
+	// Track click areas. Dialog content starts 3 cols from left edge (border+padding).
+	// Pool ID line is at row 3 from dialog top (border+padding+title).
+	// OK button is centred: offset (68-8)/2 = 30 from content left.
 	dialogH := lipgloss.Height(dialog)
 	dialogW := lipgloss.Width(dialog)
 	dialogStartX := (m.w - dialogW) / 2
 	dialogStartY := (m.h - dialogH) / 2
-	btnRowY := dialogStartY + dialogH - 3 // one row above bottom padding+border
 	contentLeft := dialogStartX + 3
-	btnLeft := contentLeft + 22
-	m.poolInfoCopyBtnY = btnRowY
-	m.poolInfoCopyBtnX1 = btnLeft
-	m.poolInfoCopyBtnX2 = btnLeft + 11
+	m.poolInfoIDLineY = dialogStartY + 3
+	m.poolInfoIDLineX1 = contentLeft
+	m.poolInfoIDLineX2 = contentLeft + 68
+	btnRowY := dialogStartY + dialogH - 3 // one row above bottom padding+border
 	m.poolInfoOKBtnY = btnRowY
-	m.poolInfoOKBtnX1 = btnLeft + 11 + 4
-	m.poolInfoOKBtnX2 = btnLeft + 11 + 4 + 8
+	m.poolInfoOKBtnX1 = contentLeft + 30
+	m.poolInfoOKBtnX2 = contentLeft + 30 + 8
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }

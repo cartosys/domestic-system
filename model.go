@@ -220,13 +220,13 @@ type model struct {
 	poolInfoErr        string
 	poolInfoKeyLoading bool
 	poolInfoKeyErr     string
-	poolInfoOKBtnY     int // terminal row of the OK button
-	poolInfoOKBtnX1    int // left column (inclusive)
-	poolInfoOKBtnX2    int // right column (exclusive)
-	poolInfoCopyBtnY   int // terminal row of the Copy ID button
-	poolInfoCopyBtnX1  int
-	poolInfoCopyBtnX2  int
-	poolInfoCopied     bool // true briefly after a successful copy
+	poolInfoOKBtnY   int // terminal row of the OK button
+	poolInfoOKBtnX1  int // left column (inclusive)
+	poolInfoOKBtnX2  int // right column (exclusive)
+	poolInfoIDLineY  int // terminal row of the clickable pool ID line
+	poolInfoIDLineX1 int
+	poolInfoIDLineX2 int
+	poolInfoCopied   bool // true briefly after a successful copy
 
 	// Y row where the log viewport content starts (set each render, used for click handling)
 	logPanelTop int

@@ -569,8 +569,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.poolInfoCopied = false
 					m.poolInfoKeyLoading = false
 					m.poolInfoKeyErr = ""
-				case msg.Y == m.poolInfoCopyBtnY &&
-					msg.X >= m.poolInfoCopyBtnX1 && msg.X < m.poolInfoCopyBtnX2:
+				case msg.Y == m.poolInfoIDLineY &&
+					msg.X >= m.poolInfoIDLineX1 && msg.X < m.poolInfoIDLineX2:
 					return m, copyPoolIDToClipboard(m.poolInfoID)
 				}
 			}
