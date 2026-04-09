@@ -62,86 +62,111 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 	}
 }
 
-// packageSwapTransaction packages a Uniswap swap transaction for QR display
+// packageSwapTransaction packages a Uniswap V2 swap as a proper EIP-4527 unsigned transaction.
+// The calldata is ABI-encoded, the tx is RLP-encoded (EIP-155 signing preimage),
+// wrapped in CBOR as an eth-sign-request, and UR-encoded for QR display.
 func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOption, amountIn string, amountOutMin *big.Int, rpcURL string) tea.Cmd {
 	return func() tea.Msg {
-		// For Uniswap V2, we need to call the router contract
-		// Router address on mainnet: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
-		routerAddr := "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+		routerAddress := common.HexToAddress("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+		wethAddress := common.HexToAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+		fromAddress := common.HexToAddress(fromAddr)
 
-		// Convert amount to token's base unit
+		// Convert human-readable amountIn to base units
 		amountFloat := new(big.Float)
 		amountFloat.SetString(amountIn)
 		multiplier := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
-		amountInUnits := new(big.Float).Mul(amountFloat, multiplier)
-		amountInBig, _ := amountInUnits.Int(nil)
+		amountInBig, _ := new(big.Float).Mul(amountFloat, multiplier).Int(nil)
 
-		// Build transaction description
-		var txJSON string
-		var eip681 string
+		outDecimals := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil)
+		minOutHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(outDecimals)).Text('f', 6)
 
-		if fromToken.Symbol == "ETH" {
-			// ETH -> Token swap: swapExactETHForTokens
-			txJSON = fmt.Sprintf(`{
-  "from": "%s",
-  "to": "%s",
-  "value": "0x%s",
-  "data": "SWAP: %s %s -> %s (min %s)",
-  "note": "Uniswap V2 Swap: %s %s to %s %s"
-}`,
-				fromAddr,
-				routerAddr,
-				amountInBig.Text(16),
-				amountIn, fromToken.Symbol,
-				toToken.Symbol,
-				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
-				amountIn, fromToken.Symbol,
-				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
-				toToken.Symbol,
-			)
-			eip681 = fmt.Sprintf("%s?value=%s", routerAddr, amountInBig.String())
-		} else if toToken.Symbol == "ETH" {
-			// Token -> ETH swap: swapExactTokensForETH
-			txJSON = fmt.Sprintf(`{
-  "from": "%s",
-  "to": "%s",
-  "value": "0x0",
-  "data": "SWAP: %s %s -> %s (min %s)",
-  "note": "Uniswap V2 Swap: %s %s to %s %s. IMPORTANT: Approve token first!"
-}`,
-				fromAddr,
-				routerAddr,
-				amountIn, fromToken.Symbol,
-				toToken.Symbol,
-				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
-				amountIn, fromToken.Symbol,
-				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
-				toToken.Symbol,
-			)
-			eip681 = routerAddr
-		} else {
-			// Token -> Token swap: swapExactTokensForTokens
-			txJSON = fmt.Sprintf(`{
-  "from": "%s",
-  "to": "%s",
-  "value": "0x0",
-  "data": "SWAP: %s %s -> %s (min %s)",
-  "note": "Uniswap V2 Swap: %s %s to %s %s. IMPORTANT: Approve token first!"
-}`,
-				fromAddr,
-				routerAddr,
-				amountIn, fromToken.Symbol,
-				toToken.Symbol,
-				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
-				amountIn, fromToken.Symbol,
-				new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))).Text('f', 6),
-				toToken.Symbol,
-			)
-			eip681 = routerAddr
+		deadline := int64(time.Now().Unix() + 1200) // 20 min window for signing
+
+		// ABI-encode the Uniswap V2 router calldata
+		calldata := buildSwapCalldata(fromToken, toToken, fromAddress, amountInBig, amountOutMin, wethAddress, deadline)
+
+		// ETH→Token sends ETH as value; token swaps send zero value
+		txValue := big.NewInt(0)
+		if fromToken.IsETH {
+			txValue = amountInBig
 		}
 
-		return packageTransactionMsg{txDisplay: txJSON, qrData: eip681, format: "EIP-4527", err: nil}
+		// Fetch network params, RLP+CBOR+UR encode
+		urStr, err := rpc.PackUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, rpcURL)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+
+		// Human-readable summary shown below the QR code
+		summary := fmt.Sprintf("Uniswap V2 Swap: %s %s → %s (min %s)\nRouter: %s\n\n%s",
+			amountIn, fromToken.Symbol, toToken.Symbol, minOutHuman,
+			routerAddress.Hex(),
+			urStr,
+		)
+
+		return packageTransactionMsg{txDisplay: summary, qrData: urStr, format: "EIP-4527", err: nil}
 	}
+}
+
+// abiEncodeUint256 ABI-encodes a *big.Int as a 32-byte uint256.
+func abiEncodeUint256(v *big.Int) []byte {
+	b := make([]byte, 32)
+	vb := v.Bytes()
+	copy(b[32-len(vb):], vb)
+	return b
+}
+
+// abiEncodeAddress ABI-encodes a common.Address as a 32-byte padded value.
+func abiEncodeAddress(addr common.Address) []byte {
+	b := make([]byte, 32)
+	copy(b[12:], addr[:])
+	return b
+}
+
+// buildSwapCalldata builds the ABI-encoded calldata for the appropriate Uniswap V2 swap function.
+func buildSwapCalldata(fromToken, toToken uniswap.TokenOption, to common.Address, amountIn, amountOutMin *big.Int, weth common.Address, deadline int64) []byte {
+	dl := big.NewInt(deadline)
+	if fromToken.IsETH {
+		// swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline)
+		// selector: 0x7ff36ab5
+		var d []byte
+		d = append(d, 0x7f, 0xf3, 0x6a, 0xb5)
+		d = append(d, abiEncodeUint256(amountOutMin)...)
+		d = append(d, abiEncodeUint256(big.NewInt(128))...) // path offset: 4 params * 32
+		d = append(d, abiEncodeAddress(to)...)
+		d = append(d, abiEncodeUint256(dl)...)
+		d = append(d, abiEncodeUint256(big.NewInt(2))...) // path length
+		d = append(d, abiEncodeAddress(weth)...)
+		d = append(d, abiEncodeAddress(toToken.Address)...)
+		return d
+	} else if toToken.IsETH {
+		// swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)
+		// selector: 0x18cbafe5
+		var d []byte
+		d = append(d, 0x18, 0xcb, 0xaf, 0xe5)
+		d = append(d, abiEncodeUint256(amountIn)...)
+		d = append(d, abiEncodeUint256(amountOutMin)...)
+		d = append(d, abiEncodeUint256(big.NewInt(160))...) // path offset: 5 params * 32
+		d = append(d, abiEncodeAddress(to)...)
+		d = append(d, abiEncodeUint256(dl)...)
+		d = append(d, abiEncodeUint256(big.NewInt(2))...) // path length
+		d = append(d, abiEncodeAddress(fromToken.Address)...)
+		d = append(d, abiEncodeAddress(weth)...)
+		return d
+	}
+	// swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)
+	// selector: 0x38ed1739
+	var d []byte
+	d = append(d, 0x38, 0xed, 0x17, 0x39)
+	d = append(d, abiEncodeUint256(amountIn)...)
+	d = append(d, abiEncodeUint256(amountOutMin)...)
+	d = append(d, abiEncodeUint256(big.NewInt(160))...) // path offset: 5 params * 32
+	d = append(d, abiEncodeAddress(to)...)
+	d = append(d, abiEncodeUint256(dl)...)
+	d = append(d, abiEncodeUint256(big.NewInt(2))...) // path length
+	d = append(d, abiEncodeAddress(fromToken.Address)...)
+	d = append(d, abiEncodeAddress(toToken.Address)...)
+	return d
 }
 
 // loadDetails fetches wallet balance details from the blockchain
@@ -879,7 +904,13 @@ if m.activeDialog == dialogTerraClaim {
 func (m model) buildTokenList() []uniswap.TokenOption {
 	var tokens []uniswap.TokenOption
 
-	// Add ETH first
+	// Build a symbol→address lookup from the token watchlist
+	addrBySymbol := make(map[string]common.Address, len(m.tokenWatch))
+	for _, wt := range m.tokenWatch {
+		addrBySymbol[wt.Symbol] = wt.Address
+	}
+
+	// Add ETH first (address left as zero; swaps use WETH address in calldata path)
 	tokens = append(tokens, uniswap.TokenOption{
 		Symbol:   "ETH",
 		Balance:  m.details.EthWei,
@@ -894,6 +925,7 @@ func (m model) buildTokenList() []uniswap.TokenOption {
 			Balance:  token.Balance,
 			Decimals: token.Decimals,
 			IsETH:    false,
+			Address:  addrBySymbol[token.Symbol],
 		})
 	}
 

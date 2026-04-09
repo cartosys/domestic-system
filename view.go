@@ -102,7 +102,7 @@ func (m *model) renderTxResultContent() string {
 		format = "EIP-4527"
 	}
 
-	label := "EIP-4527 Transaction JSON:"
+	label := "EIP-4527 UR (RLP+CBOR encoded):"
 	if format == "EIP-681" {
 		label = "EIP-681 Transaction URL:"
 	}

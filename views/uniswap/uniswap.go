@@ -21,6 +21,7 @@ type TokenOption struct {
 	Balance  *big.Int
 	Decimals uint8
 	IsETH    bool
+	Address  common.Address
 }
 
 // Nav returns the navigation bar for Uniswap view.
