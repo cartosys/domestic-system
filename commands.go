@@ -904,10 +904,14 @@ if m.activeDialog == dialogTerraClaim {
 func (m model) buildTokenList() []uniswap.TokenOption {
 	var tokens []uniswap.TokenOption
 
-	// Build a symbol→address lookup from the token watchlist
-	addrBySymbol := make(map[string]common.Address, len(m.tokenWatch))
-	for _, wt := range m.tokenWatch {
-		addrBySymbol[wt.Symbol] = wt.Address
+	// Build a symbol→balance/decimals lookup from loaded wallet tokens
+	type heldToken struct {
+		balance  *big.Int
+		decimals uint8
+	}
+	held := make(map[string]heldToken, len(m.details.Tokens))
+	for _, token := range m.details.Tokens {
+		held[token.Symbol] = heldToken{balance: token.Balance, decimals: token.Decimals}
 	}
 
 	// Add ETH first (address left as zero; swaps use WETH address in calldata path)
@@ -918,15 +922,19 @@ func (m model) buildTokenList() []uniswap.TokenOption {
 		IsETH:    true,
 	})
 
-	// Add tokens from watchlist that have balances
-	for _, token := range m.details.Tokens {
-		tokens = append(tokens, uniswap.TokenOption{
-			Symbol:   token.Symbol,
-			Balance:  token.Balance,
-			Decimals: token.Decimals,
+	// Add all tokens from the watchlist; fill in actual balance where the wallet holds them
+	for _, wt := range m.tokenWatch {
+		opt := uniswap.TokenOption{
+			Symbol:   wt.Symbol,
+			Decimals: wt.Decimals,
 			IsETH:    false,
-			Address:  addrBySymbol[token.Symbol],
-		})
+			Address:  wt.Address,
+		}
+		if h, ok := held[wt.Symbol]; ok {
+			opt.Balance = h.balance
+			opt.Decimals = h.decimals
+		}
+		tokens = append(tokens, opt)
 	}
 
 	return tokens
