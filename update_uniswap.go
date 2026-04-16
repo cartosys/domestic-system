@@ -14,7 +14,15 @@ import (
 func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle transaction result panel first
 	if m.activeDialog == dialogTxResult {
+		var vpCmd tea.Cmd
+		m.txQRViewport, vpCmd = m.txQRViewport.Update(msg)
 		switch msg.String() {
+		case "ctrl+c":
+			if m.txResultHex != "" {
+				m.addLog("info", "Copied EIP-4527 transaction to clipboard")
+				return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
+			}
+			return m, vpCmd
 		case "esc", "enter":
 			m.activeDialog = dialogNone
 			m.txResultHex = ""
@@ -23,7 +31,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.txResultPackaging = false
 			return m, nil
 		}
-		return m, nil
+		return m, vpCmd
 	}
 
 	// Handle liquidity positions view

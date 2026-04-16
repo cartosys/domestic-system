@@ -41,24 +41,27 @@ func initLogViewport() tea.Cmd {
 	}
 }
 
-// packageTransaction packages an ETH transfer transaction for QR display
+// packageTransaction packages an ETH transfer transaction for QR display using EIP-4527 encoding.
 func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string) tea.Cmd {
 	return func() tea.Msg {
-		// Convert ETH amount to Wei
 		amountFloat := new(big.Float)
 		amountFloat.SetString(ethAmount)
 		weiFloat := new(big.Float).Mul(amountFloat, big.NewFloat(1e18))
 		amountWei, _ := weiFloat.Int(nil)
 
-		// Call RPC package function using EIP-681 format
-		pkg, err := rpc.PackageTransaction(
+		urStr, err := rpc.PackUnsignedTxEIP4527(
 			common.HexToAddress(fromAddr),
 			common.HexToAddress(toAddr),
 			amountWei,
+			21000,
+			nil,
 			rpcURL,
 		)
-
-		return packageTransactionMsg{txDisplay: pkg.EIP681, qrData: pkg.EIP681, format: "EIP-681", err: err}
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+		summary := fmt.Sprintf("ETH Transfer: %s ETH → %s\n\n%s", ethAmount, toAddr, urStr)
+		return packageTransactionMsg{txDisplay: summary, qrData: urStr, format: "EIP-4527", err: nil}
 	}
 }
 
@@ -625,35 +628,21 @@ func waitForPoolEvent(monitor *helpers.PoolEventMonitor) tea.Cmd {
 	}
 }
 
-// packageTerraClaimTx packages a Terra Nullius claim transaction for QR display
-func packageTerraClaimTx(fromAddr, message string) tea.Cmd {
+// packageTerraClaimTx packages a Terra Nullius claim transaction for QR display using EIP-4527 encoding.
+func packageTerraClaimTx(fromAddr, message, rpcURL string) tea.Cmd {
 	return func() tea.Msg {
 		calldata := helpers.BuildTerraClaimCalldata(message)
+		fromAddress := common.HexToAddress(fromAddr)
+		toAddress := common.HexToAddress(helpers.TerraContractAddress)
 
-		calldataHex := "0x"
-		for _, b := range calldata {
-			calldataHex += fmt.Sprintf("%02x", b)
+		urStr, err := rpc.PackUnsignedTxEIP4527(fromAddress, toAddress, big.NewInt(0), 100000, calldata, rpcURL)
+		if err != nil {
+			return packageTransactionMsg{err: err}
 		}
 
-		txJSON := fmt.Sprintf(`{
-  "from": "%s",
-  "to": "%s",
-  "value": "0x0",
-  "data": "%s",
-  "note": "Terra Nullius claim: %s"
-}`,
-			fromAddr,
-			helpers.TerraContractAddress,
-			calldataHex,
-			message,
-		)
-
-		return packageTransactionMsg{
-			txDisplay: txJSON,
-			qrData:    helpers.TerraContractAddress,
-			format:    "EIP-4527",
-			err:       nil,
-		}
+		summary := fmt.Sprintf("Terra Nullius claim: \"%s\"\nContract: %s\n\n%s",
+			message, helpers.TerraContractAddress, urStr)
+		return packageTransactionMsg{txDisplay: summary, qrData: urStr, format: "EIP-4527", err: nil}
 	}
 }
 

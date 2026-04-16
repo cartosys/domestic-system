@@ -58,7 +58,7 @@ func (m *model) handleTerraClaimPopupMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.txResultHex = ""
 				m.txResultError = ""
 				m.txResultFormat = "EIP-4527"
-				return m, packageTerraClaimTx(m.activeAddress, msgVal)
+				return m, packageTerraClaimTx(m.activeAddress, msgVal, m.rpcURL)
 			}
 			return m, nil
 		}
@@ -74,15 +74,24 @@ func (m *model) handleTerraClaimPopupMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) handleTerraKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.activeDialog == dialogTxResult {
+		var vpCmd tea.Cmd
+		m.txQRViewport, vpCmd = m.txQRViewport.Update(msg)
 		switch msg.String() {
+		case "ctrl+c":
+			if m.txResultHex != "" {
+				m.addLog("info", "Copied EIP-4527 transaction to clipboard")
+				return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
+			}
+			return m, vpCmd
 		case "esc", "enter":
 			m.activeDialog = dialogNone
 			m.txResultHex = ""
 			m.txResultEIP681 = ""
 			m.txResultError = ""
 			m.txResultPackaging = false
+			return m, nil
 		}
-		return m, nil
+		return m, vpCmd
 	}
 
 	switch msg.String() {

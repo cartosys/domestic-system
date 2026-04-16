@@ -88,7 +88,7 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.txResultPackaging = true
 			m.txResultHex = ""
 			m.txResultError = ""
-			m.txResultFormat = "EIP-681"
+			m.txResultFormat = "EIP-4527"
 			return m, packageTransaction(m.activeAddress, tempSendToAddr, tempSendAmount, m.rpcURL)
 		}
 

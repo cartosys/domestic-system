@@ -148,6 +148,7 @@ type model struct {
 	txResultEIP681    string
 	txResultFormat    string
 	txResultError     string
+	txQRViewport      viewport.Model
 
 	// Uniswap swap state
 	uniswapFromTokenIdx    int    // index in available tokens
@@ -363,6 +364,12 @@ func newModel() model {
 		Foreground(styles.CText).
 		Background(styles.CPanel)
 
+	// Initialize QR transaction result viewport
+	txqrvp := viewport.New(0, 20) // Will be resized on first WindowSizeMsg
+	txqrvp.Style = lipgloss.NewStyle().
+		Foreground(styles.CText).
+		Background(styles.CPanel)
+
 	// Initialize log spinner
 	logSpin := spinner.New()
 	logSpin.Spinner = spinner.Dot
@@ -388,6 +395,7 @@ func newModel() model {
 		logEnabled:         cfg.Logger,
 		logViewport:        vp,
 		v4EventsViewport:   v4vp,
+		txQRViewport:       txqrvp,
 		logBuffer:          &strings.Builder{},
 		logSpinner:         logSpin,
 		detailsCache:       make(map[string]config.WalletDetails),

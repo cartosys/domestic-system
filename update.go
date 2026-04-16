@@ -9,6 +9,8 @@ import (
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
+	"charm-wallet-tui/styles"
+	"charm-wallet-tui/views/txqr"
 	uniswap "charm-wallet-tui/views/uniswap"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -127,6 +129,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Scrollbar appends 2 chars, so viewport must be w-8 to keep content+scrollbar ≤ w-6.
 		m.v4EventsViewport.Width = max(0, msg.Width-8)
 
+		// QR tx result viewport: panelStyle is w-4 wide with padding(1,2), so content is w-8.
+		// Scrollbar takes 2 chars, leaving w-10 for viewport content.
+		m.txQRViewport.Width = max(0, msg.Width-10)
+
 		return m, nil
 
 	case spinner.TickMsg:
@@ -167,6 +173,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.txResultHex = msg.txDisplay
 			m.txResultEIP681 = msg.qrData
 			m.txResultFormat = msg.format
+			// Build scrollable viewport content: QR block + label + summary + instructions
+			labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+			muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+			content := txqr.Render(msg.qrData) + "\n" +
+				labelStyle.Render("EIP-4527 UR (RLP+CBOR encoded):") + "\n\n" +
+				msg.txDisplay + "\n\n" +
+				muteStyle.Render("Scan the QR code with your wallet app to sign this transaction") + "\n" +
+				muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • ESC or Enter to close")
+			m.txQRViewport.SetContent(content)
+			m.txQRViewport.GotoTop()
 			m.addLog("success", "Transaction packaged successfully ("+msg.format+")")
 		}
 		return m, nil
@@ -387,18 +403,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle transaction result panel FIRST (before any other keys)
 		if m.activeDialog == dialogTxResult {
+			// Forward all keys to the viewport so scrolling works naturally
+			var vpCmd tea.Cmd
+			m.txQRViewport, vpCmd = m.txQRViewport.Update(msg)
+
 			switch msg.String() {
 			case "ctrl+c":
 				// Copy transaction JSON to clipboard
 				if m.txResultHex != "" {
-					if m.txResultFormat == "EIP-681" {
-						m.addLog("info", "Copied EIP-681 URL to clipboard")
-					} else {
-						m.addLog("info", "Copied transaction JSON to clipboard")
-					}
-					return m, copyTxJsonToClipboard(m.txResultHex)
+					m.addLog("info", "Copied EIP-4527 transaction to clipboard")
+					return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
 				}
-				return m, nil
+				return m, vpCmd
 			case "esc", "enter":
 				m.activeDialog = dialogNone
 				m.txResultHex = ""
@@ -409,7 +425,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.txCopiedMsg = ""
 				return m, nil
 			}
-			return m, nil
+			return m, vpCmd
 		}
 
 		// Handle account list popup
@@ -579,6 +595,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Route mouse wheel events to the focused panel.
 		if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown {
+			// QR result dialog intercepts all wheel events while open
+			if m.activeDialog == dialogTxResult {
+				var cmd tea.Cmd
+				m.txQRViewport, cmd = m.txQRViewport.Update(msg)
+				return m, cmd
+			}
+
 			v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
 			bothVisible := v4Visible && m.logEnabled && m.logReady
 			var cmd tea.Cmd

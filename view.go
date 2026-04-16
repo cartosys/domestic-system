@@ -96,42 +96,68 @@ func (m *model) renderAccountListPopup() string {
 	)
 }
 
-func (m *model) renderTxResultContent() string {
-	format := m.txResultFormat
-	if format == "" {
-		format = "EIP-4527"
+// txScrollbarTrack builds a vertical scrollbar track for the QR result viewport.
+// Returns nil when there is nothing to scroll.
+func txScrollbarTrack(vpHeight, totalLines, yOffset int) []string {
+	if totalLines <= vpHeight || vpHeight <= 0 {
+		return nil
 	}
-
-	label := "EIP-4527 UR (RLP+CBOR encoded):"
-	if format == "EIP-681" {
-		label = "EIP-681 Transaction URL:"
+	thumbSize := vpHeight * vpHeight / totalLines
+	if thumbSize < 1 {
+		thumbSize = 1
 	}
-
-	txResultContent := styles.TitleStyle.Render("Transaction Ready To Sign ("+format+")") + "\n\n"
-
-	if m.txResultPackaging {
-		txResultContent += m.spin.View() + " Packaging transaction..."
-	} else if m.txResultError != "" {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
-		txResultContent += errorStyle.Render("Error: " + m.txResultError)
-		txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Press ESC or Enter to close")
-	} else {
-		qrCode := rpc.GenerateQRCode(m.txResultEIP681)
-		qrStyle := lipgloss.NewStyle()
-		txResultContent += qrStyle.Render(qrCode) + "\n"
-
-		txResultContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render(label) + "\n\n"
-		txResultContent += m.txResultHex
-
-		txResultContent += "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Scan the QR code with your wallet app to sign this transaction")
-		txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Click anywhere or press Ctrl+C to copy • Press ESC or Enter to close")
-
-		// Show copied message if present
-		if m.txCopiedMsg != "" {
-			txResultContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true).Render(m.txCopiedMsg)
+	maxOffset := totalLines - vpHeight
+	thumbTop := 0
+	if maxOffset > 0 {
+		thumbTop = (yOffset * (vpHeight - thumbSize)) / maxOffset
+	}
+	track := make([]string, vpHeight)
+	for i := range track {
+		if i >= thumbTop && i < thumbTop+thumbSize {
+			track[i] = "█"
+		} else {
+			track[i] = "░"
 		}
 	}
-	return txResultContent
+	return track
+}
+
+func (m *model) renderTxResultContent() string {
+	title := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)")
+
+	if m.txResultPackaging {
+		return title + "\n\n" + m.spin.View() + " Packaging transaction..."
+	}
+	if m.txResultError != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
+		muteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+		return title + "\n\n" +
+			errorStyle.Render("Error: "+m.txResultError) +
+			"\n\n" + muteStyle.Render("Press ESC or Enter to close")
+	}
+
+	vpH := helpers.Max(3, m.h-8)
+	vp := m.txQRViewport
+	vp.Height = vpH
+	vpContent := vp.View()
+
+	track := txScrollbarTrack(vpH, vp.TotalLineCount(), vp.YOffset)
+	if len(track) > 0 {
+		trackStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+		lines := strings.Split(vpContent, "\n")
+		for i := range lines {
+			if i < len(track) {
+				lines[i] = lines[i] + " " + trackStyle.Render(track[i])
+			}
+		}
+		vpContent = strings.Join(lines, "\n")
+	}
+
+	result := title + "\n\n" + vpContent
+	if m.txCopiedMsg != "" {
+		result += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true).Render(m.txCopiedMsg)
+	}
+	return result
 }
 
 func (m *model) renderTxResultPanel() string {
