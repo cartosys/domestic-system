@@ -12,6 +12,7 @@ import (
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
+	"charm-wallet-tui/views/scrollbar"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -212,7 +213,7 @@ type model struct {
 	v4PoolRows       []store.PoolRow
 	v4EventsViewport viewport.Model
 	focusedPanel     focusedPanelKind // which panel (V4 events or log) has scroll focus
-	v4ViewportTop    int              // Y row where V4 events viewport content starts (set each render)
+	v4Scroll         scrollbar.State  // scrollbar state for the V4 events panel
 
 	// Pool Info popup state
 	poolInfoLoading    bool
@@ -229,10 +230,8 @@ type model struct {
 	poolInfoIDLineX2 int
 	poolInfoCopied   bool // true briefly after a successful copy
 
-	// Y row where the log viewport content starts (set each render, used for click handling)
-	logPanelTop int
-	// true while the user is click-dragging the log scrollbar thumb
-	logScrollDragging bool
+	logScroll   scrollbar.State // scrollbar state for the log panel
+	txQRScroll  scrollbar.State // scrollbar state for the txQR result dialog
 
 	// Double-click detection for header address
 	lastClickTime time.Time

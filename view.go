@@ -17,6 +17,7 @@ import (
 	logview "charm-wallet-tui/views/log"
 	"charm-wallet-tui/views/settings"
 	"charm-wallet-tui/views/terra"
+	"charm-wallet-tui/views/scrollbar"
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
 
@@ -96,31 +97,6 @@ func (m *model) renderAccountListPopup() string {
 	)
 }
 
-// txScrollbarTrack builds a vertical scrollbar track for the QR result viewport.
-// Returns nil when there is nothing to scroll.
-func txScrollbarTrack(vpHeight, totalLines, yOffset int) []string {
-	if totalLines <= vpHeight || vpHeight <= 0 {
-		return nil
-	}
-	thumbSize := vpHeight * vpHeight / totalLines
-	if thumbSize < 1 {
-		thumbSize = 1
-	}
-	maxOffset := totalLines - vpHeight
-	thumbTop := 0
-	if maxOffset > 0 {
-		thumbTop = (yOffset * (vpHeight - thumbSize)) / maxOffset
-	}
-	track := make([]string, vpHeight)
-	for i := range track {
-		if i >= thumbTop && i < thumbTop+thumbSize {
-			track[i] = "█"
-		} else {
-			track[i] = "░"
-		}
-	}
-	return track
-}
 
 func (m *model) renderTxResultContent() string {
 	title := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)")
@@ -139,19 +115,12 @@ func (m *model) renderTxResultContent() string {
 	vpH := helpers.Max(3, m.h-8)
 	vp := m.txQRViewport
 	vp.Height = vpH
-	vpContent := vp.View()
-
-	track := txScrollbarTrack(vpH, vp.TotalLineCount(), vp.YOffset)
-	if len(track) > 0 {
-		trackStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
-		lines := strings.Split(vpContent, "\n")
-		for i := range lines {
-			if i < len(track) {
-				lines[i] = lines[i] + " " + trackStyle.Render(track[i])
-			}
-		}
-		vpContent = strings.Join(lines, "\n")
-	}
+	track := scrollbar.Track(vpH, vp.TotalLineCount(), vp.YOffset)
+	vpContent := scrollbar.Decorate(vp.View(), track)
+	// txQR dialog is vertically centered: panel height = vpH+4, top = (h-(vpH+4))/2.
+	// Viewport starts 3 lines below that (border + title + blank).
+	m.txQRScroll.PanelTop = (m.h-(vpH+4))/2 + 3
+	m.txQRScroll.TrackCol = m.txQRViewport.Width + 3
 
 	result := title + "\n\n" + vpContent
 	if m.txCopiedMsg != "" {
@@ -552,7 +521,8 @@ func (m *model) View() string {
 			pageContent = panelStyle.BorderForeground(v4BorderColor).Width(m.contentW).Render(v4View)
 			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
 			// headerPanel rows + panelStyle overhead (1 border + 1 padding = 2) + title line + blank line = +4
-			m.v4ViewportTop = lipgloss.Height(headerPanel) + 4
+			m.v4Scroll.PanelTop = lipgloss.Height(headerPanel) + 4
+			m.v4Scroll.TrackCol = m.v4EventsViewport.Width + 3
 		} else {
 			// Render main swap interface
 			uniswapView := uniswap.Render(
@@ -629,7 +599,8 @@ func (m *model) View() string {
 		// Using lipgloss.Height(logPanel) is robust when the content above overflows m.h
 		// (the terminal shows the bottom m.h rows, so log border top = m.h - height(logPanel)).
 		// +3 accounts for top border(1) + title(1) + blank line(1).
-		m.logPanelTop = (m.h - lipgloss.Height(logPanel)) + 3
+		m.logScroll.PanelTop = (m.h - lipgloss.Height(logPanel)) + 3
+		m.logScroll.TrackCol = m.logViewport.Width + 3
 		content := lipgloss.JoinVertical(lipgloss.Left, headerPanel, pageContent, nav, logPanel)
 		baseView := appStyle.Render(content)
 

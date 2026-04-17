@@ -4,6 +4,7 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
+	"charm-wallet-tui/views/scrollbar"
 	"fmt"
 	"math"
 	"math/big"
@@ -481,31 +482,6 @@ func liquidityFormatPrice(price float64) string {
 	}
 }
 
-// v4scrollbarTrack builds a vertical scrollbar track (one char per visible line).
-// Returns nil when there is nothing to scroll.
-func v4scrollbarTrack(vpHeight, totalLines, yOffset int) []string {
-	if totalLines <= vpHeight || vpHeight <= 0 {
-		return nil
-	}
-	thumbSize := vpHeight * vpHeight / totalLines
-	if thumbSize < 1 {
-		thumbSize = 1
-	}
-	maxOffset := totalLines - vpHeight
-	thumbTop := 0
-	if maxOffset > 0 {
-		thumbTop = (yOffset * (vpHeight - thumbSize)) / maxOffset
-	}
-	track := make([]string, vpHeight)
-	for i := range track {
-		if i >= thumbTop && i < thumbTop+thumbSize {
-			track[i] = "█"
-		} else {
-			track[i] = "░"
-		}
-	}
-	return track
-}
 
 // V4EventsContent builds the scrollable body string (pool cards) for the V4 Events panel.
 // width is the outer panel width; the content is sized to fit inside it.
@@ -525,6 +501,7 @@ func V4EventsContent(width int, pools []store.PoolRow) string {
 	accent2Style := lipgloss.NewStyle().Foreground(styles.CAccent2)
 	boldStyle := lipgloss.NewStyle().Foreground(styles.CText).Bold(true)
 	warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn)
+	eventTypeStyle := lipgloss.NewStyle().Foreground(styles.CBorder).Bold(true).Align(lipgloss.Center)
 	cardWidth := containerWidth - 4
 	card := styles.CardNormal.Width(cardWidth)
 
@@ -562,17 +539,21 @@ func V4EventsContent(width int, pools []store.PoolRow) string {
 			tok1Name = labelStyle.Render(tok1Name)
 		}
 
+		vol0 := r.SwapVolume0 / math.Pow(10, float64(r.Decimals0))
+		vol1 := r.SwapVolume1 / math.Pow(10, float64(r.Decimals1))
+		liqVol := r.LiqVolume / math.Pow(10, 18)
+
 		tok0Line := labelStyle.Render("Token0: ") +
 			accentStyle.Render(tok0Sym) + "  " + tok0Name +
 			"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency0))) +
-			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(r.SwapVolume0))
+			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(vol0))
 
 		tok1Line := labelStyle.Render("Token1: ") +
 			accent2Style.Render(tok1Sym) + "  " + tok1Name +
 			"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency1))) +
-			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(r.SwapVolume1))
+			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(vol1))
 
-		metaLine := labelStyle.Render("liq vol:") + " " + accentStyle.Render(v4FormatVolume(r.LiqVolume)) +
+		metaLine := labelStyle.Render("liq vol:") + " " + accentStyle.Render(v4FormatVolume(liqVol)) +
 			"   " + labelStyle.Render("pool:") + " " + poolLink +
 			"   " + labelStyle.Render("seen:") + " " + labelStyle.Render(r.SeenAt)
 
@@ -584,7 +565,14 @@ func V4EventsContent(width int, pools []store.PoolRow) string {
 		blockLine := labelStyle.Render("block:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Block)) +
 			"   " + labelStyle.Render("tx:") + " " + txLink
 
-		content := headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine + "\n" + blockLine
+		var hooksLine string
+		hooksAddr := common.HexToAddress(r.Hooks)
+		if hooksAddr != (common.Address{}) {
+			hooksLine = "\n" + labelStyle.Render("hooks:") + " " + helpers.HyperAddr(hooksAddr)
+		}
+
+		typeLine := eventTypeStyle.Width(cardWidth).Render("initialize")
+		content := typeLine + "\n" + headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine + "\n" + blockLine + hooksLine
 		cards = append(cards, card.Render(content))
 	}
 	return strings.Join(cards, "\n")
@@ -612,18 +600,8 @@ func RenderV4Events(width, height int, vp viewport.Model) string {
 	vpHeight := helpers.Max(1, height-4)
 	vp.Height = vpHeight
 
-	vpContent := vp.View()
-	track := v4scrollbarTrack(vpHeight, vp.TotalLineCount(), vp.YOffset)
-	if len(track) > 0 {
-		trackStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
-		vpLines := strings.Split(vpContent, "\n")
-		for i := range vpLines {
-			if i < len(track) {
-				vpLines[i] = vpLines[i] + " " + trackStyle.Render(track[i])
-			}
-		}
-		vpContent = strings.Join(vpLines, "\n")
-	}
+	track := scrollbar.Track(vpHeight, vp.TotalLineCount(), vp.YOffset)
+	vpContent := scrollbar.Decorate(vp.View(), track)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", vpContent, "", infoText)
 	return lipgloss.NewStyle().Width(width).Render(content)

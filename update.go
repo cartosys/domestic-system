@@ -618,24 +618,36 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Scrollbar drag: release ends drag regardless of position.
+		// Scrollbar drag: release ends all drags regardless of position.
 		if msg.Type == tea.MouseRelease {
-			m.logScrollDragging = false
+			m.logScroll.Dragging = false
+			m.v4Scroll.Dragging = false
+			m.txQRScroll.Dragging = false
 			return m, nil
 		}
 
 		// Scrollbar drag: motion while dragging updates scroll offset.
-		if msg.Type == tea.MouseMotion && m.logScrollDragging {
-			m.applyScrollbarDrag(msg.Y)
-			return m, nil
+		if msg.Type == tea.MouseMotion {
+			if m.logScroll.Dragging {
+				m.logScroll.ApplyDrag(msg.Y, &m.logViewport)
+				return m, nil
+			}
+			if m.v4Scroll.Dragging {
+				m.v4Scroll.ApplyDrag(msg.Y, &m.v4EventsViewport)
+				return m, nil
+			}
+			if m.txQRScroll.Dragging {
+				m.txQRScroll.ApplyDrag(msg.Y, &m.txQRViewport)
+				return m, nil
+			}
 		}
 
 		if msg.Type == tea.MouseLeft {
 			// Panel focus: when both V4 events and log panels are visible, set focus
 			// based on which region was clicked. Does not consume the click.
 			if m.activePage == config.PageUniswap && m.poolEventMonitorActive &&
-				!m.uniswapShowingLiquidity && m.logEnabled && m.logPanelTop > 3 {
-				if msg.Y >= m.logPanelTop-3 {
+				!m.uniswapShowingLiquidity && m.logEnabled && m.logScroll.PanelTop > 3 {
+				if msg.Y >= m.logScroll.PanelTop-3 {
 					m.focusedPanel = focusedPanelLog
 				} else {
 					m.focusedPanel = focusedPanelV4Events
@@ -644,13 +656,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Scrollbar click: detect click near the scrollbar column and start dragging.
 			// ±1 tolerance accounts for terminal/lipgloss coordinate rounding.
-			if m.logEnabled && m.logReady && m.logPanelTop > 0 {
-				scrollbarX := m.logViewport.Width + 3
-				vpBottom := m.logPanelTop + m.logViewport.Height - 1
-				if msg.X >= scrollbarX-1 && msg.X <= scrollbarX+1 &&
-					msg.Y >= m.logPanelTop && msg.Y <= vpBottom {
-					m.logScrollDragging = true
-					m.applyScrollbarDrag(msg.Y)
+			if m.activeDialog == dialogTxResult && m.txQRScroll.PanelTop > 0 {
+				vpBottom := m.txQRScroll.PanelTop + m.txQRViewport.Height - 1
+				if m.txQRScroll.HitTest(msg.X, msg.Y, vpBottom) {
+					m.txQRScroll.Dragging = true
+					m.txQRScroll.ApplyDrag(msg.Y, &m.txQRViewport)
+					return m, nil
+				}
+			}
+
+			v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
+			if v4Visible && m.v4Scroll.PanelTop > 0 {
+				vpBottom := m.v4Scroll.PanelTop + m.v4EventsViewport.Height - 1
+				if m.v4Scroll.HitTest(msg.X, msg.Y, vpBottom) {
+					m.v4Scroll.Dragging = true
+					m.v4Scroll.ApplyDrag(msg.Y, &m.v4EventsViewport)
+					return m, nil
+				}
+			}
+
+			if m.logEnabled && m.logReady && m.logScroll.PanelTop > 0 {
+				vpBottom := m.logScroll.PanelTop + m.logViewport.Height - 1
+				if m.logScroll.HitTest(msg.X, msg.Y, vpBottom) {
+					m.logScroll.Dragging = true
+					m.logScroll.ApplyDrag(msg.Y, &m.logViewport)
 					return m, nil
 				}
 			}
@@ -688,9 +717,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// If the click lands inside the log viewport content rows, resolve which
 			// OSC 8 hyperlink (if any) was clicked and open it in the browser.
 			// Log panel content starts at X=2 (1 border + 1 padding from logview.Render).
-			if m.logEnabled && m.logReady && m.logPanelTop > 0 && m.logBuffer != nil {
+			if m.logEnabled && m.logReady && m.logScroll.PanelTop > 0 && m.logBuffer != nil {
 				lines := strings.Split(m.logBuffer.String(), "\n")
-				viewportLine := msg.Y - m.logPanelTop
+				viewportLine := msg.Y - m.logScroll.PanelTop
 				absoluteLine := viewportLine + m.logViewport.YOffset
 				if viewportLine >= 0 && absoluteLine < len(lines) {
 					lineCol := msg.X - 2 // subtract border(1) + padding(1)
@@ -715,12 +744,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// V4 events panel click: detect OSC 8 poolinfo:// hyperlinks in viewport content.
-			// panelStyle X offset: 1 border + 2 padding = 3.  Viewport starts at m.v4ViewportTop.
+			// panelStyle X offset: 1 border + 2 padding = 3.  Viewport starts at m.v4Scroll.PanelTop.
 			if m.activePage == config.PageUniswap && m.poolEventMonitorActive &&
-				!m.uniswapShowingLiquidity && m.v4ViewportTop > 0 {
+				!m.uniswapShowingLiquidity && m.v4Scroll.PanelTop > 0 {
 				vpHeight := m.v4EventsViewport.Height
-				if msg.Y >= m.v4ViewportTop && msg.Y < m.v4ViewportTop+vpHeight {
-					viewportLine := msg.Y - m.v4ViewportTop
+				if msg.Y >= m.v4Scroll.PanelTop && msg.Y < m.v4Scroll.PanelTop+vpHeight {
+					viewportLine := msg.Y - m.v4Scroll.PanelTop
 					absoluteLine := viewportLine + m.v4EventsViewport.YOffset
 					rawContent := uniswap.V4EventsContent(m.w-2, m.v4PoolRows)
 					lines := strings.Split(rawContent, "\n")
@@ -748,7 +777,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Log all clicks for debugging (suppressed during scrollbar drag)
-			if !m.logScrollDragging {
+			if !m.logScroll.Dragging && !m.v4Scroll.Dragging && !m.txQRScroll.Dragging {
 				m.addLog("debug", fmt.Sprintf("Click at (%d,%d) - header check: addr='%s', X=%d, Y=%d", msg.X, msg.Y, m.activeAddress, m.headerAddrX, m.headerAddrY))
 				m.addLog("debug", fmt.Sprintf("Registered %d clickable areas", len(m.clickableAreas)))
 			}
