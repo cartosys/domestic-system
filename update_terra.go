@@ -73,6 +73,10 @@ func (m *model) handleTerraClaimPopupMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleTerraKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.activeDialog == dialogScanTx {
+		return m.handleScanTxKey(msg)
+	}
+
 	if m.activeDialog == dialogTxResult {
 		var vpCmd tea.Cmd
 		m.txQRViewport, vpCmd = m.txQRViewport.Update(msg)
@@ -83,7 +87,9 @@ func (m *model) handleTerraKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
 			}
 			return m, vpCmd
-		case "esc", "enter":
+		case "enter":
+			return m.openScanTxDialog()
+		case "esc":
 			m.activeDialog = dialogNone
 			m.txResultHex = ""
 			m.txResultEIP681 = ""

@@ -13,6 +13,10 @@ import (
 
 func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle transaction result panel first
+	if m.activeDialog == dialogScanTx {
+		return m.handleScanTxKey(msg)
+	}
+
 	if m.activeDialog == dialogTxResult {
 		var vpCmd tea.Cmd
 		m.txQRViewport, vpCmd = m.txQRViewport.Update(msg)
@@ -23,7 +27,9 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
 			}
 			return m, vpCmd
-		case "esc", "enter":
+		case "enter":
+			return m.openScanTxDialog()
+		case "esc":
 			m.activeDialog = dialogNone
 			m.txResultHex = ""
 			m.txResultEIP681 = ""

@@ -455,6 +455,9 @@ func (m *model) View() string {
 		if m.activeDialog == dialogTxResult {
 			return m.renderTxResultPanel()
 		}
+		if m.activeDialog == dialogScanTx {
+			return m.renderScanTxPanel()
+		}
 
 	case config.PageDappBrowser:
 		dappBrowserContent := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx)
@@ -551,6 +554,9 @@ func (m *model) View() string {
 		if m.activeDialog == dialogTxResult {
 			return m.renderTxResultPanel()
 		}
+		if m.activeDialog == dialogScanTx {
+			return m.renderScanTxPanel()
+		}
 
 	case config.PageTerraNullius:
 		// Show claim popup overlay
@@ -580,6 +586,9 @@ func (m *model) View() string {
 
 		if m.activeDialog == dialogTxResult {
 			return m.renderTxResultPanel()
+		}
+		if m.activeDialog == dialogScanTx {
+			return m.renderScanTxPanel()
 		}
 	}
 

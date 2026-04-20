@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"image"
 	"math/big"
 	"os/exec"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/views/uniswap"
+	"charm-wallet-tui/webcam/capture"
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +23,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/makiuchi-d/gozxing"
+	gozxingqr "github.com/makiuchi-d/gozxing/qrcode"
 )
 
 // -------------------- COMMAND FUNCTIONS --------------------
@@ -1123,4 +1127,43 @@ func (m *model) navigateTo(page config.Page) tea.Cmd {
 		return fetchTerraNumberOfClaims(m.ethClient)
 	}
 	return nil
+}
+
+// -------------------- WEBCAM COMMANDS --------------------
+
+// openWebcamCmd opens the camera and starts streaming. Returns webcamReadyMsg or webcamErrMsg.
+func openWebcamCmd() tea.Msg {
+	cam, err := capture.New("")
+	if err != nil {
+		return webcamErrMsg{err}
+	}
+	if err := cam.Start(); err != nil {
+		cam.Close()
+		return webcamErrMsg{err}
+	}
+	return webcamReadyMsg{cam: cam, ch: cam.Frames()}
+}
+
+// waitForWebcamFrame blocks until the next camera frame arrives, then decodes any QR code in it.
+func waitForWebcamFrame(ch <-chan image.Image) tea.Cmd {
+	return func() tea.Msg {
+		img, ok := <-ch
+		if !ok {
+			return webcamErrMsg{fmt.Errorf("webcam stream closed")}
+		}
+		return webcamFrameMsg{img: img, qrText: decodeQR(img)}
+	}
+}
+
+// decodeQR attempts to extract a QR code string from img. Returns "" on failure.
+func decodeQR(img image.Image) string {
+	bmp, err := gozxing.NewBinaryBitmapFromImage(img)
+	if err != nil {
+		return ""
+	}
+	result, err := gozxingqr.NewQRCodeReader().Decode(bmp, nil)
+	if err != nil {
+		return ""
+	}
+	return result.String()
 }

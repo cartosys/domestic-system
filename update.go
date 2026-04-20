@@ -35,6 +35,11 @@ var (
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Handle webcam messages at top level (active across any page/dialog)
+	if updated, cmd, handled := m.handleWebcamMsg(msg); handled {
+		return updated, cmd
+	}
+
 	// Handle send form updates first
 	if m.activePage == config.PageWallets && m.showSendForm && m.sendForm != nil {
 		return m.handleSendFormMsg(msg)
@@ -180,7 +185,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				labelStyle.Render("EIP-4527 UR (RLP+CBOR encoded):") + "\n\n" +
 				msg.txDisplay + "\n\n" +
 				muteStyle.Render("Scan the QR code with your wallet app to sign this transaction") + "\n" +
-				muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • ESC or Enter to close")
+				muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • Enter to scan response • ESC to close")
 			m.txQRViewport.SetContent(content)
 			m.txQRViewport.GotoTop()
 			m.addLog("success", "Transaction packaged successfully ("+msg.format+")")
@@ -401,6 +406,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle webcam scan panel keys
+		if m.activeDialog == dialogScanTx {
+			return m.handleScanTxKey(msg)
+		}
+
 		// Handle transaction result panel FIRST (before any other keys)
 		if m.activeDialog == dialogTxResult {
 			// Forward all keys to the viewport so scrolling works naturally
@@ -415,7 +425,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
 				}
 				return m, vpCmd
-			case "esc", "enter":
+			case "enter":
+				return m.openScanTxDialog()
+			case "esc":
 				m.activeDialog = dialogNone
 				m.txResultHex = ""
 				m.txResultEIP681 = ""

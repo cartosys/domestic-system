@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/scrollbar"
+	"charm-wallet-tui/webcam/capture"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -46,6 +48,7 @@ const (
 	dialogPoolInfo                // Uniswap pool info popup
 	dialogAccountList             // account selector popup
 	dialogTerraClaim              // Terra Nullius claim form
+	dialogScanTx                  // webcam scan for signed transaction
 )
 
 // model represents the application state following The Elm Architecture
@@ -243,6 +246,14 @@ type model struct {
 	headerAddrX            int // X position of active address in header
 	headerAddrY            int // Y position of active address in header
 	headerAddrWidth        int // Width of active address display in header
+
+	// Webcam scan state (used by dialogScanTx)
+	webcamActive    bool
+	webcamCam       *capture.Camera
+	webcamFrameCh   <-chan image.Image
+	webcamRendered  string
+	webcamScanLog   []string
+	webcamErrStr    string
 }
 
 // walletItem is a list item for the bubble-tea list component

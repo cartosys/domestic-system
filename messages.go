@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"math/big"
 
 	"charm-wallet-tui/config"
@@ -8,6 +9,7 @@ import (
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/store"
+	"charm-wallet-tui/webcam/capture"
 )
 
 // -------------------- TEA MESSAGES --------------------
@@ -157,3 +159,18 @@ type liquidityPositionsMsg struct {
 type v4PoolTableMsg struct {
 	rows []store.PoolRow
 }
+
+// webcamReadyMsg signals that the camera opened and streaming began
+type webcamReadyMsg struct {
+	cam *capture.Camera
+	ch  <-chan image.Image
+}
+
+// webcamFrameMsg carries a decoded camera frame and any QR text found in it
+type webcamFrameMsg struct {
+	img    image.Image
+	qrText string
+}
+
+// webcamErrMsg signals a camera or stream error
+type webcamErrMsg struct{ err error }
