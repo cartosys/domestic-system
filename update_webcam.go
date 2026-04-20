@@ -174,7 +174,8 @@ func truncate(s string, n int) string {
 }
 
 // renderScanTxPanel renders the "Scan Signed Transaction" overlay panel.
-func (m model) renderScanTxPanel() string {
+// Pointer receiver so it can update PanelTop/TrackCol for mouse hit-testing.
+func (m *model) renderScanTxPanel() string {
 	panelW, innerW, videoH, logH := m.scanPanelDims()
 
 	titleStyle := lipgloss.NewStyle().
@@ -186,8 +187,6 @@ func (m model) renderScanTxPanel() string {
 
 	muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
 
-	// Video block — width is innerW-2 to leave a scrollbar gutter column on the right.
-	videoW := helpers.Max(1, innerW-2)
 	var videoBlock string
 	switch {
 	case m.webcamErrStr != "":
@@ -197,8 +196,6 @@ func (m model) renderScanTxPanel() string {
 	default:
 		videoBlock = m.webcamRendered
 	}
-	_ = videoH // height already baked into m.webcamRendered via scanPanelDims
-	_ = videoW
 
 	divider := lipgloss.NewStyle().Foreground(styles.CBorder).
 		Render(strings.Repeat("─", innerW))
@@ -206,11 +203,25 @@ func (m model) renderScanTxPanel() string {
 	logTitle := lipgloss.NewStyle().Foreground(styles.CAccent2).Bold(true).Render("Decoded")
 
 	// Log viewport with scrollbar.
-	m.webcamLogVP.Width = innerW - 2 // -2 for scrollbar gutter
+	m.webcamLogVP.Width = innerW - 2 // reserve 1 col for space + 1 for scrollbar track
 	m.webcamLogVP.Height = logH
 	vpContent := m.webcamLogVP.View()
 	track := scrollbar.Track(logH, m.webcamLogVP.TotalLineCount(), m.webcamLogVP.YOffset)
 	logWithBar := scrollbar.Decorate(vpContent, track)
+
+	// Compute scroll hit-test coordinates.
+	// Panel is centered: left edge = (m.w - panelW) / 2, top = (m.h - panelOuterH) / 2.
+	// Fixed rows above log: title(1) + blank(1) + videoH + blank(1) + divider(1) + logTitle(1) = 5 + videoH
+	panelOuterH := 11 + videoH + logH // 7 content rows + 4 border/padding overhead
+	panelTopY := (m.h - panelOuterH) / 2
+	if panelTopY < 0 {
+		panelTopY = 0
+	}
+	// Log VP top = panelTopY + 1(border) + 1(padding) + 1(title) + 1(blank) + videoH + 1(blank) + 1(div) + 1(logTitle)
+	m.webcamLogScroll.PanelTop = panelTopY + 7 + videoH
+	// Track col = panel left + 1(border) + 2(padding) + vpWidth + 1(space from Decorate)
+	panelLeftX := (m.w - panelW) / 2
+	m.webcamLogScroll.TrackCol = panelLeftX + 1 + 2 + m.webcamLogVP.Width + 1
 
 	hint := muteStyle.Render("↑/↓ scroll log   ESC to close")
 

@@ -607,6 +607,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Route mouse wheel events to the focused panel.
 		if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown {
+			// Scan TX dialog intercepts all wheel events while open
+			if m.activeDialog == dialogScanTx {
+				var cmd tea.Cmd
+				m.webcamLogVP, cmd = m.webcamLogVP.Update(msg)
+				return m, cmd
+			}
 			// QR result dialog intercepts all wheel events while open
 			if m.activeDialog == dialogTxResult {
 				var cmd tea.Cmd
@@ -635,11 +641,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logScroll.Dragging = false
 			m.v4Scroll.Dragging = false
 			m.txQRScroll.Dragging = false
+			m.webcamLogScroll.Dragging = false
 			return m, nil
 		}
 
 		// Scrollbar drag: motion while dragging updates scroll offset.
 		if msg.Type == tea.MouseMotion {
+			if m.webcamLogScroll.Dragging {
+				m.webcamLogScroll.ApplyDrag(msg.Y, &m.webcamLogVP)
+				return m, nil
+			}
 			if m.logScroll.Dragging {
 				m.logScroll.ApplyDrag(msg.Y, &m.logViewport)
 				return m, nil
@@ -668,6 +679,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Scrollbar click: detect click near the scrollbar column and start dragging.
 			// ±1 tolerance accounts for terminal/lipgloss coordinate rounding.
+			if m.activeDialog == dialogScanTx && m.webcamLogScroll.PanelTop > 0 {
+				vpBottom := m.webcamLogScroll.PanelTop + m.webcamLogVP.Height - 1
+				if m.webcamLogScroll.HitTest(msg.X, msg.Y, vpBottom) {
+					m.webcamLogScroll.Dragging = true
+					m.webcamLogScroll.ApplyDrag(msg.Y, &m.webcamLogVP)
+					return m, nil
+				}
+			}
+
 			if m.activeDialog == dialogTxResult && m.txQRScroll.PanelTop > 0 {
 				vpBottom := m.txQRScroll.PanelTop + m.txQRViewport.Height - 1
 				if m.txQRScroll.HitTest(msg.X, msg.Y, vpBottom) {
