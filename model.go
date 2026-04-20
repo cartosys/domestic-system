@@ -254,6 +254,8 @@ type model struct {
 	webcamRendered  string
 	webcamScanLog   []string
 	webcamErrStr    string
+	webcamLogVP     viewport.Model
+	webcamLogScroll scrollbar.State
 }
 
 // walletItem is a list item for the bubble-tea list component
