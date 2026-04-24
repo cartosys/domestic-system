@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"hash/crc32"
 	"math/big"
 	"sort"
@@ -365,11 +367,11 @@ func buildEthSignRequestCBOR(requestID [16]byte, signData []byte, chainID uint64
 
 // PackUnsignedTxEIP4527 packages an unsigned Ethereum transaction using proper EIP-4527 encoding:
 // RLP (signing preimage) → CBOR (eth-sign-request wrapper) → UR bytewords (QR payload).
-// Returns the UR string suitable for QR display and a human-readable display summary.
-func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.Int, gasLimit uint64, data []byte, rpcURL string) (urString string, err error) {
+// Returns the UR string and a JSON representation of the transaction fields.
+func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.Int, gasLimit uint64, data []byte, rpcURL string) (urString string, txJSON string, err error) {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
@@ -377,17 +379,17 @@ func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.In
 
 	nonce, err := client.PendingNonceAt(ctx, from)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	chainID, err := client.ChainID(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// RLP-encode as EIP-155 unsigned transaction signing preimage
@@ -403,13 +405,13 @@ func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.In
 		S:        big.NewInt(0),
 	})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Generate random UUID for the request-id
 	var requestID [16]byte
 	if _, err := rand.Read(requestID[:]); err != nil {
-		return "", err
+		return "", "", err
 	}
 	// Set version 4 and variant bits per RFC 4122
 	requestID[6] = (requestID[6] & 0x0F) | 0x40
@@ -422,7 +424,29 @@ func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.In
 	checksum := crc32.ChecksumIEEE(cborData)
 	payload := append(cborData, byte(checksum>>24), byte(checksum>>16), byte(checksum>>8), byte(checksum))
 
-	return "ur:eth-sign-request/" + encodeBytewordsMinimal(payload), nil
+	urStr := "ur:eth-sign-request/" + encodeBytewordsMinimal(payload)
+
+	// Build JSON representation of tx fields for human inspection
+	txFields := map[string]interface{}{
+		"from":     from.Hex(),
+		"to":       to.Hex(),
+		"value":    fmt.Sprintf("0x%x", value),
+		"nonce":    fmt.Sprintf("0x%x", nonce),
+		"gasPrice": fmt.Sprintf("0x%x", gasPrice),
+		"gasLimit": fmt.Sprintf("0x%x", gasLimit),
+		"chainId":  fmt.Sprintf("0x%x", chainID),
+	}
+	if len(data) > 0 {
+		txFields["data"] = "0x" + hex.EncodeToString(data)
+	}
+	jsonBytes, jsonErr := json.MarshalIndent(txFields, "", "  ")
+	if jsonErr != nil {
+		txJSON = "{}"
+	} else {
+		txJSON = string(jsonBytes)
+	}
+
+	return urStr, txJSON, nil
 }
 
 // TransactionPackageEIP4527 contains transaction data packaged per EIP-4527
@@ -434,7 +458,7 @@ type TransactionPackageEIP4527 struct {
 // PackageTransactionEIP4527 creates an EIP-4527 compliant unsigned ETH transfer package.
 // The transaction is RLP-encoded, CBOR-wrapped, and UR-encoded for air-gapped signing.
 func PackageTransactionEIP4527(fromAddress common.Address, toAddress common.Address, amount *big.Int, rpcURL string) (TransactionPackageEIP4527, error) {
-	urStr, err := PackUnsignedTxEIP4527(fromAddress, toAddress, amount, 21000, nil, rpcURL)
+	urStr, _, err := PackUnsignedTxEIP4527(fromAddress, toAddress, amount, 21000, nil, rpcURL)
 	if err != nil {
 		return TransactionPackageEIP4527{}, err
 	}

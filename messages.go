@@ -67,6 +67,7 @@ type detailsLoadedMsg struct {
 // packageTransactionMsg contains packaged transaction ready for QR display
 type packageTransactionMsg struct {
 	txDisplay string
+	txJSON    string
 	qrData    string
 	format    string
 	err       error

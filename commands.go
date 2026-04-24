@@ -53,7 +53,7 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 		weiFloat := new(big.Float).Mul(amountFloat, big.NewFloat(1e18))
 		amountWei, _ := weiFloat.Int(nil)
 
-		urStr, err := rpc.PackUnsignedTxEIP4527(
+		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(
 			common.HexToAddress(fromAddr),
 			common.HexToAddress(toAddr),
 			amountWei,
@@ -64,8 +64,8 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 		if err != nil {
 			return packageTransactionMsg{err: err}
 		}
-		summary := fmt.Sprintf("ETH Transfer: %s ETH → %s\n\n%s", ethAmount, toAddr, urStr)
-		return packageTransactionMsg{txDisplay: summary, qrData: urStr, format: "EIP-4527", err: nil}
+		summary := fmt.Sprintf("ETH Transfer: %s ETH → %s", ethAmount, toAddr)
+		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527", err: nil}
 	}
 }
 
@@ -99,19 +99,18 @@ func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOpt
 		}
 
 		// Fetch network params, RLP+CBOR+UR encode
-		urStr, err := rpc.PackUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, rpcURL)
+		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, rpcURL)
 		if err != nil {
 			return packageTransactionMsg{err: err}
 		}
 
 		// Human-readable summary shown below the QR code
-		summary := fmt.Sprintf("Uniswap V2 Swap: %s %s → %s (min %s)\nRouter: %s\n\n%s",
+		summary := fmt.Sprintf("Uniswap V2 Swap: %s %s → %s (min %s)\nRouter: %s",
 			amountIn, fromToken.Symbol, toToken.Symbol, minOutHuman,
 			routerAddress.Hex(),
-			urStr,
 		)
 
-		return packageTransactionMsg{txDisplay: summary, qrData: urStr, format: "EIP-4527", err: nil}
+		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527", err: nil}
 	}
 }
 
@@ -639,14 +638,14 @@ func packageTerraClaimTx(fromAddr, message, rpcURL string) tea.Cmd {
 		fromAddress := common.HexToAddress(fromAddr)
 		toAddress := common.HexToAddress(helpers.TerraContractAddress)
 
-		urStr, err := rpc.PackUnsignedTxEIP4527(fromAddress, toAddress, big.NewInt(0), 100000, calldata, rpcURL)
+		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(fromAddress, toAddress, big.NewInt(0), 100000, calldata, rpcURL)
 		if err != nil {
 			return packageTransactionMsg{err: err}
 		}
 
-		summary := fmt.Sprintf("Terra Nullius claim: \"%s\"\nContract: %s\n\n%s",
-			message, helpers.TerraContractAddress, urStr)
-		return packageTransactionMsg{txDisplay: summary, qrData: urStr, format: "EIP-4527", err: nil}
+		summary := fmt.Sprintf("Terra Nullius claim: \"%s\"\nContract: %s",
+			message, helpers.TerraContractAddress)
+		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527", err: nil}
 	}
 }
 

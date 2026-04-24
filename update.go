@@ -178,12 +178,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.txResultHex = msg.txDisplay
 			m.txResultEIP681 = msg.qrData
 			m.txResultFormat = msg.format
-			// Build scrollable viewport content: QR block + label + summary + instructions
+			// Build scrollable viewport content: QR block + human-readable summary + JSON + instructions
 			labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
 			muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
 			content := txqr.Render(msg.qrData) + "\n" +
-				labelStyle.Render("EIP-4527 UR (RLP+CBOR encoded):") + "\n\n" +
 				msg.txDisplay + "\n\n" +
+				labelStyle.Render("Transaction data (JSON):") + "\n\n" +
+				msg.txJSON + "\n\n" +
 				muteStyle.Render("Scan the QR code with your wallet app to sign this transaction") + "\n" +
 				muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • Enter to scan response • ESC to close")
 			m.txQRViewport.SetContent(content)
