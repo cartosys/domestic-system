@@ -40,6 +40,12 @@ const (
 	DefaultKeyName    = "NotForProduction"
 )
 
+// DefaultAddress returns the Ethereum address derived from DefaultPrivateKey.
+func DefaultAddress() string {
+	addr, _ := DeriveAddress(DefaultPrivateKey)
+	return addr
+}
+
 // KeysPath returns the absolute path to the private-keys file.
 func KeysPath() string {
 	home, _ := os.UserHomeDir()
