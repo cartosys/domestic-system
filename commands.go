@@ -13,6 +13,7 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
+	"charm-wallet-tui/signer"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/webcam/capture"
@@ -1124,8 +1125,42 @@ func (m *model) navigateTo(page config.Page) tea.Cmd {
 		m.activeDialog = dialogNone
 		m.addLog("info", "Terra Nullius: loading number of claims…")
 		return fetchTerraNumberOfClaims(m.ethClient)
+	case config.PageSigner:
+		m.signerDecoded = nil
+		m.signerResult = nil
+		m.signerSignErr = ""
+		m.signerScanMode = false
+		return loadSignerKeys()
 	}
 	return nil
+}
+
+// loadSignerKeys reads ~/.charm-wallet-private-keys.json, bootstrapping defaults
+// if the file does not exist.
+func loadSignerKeys() tea.Cmd {
+	return func() tea.Msg {
+		keys, err := signer.LoadKeys()
+		return signerKeysLoadedMsg{keys: keys, err: err}
+	}
+}
+
+// signEIP4527 decodes a ur:eth-sign-request UR and signs it with a stored key.
+func signEIP4527(urText string, keys []signer.KeyEntry) tea.Cmd {
+	return func() tea.Msg {
+		tx, err := signer.DecodeEIP4527UR(urText)
+		if err != nil {
+			return signerSignedMsg{err: fmt.Errorf("decode: %w", err)}
+		}
+		privKey := signer.FindKey(tx.From, keys)
+		if privKey == "" {
+			return signerSignedMsg{decoded: &tx, err: fmt.Errorf("no key stored for %s", tx.From)}
+		}
+		result, err := signer.SignTx(tx, privKey)
+		if err != nil {
+			return signerSignedMsg{decoded: &tx, err: err}
+		}
+		return signerSignedMsg{decoded: &tx, result: &result}
+	}
 }
 
 // -------------------- WEBCAM COMMANDS --------------------

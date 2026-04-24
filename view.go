@@ -16,6 +16,7 @@ import (
 	"charm-wallet-tui/views/details"
 	logview "charm-wallet-tui/views/log"
 	"charm-wallet-tui/views/settings"
+	vsigner "charm-wallet-tui/views/signer"
 	"charm-wallet-tui/views/terra"
 	"charm-wallet-tui/views/scrollbar"
 	"charm-wallet-tui/views/uniswap"
@@ -590,6 +591,23 @@ func (m *model) View() string {
 		if m.activeDialog == dialogScanTx {
 			return m.renderScanTxPanel()
 		}
+
+	case config.PageSigner:
+		if m.activeDialog == dialogScanTx {
+			return m.renderScanTxPanel()
+		}
+		signerContent := vsigner.Render(
+			m.contentW,
+			m.signerKeys,
+			m.signerKeyIdx,
+			m.signerDecoded,
+			m.signerResult,
+			m.signerSignErr,
+			m.signerScanMode,
+			m.spin.View(),
+		)
+		pageContent = panelStyle.Width(m.contentW).Render(signerContent)
+		nav = vsigner.Nav(m.w-2, m.txIndexerActive)
 	}
 
 	// Render log panel only if enabled

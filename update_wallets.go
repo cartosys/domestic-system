@@ -386,6 +386,9 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "b", "B":
 		return m, m.navigateTo(config.PageDappBrowser)
 
+	case "x", "X":
+		return m, m.navigateTo(config.PageSigner)
+
 	case "h", "H":
 
 	case "esc":

@@ -109,6 +109,14 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.webcamRendered = render.ImageToHalfBlocks(msg.img, videoW, videoH*2)
 		}
 		if msg.qrText != "" {
+			// Signer mode: auto-decode and sign EIP-4527 QR codes, then close webcam
+			if m.signerScanMode && strings.HasPrefix(strings.ToLower(msg.qrText), "ur:eth-sign-request/") {
+				m.signerScanMode = false
+				urText := msg.qrText
+				keys := m.signerKeys
+				newModel, closeCmd := m.closeScanTxDialog()
+				return newModel, tea.Batch(closeCmd, signEIP4527(urText, keys)), true
+			}
 			entry := formatQREntry(msg.qrText)
 			m.webcamScanLog = append([]string{entry}, m.webcamScanLog...)
 			if len(m.webcamScanLog) > 50 {

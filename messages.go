@@ -8,6 +8,7 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
+	"charm-wallet-tui/signer"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/webcam/capture"
 )
@@ -71,6 +72,19 @@ type packageTransactionMsg struct {
 	qrData    string
 	format    string
 	err       error
+}
+
+// signerKeysLoadedMsg carries the result of loading the private-keys file.
+type signerKeysLoadedMsg struct {
+	keys []signer.KeyEntry
+	err  error
+}
+
+// signerSignedMsg carries the result of signing an EIP-4527 transaction.
+type signerSignedMsg struct {
+	decoded *signer.DecodedTx
+	result  *signer.SignResult
+	err     error
 }
 
 // terraNullClaimsCountMsg contains the result of a number_of_claims() call

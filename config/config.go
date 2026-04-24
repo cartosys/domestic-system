@@ -50,6 +50,7 @@ const (
 	PageDappBrowser
 	PageUniswap
 	PageTerraNullius
+	PageSigner
 )
 
 // ClickableArea represents a clickable region on screen for addresses

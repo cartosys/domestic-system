@@ -11,6 +11,7 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
+	"charm-wallet-tui/signer"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/scrollbar"
@@ -256,6 +257,14 @@ type model struct {
 	webcamErrStr    string
 	webcamLogVP     viewport.Model
 	webcamLogScroll scrollbar.State
+
+	// Signer page state
+	signerKeys      []signer.KeyEntry
+	signerKeyIdx    int
+	signerDecoded   *signer.DecodedTx
+	signerResult    *signer.SignResult
+	signerSignErr   string
+	signerScanMode  bool // true when webcam was opened from the signer page
 }
 
 // walletItem is a list item for the bubble-tea list component

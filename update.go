@@ -169,6 +169,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case signerKeysLoadedMsg:
+		if msg.err != nil {
+			m.signerSignErr = msg.err.Error()
+			m.addLog("error", "Signer: failed to load keys: "+msg.err.Error())
+		} else {
+			m.signerKeys = msg.keys
+			if m.signerKeyIdx >= len(m.signerKeys) {
+				m.signerKeyIdx = 0
+			}
+		}
+		return m, nil
+
+	case signerSignedMsg:
+		m.signerDecoded = msg.decoded
+		if msg.err != nil {
+			m.signerSignErr = msg.err.Error()
+			m.addLog("error", "Signer: "+msg.err.Error())
+		} else {
+			m.signerResult = msg.result
+			m.signerSignErr = ""
+			m.addLog("success", "Signer: transaction signed — hash "+msg.result.TxHash)
+		}
+		return m, nil
+
 	case packageTransactionMsg:
 		m.txResultPackaging = false
 		if msg.err != nil {
@@ -582,6 +606,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleUniswapKey(msg)
 		case config.PageTerraNullius:
 			return m.handleTerraKey(msg)
+		case config.PageSigner:
+			return m.handleSignerKey(msg)
 		}
 
 	case tea.MouseMsg:
