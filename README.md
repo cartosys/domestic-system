@@ -56,6 +56,7 @@ The Domestic System occupies a unique intersection of niche use cases, serving t
 - ⚡ **Transaction Building**: Generate transaction QR codes for hardware wallet signing (EIP-4527)
 - 📋 **Clipboard Integration**: Easy address copying and ENS resolution
 - ⚙️ **Persistent Configuration**: Settings and wallet lists saved locally
+- 🔑 **Transaction Signer**: Native Go signing module + standalone Python CLI for air-gapped EIP-4527 workflows
 
 ## Installation
 
@@ -108,6 +109,7 @@ Customize which ERC-20 tokens to display by editing the token watchlist in `main
 - **Settings**: Configure RPC endpoints and application settings
 - **DApps**: Browse and interact with decentralized applications
 - **Uniswap**: Token swapping interface
+- **Signer** (`x` from Accounts): Manage signing keys, scan EIP-4527 QR codes via webcam, and sign transactions
 
 ### Adding Accounts
 
@@ -134,6 +136,102 @@ Alternatively, navigate to the Wallets page and press Enter on any wallet to vie
 2. Tab & Click the Send button
 3. Fill in recipient address and amount
 4. Generate QR code for hardware wallet signing
+
+## Transaction Signer
+
+The Domestic System includes a full EIP-4527 transaction signing workflow usable both inside the TUI and independently from the terminal.
+
+### How it works
+
+```
+TUI (any page)  →  packages unsigned tx  →  displays EIP-4527 QR code
+                                                        ↓
+                                          Signer page scans QR via webcam
+                                                        ↓
+                                          Decodes UR → signs with stored key
+                                                        ↓
+                                          Displays raw signed transaction hex
+```
+
+### Private key storage
+
+Keys are stored in `~/.charm-wallet-private-keys.json` (mode `600`, outside the repo). On first run a `NotForProduction` demo key is bootstrapped automatically and its address is registered in `~/.charm-wallet-config.json`.
+
+```json
+{
+  "private_keys": [
+    {
+      "address": "0x29c73B201bEE86C4d1Fe4f598C4355Bb210251e3",
+      "name": "NotForProduction",
+      "private_key": "0xc0054..."
+    }
+  ]
+}
+```
+
+### TUI Signer page
+
+Press `x` from the Accounts page to open the Signer. From there:
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Select signing key |
+| `s` | Open webcam — auto-signs the first EIP-4527 QR detected |
+| `a` | Reload keys from disk |
+| `c` | Clear current result |
+| `Esc` | Return to Accounts |
+
+The signed transaction (raw hex, tx hash, r/s/v) is shown immediately after scanning.
+
+### Standalone Python CLI (`signer/eth_signer.py`)
+
+The Python signer runs independently without the TUI. Install dependencies once:
+
+```bash
+pip install -r requirements.txt
+```
+
+| Command | Description |
+|---------|-------------|
+| `python signer/eth_signer.py --generate-keys` | Generate a new ECDSA keypair |
+| `python signer/eth_signer.py --derive-address 0x...` | Derive address from private key |
+| `python signer/eth_signer.py --private-key 0x... --to 0x... --value 1000000000000000000` | Sign a transaction |
+| `python signer/eth_signer.py --scan` | Webcam scan: detect and sign EIP-4527 QR codes |
+| `python signer/eth_signer.py --add-key --private-key 0x... --name "Wallet"` | Add a key to the store |
+| `python signer/eth_signer.py --list-keys` | List stored addresses |
+
+All output is JSON. The `--scan` mode opens an OpenCV window showing the live camera feed and emits signed transactions to stdout as they are detected.
+
+### End-to-end tx signing test CLI (`cmd/txtest`)
+
+Exercises the full pack → decode → sign round-trip using the Go modules directly:
+
+```bash
+# Offline (hardcoded test params — no RPC needed)
+go run ./cmd/txtest
+
+# With live nonce/gasPrice/chainId from an RPC endpoint
+go run ./cmd/txtest --rpc https://eth.llamarpc.com
+
+# Custom recipient and amount
+go run ./cmd/txtest --to 0xYourAddr --value 0.5 --chainid 11155111
+```
+
+Output shows both steps clearly:
+
+```
+STEP 1 — Pack unsigned transaction (EIP-4527)
+─────────────────────────────────────────────
+Transaction fields: { "from": "0x29c7...", "to": "0xd8dA...", ... }
+UR: ur:eth-sign-request/onadtpdagd...
+
+STEP 2 — Decode + sign with stored key
+───────────────────────────────────────
+Decoded transaction: { "from": "0x29c7...", "value": "0.001000 ETH", ... }
+Signed transaction:  { "txHash": "0x5989...", "raw_transaction": "0xf86b...", ... }
+
+✓  Round-trip complete
+```
 
 ## Development
 
@@ -170,17 +268,29 @@ go run ./cmd/v4listener \
 
 ```
 domestic-system/
-├── main.go              # Main TUI application and state management
-├── config/              # Configuration loading and saving
-├── helpers/             # Utility functions (address formatting, Uniswap, etc.)
-├── rpc/                 # Ethereum RPC client wrapper
-├── styles/              # Lip Gloss styling definitions
-└── views/               # Page-specific rendering logic
-    ├── wallets/
-    ├── details/
-    ├── settings/
-    ├── dapps/
-    └── uniswap/
+├── main.go              # Entry point — wires Bubble Tea program
+├── model.go             # App state struct + Init()
+├── update.go            # All Update() message handlers
+├── view.go              # Top-level View() dispatch
+├── cmd/
+│   ├── txtest/          # End-to-end pack → sign test CLI
+│   └── v4listener/      # Standalone Uniswap V4 event listener
+├── config/              # JSON config load/save, type definitions
+├── helpers/             # ENS resolution, address formatting, Uniswap V2/V4
+├── rpc/                 # Ethereum RPC client, EIP-4527 transaction packaging
+├── signer/
+│   ├── signer.go        # Go package: key management, EIP-4527 decode, ECDSA sign
+│   └── eth_signer.py    # Standalone Python CLI (same functionality)
+├── styles/              # Lip Gloss colors and shared styles
+├── views/               # Per-page renderers
+│   ├── wallets/
+│   ├── details/
+│   ├── settings/
+│   ├── dapps/
+│   ├── uniswap/
+│   ├── terra/
+│   └── signer/          # Signer page renderer
+└── webcam/              # Camera capture and half-block video rendering
 ```
 
 ### Running Tests
@@ -206,11 +316,12 @@ Please open an issue before starting major work.
 
 - [ ] Home dashboard with portfolio overview
 - [ ] Transaction history viewing
-- [ ] EIP-4527 QR code generation
+- [x] EIP-4527 QR code generation
+- [x] EIP-4527 QR code signing (TUI Signer page + Python CLI)
 - [ ] NFT viewing support
 - [ ] More DApp integrations
 - [ ] Ledger/Trezor direct integration (optional)
-- [ ] Mouse support for clicking addresses/buttons
+- [x] Mouse support for clicking addresses/buttons
 
 ## License
 
