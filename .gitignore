@@ -52,3 +52,9 @@ cache/
 
 charm-wallet-tui
 v4listener
+
+# Python signer
+signer/__pycache__/
+signer/*.pyc
+signer/*.pyo
+.charm-wallet-private-keys.json

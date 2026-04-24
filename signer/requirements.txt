@@ -1,0 +1,8 @@
+# Required for all modes
+eth-account>=0.8.0
+
+# Required for --scan mode (EIP-4527 CBOR decoding)
+cbor2>=5.4.0
+
+# Required for --scan mode (webcam capture + QR detection)
+opencv-python>=4.5.0
