@@ -230,22 +230,39 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.txResultError = msg.err.Error()
 			m.addLog("error", "Transaction packaging failed: "+msg.err.Error())
-		} else {
-			m.txResultHex = msg.txDisplay
-			m.txResultEIP681 = msg.qrData
-			m.txResultFormat = msg.format
-			// Build scrollable viewport content: QR block + human-readable summary + JSON + instructions
-			labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
-			muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
-			content := txqr.Render(msg.qrData) + "\n" +
-				msg.txDisplay + "\n\n" +
-				labelStyle.Render("Transaction data (JSON):") + "\n\n" +
-				msg.txJSON + "\n\n" +
-				muteStyle.Render("Scan the QR code with your wallet app to sign this transaction") + "\n" +
-				muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • Enter to scan response • ESC to close")
-			m.txQRViewport.SetContent(content)
-			m.txQRViewport.GotoTop()
-			m.addLog("success", "Transaction packaged successfully ("+msg.format+")")
+			return m, nil
+		}
+		m.txResultHex = msg.txDisplay
+		m.txResultEIP681 = msg.qrData
+		m.txResultFormat = msg.format
+
+		// Generate animated QR frames (BCUR multi-part, ~50 bytes per chunk).
+		// Fall back to a single frame if generation fails.
+		frames, err := txqr.RenderAnimated(msg.qrData, 50)
+		if err != nil || len(frames) == 0 {
+			m.addLog("warning", fmt.Sprintf("animated QR generation failed (%v), using single frame", err))
+			frames = []string{txqr.Render(msg.qrData)}
+		}
+		m.txQRFrames = frames
+		m.txQRFrameIdx = 0
+
+		// Viewport carries the text details (tx summary + JSON + hints).
+		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+		muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+		content := msg.txDisplay + "\n\n" +
+			labelStyle.Render("Transaction data (JSON):") + "\n\n" +
+			msg.txJSON + "\n\n" +
+			muteStyle.Render("Scan the animated QR with your air-gapped wallet to sign") + "\n" +
+			muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • Enter to scan response • ESC to close")
+		m.txQRViewport.SetContent(content)
+		m.txQRViewport.GotoTop()
+		m.addLog("success", fmt.Sprintf("Transaction packaged (%s, %d QR frame(s))", msg.format, len(frames)))
+		return m, animateQRTick()
+
+	case txQRAnimTickMsg:
+		if m.activeDialog == dialogTxResult && len(m.txQRFrames) > 1 {
+			m.txQRFrameIdx = (m.txQRFrameIdx + 1) % len(m.txQRFrames)
+			return m, animateQRTick()
 		}
 		return m, nil
 

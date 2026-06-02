@@ -189,3 +189,6 @@ type webcamFrameMsg struct {
 
 // webcamErrMsg signals a camera or stream error
 type webcamErrMsg struct{ err error }
+
+// txQRAnimTickMsg advances the animated QR display to the next frame.
+type txQRAnimTickMsg struct{}

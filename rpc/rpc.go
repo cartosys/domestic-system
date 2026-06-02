@@ -478,3 +478,112 @@ func GenerateQRCode(data string) string {
 	qrterminal.GenerateWithConfig(data, config)
 	return buf.String()
 }
+
+// generateQRCodeCompact renders a QR code using half-block Unicode characters so
+// each module occupies one terminal column (half the width of the full-block mode).
+func generateQRCodeCompact(data string) string {
+	var buf bytes.Buffer
+	config := qrterminal.Config{
+		HalfBlocks:     true,
+		Level:          qrterminal.L,
+		Writer:         &buf,
+		BlackChar:      qrterminal.BLACK_BLACK,
+		BlackWhiteChar: qrterminal.BLACK_WHITE,
+		WhiteChar:      qrterminal.WHITE_WHITE,
+		WhiteBlackChar: qrterminal.WHITE_BLACK,
+		QuietZone:      1,
+	}
+	qrterminal.GenerateWithConfig(data, config)
+	return buf.String()
+}
+
+// decodeBytewordsMinimal is the inverse of encodeBytewordsMinimal.
+func decodeBytewordsMinimal(encoded string) ([]byte, error) {
+	if len(encoded)%2 != 0 {
+		return nil, fmt.Errorf("odd bytewords length %d", len(encoded))
+	}
+	type pair [2]byte
+	rev := make(map[pair]byte, 256)
+	for i := 0; i < 256; i++ {
+		rev[pair{bytewordsLookup[i*2], bytewordsLookup[i*2+1]}] = byte(i)
+	}
+	out := make([]byte, len(encoded)/2)
+	for i := 0; i < len(encoded); i += 2 {
+		b, ok := rev[pair{encoded[i], encoded[i+1]}]
+		if !ok {
+			return nil, fmt.Errorf("invalid bytewords pair at %d: %q", i, encoded[i:i+2])
+		}
+		out[i/2] = b
+	}
+	return out, nil
+}
+
+// GenerateAnimatedQRFrames splits a single-part UR string into BCUR-style
+// sequential multi-part frames and returns compact half-block QR ASCII art for
+// each frame.  maxChunkBytes controls how many bytes of the original CBOR
+// payload go into each part; smaller values produce more frames but each QR
+// fits on screen without horizontal scrolling.
+func GenerateAnimatedQRFrames(urString string, maxChunkBytes int) ([]string, error) {
+	// Parse "ur:TYPE/BYTEWORDS"
+	if !strings.HasPrefix(urString, "ur:") {
+		return nil, fmt.Errorf("not a UR string")
+	}
+	rest := urString[3:]
+	slash := strings.IndexByte(rest, '/')
+	if slash < 0 {
+		return nil, fmt.Errorf("missing slash in UR")
+	}
+	urType := rest[:slash]
+	bwStr := rest[slash+1:]
+
+	// Decode bytewords → cborData + 4-byte CRC32 suffix
+	payload, err := decodeBytewordsMinimal(bwStr)
+	if err != nil {
+		return nil, fmt.Errorf("bytewords decode: %w", err)
+	}
+	if len(payload) < 5 {
+		return nil, fmt.Errorf("payload too short")
+	}
+	cborData := payload[:len(payload)-4]
+	storedCRC := uint32(payload[len(payload)-4])<<24 |
+		uint32(payload[len(payload)-3])<<16 |
+		uint32(payload[len(payload)-2])<<8 |
+		uint32(payload[len(payload)-1])
+	if crc32.ChecksumIEEE(cborData) != storedCRC {
+		return nil, fmt.Errorf("CRC32 mismatch in source UR")
+	}
+
+	msgLen := len(cborData)
+	msgCRC := crc32.ChecksumIEEE(cborData)
+	numChunks := (msgLen + maxChunkBytes - 1) / maxChunkBytes
+	if numChunks < 1 {
+		numChunks = 1
+	}
+
+	frames := make([]string, numChunks)
+	for i := 0; i < numChunks; i++ {
+		start := i * maxChunkBytes
+		end := start + maxChunkBytes
+		if end > msgLen {
+			end = msgLen
+		}
+		chunk := cborData[start:end]
+
+		// BCUR multi-part part: CBOR array(5)[seqNum, seqLen, msgLen, msgCRC, fragment]
+		var part []byte
+		part = append(part, 0x85) // array(5)
+		part = append(part, cborUintField(uint64(i+1))...)
+		part = append(part, cborUintField(uint64(numChunks))...)
+		part = append(part, cborUintField(uint64(msgLen))...)
+		part = append(part, cborUintField(uint64(msgCRC))...)
+		part = append(part, cborBytesField(chunk)...)
+
+		// Append CRC32 of this part (mirrors the single-part payload convention)
+		pc := crc32.ChecksumIEEE(part)
+		part = append(part, byte(pc>>24), byte(pc>>16), byte(pc>>8), byte(pc))
+
+		frameUR := fmt.Sprintf("ur:%s/%d-%d/%s", urType, i+1, numChunks, encodeBytewordsMinimal(part))
+		frames[i] = generateQRCodeCompact(frameUR)
+	}
+	return frames, nil
+}

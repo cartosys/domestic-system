@@ -1202,6 +1202,14 @@ func decodeQR(img image.Image) string {
 	return result.String()
 }
 
+// animateQRTick returns a command that fires txQRAnimTickMsg after 400 ms,
+// advancing the animated QR display to the next frame.
+func animateQRTick() tea.Cmd {
+	return tea.Tick(400*time.Millisecond, func(_ time.Time) tea.Msg {
+		return txQRAnimTickMsg{}
+	})
+}
+
 // cmdEnableMouseAllMotion switches the terminal to all-motion mouse reporting
 // so that hover events are received (used when no text input is active).
 func cmdEnableMouseAllMotion() tea.Cmd {

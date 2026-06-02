@@ -113,17 +113,37 @@ func (m *model) renderTxResultContent() string {
 			"\n\n" + muteStyle.Render("Press ESC or Enter to close")
 	}
 
-	vpH := helpers.Max(3, m.h-8)
+	// Animated QR section: show current frame, centred, with frame counter.
+	var qrSection string
+	if len(m.txQRFrames) > 0 {
+		qr := m.txQRFrames[m.txQRFrameIdx]
+		if len(m.txQRFrames) > 1 {
+			counter := lipgloss.NewStyle().
+				Foreground(styles.CMuted).
+				Render(fmt.Sprintf("Frame %d / %d", m.txQRFrameIdx+1, len(m.txQRFrames)))
+			qrSection = qr + counter
+		} else {
+			qrSection = qr
+		}
+	}
+	qrH := lipgloss.Height(qrSection)
+
+	// Remaining vertical space goes to the scrollable text viewport.
+	// Overhead: title(1) + blank(1) + qr + blank(1) + panel borders+padding(4) + slack(1) = qrH+8
+	vpH := helpers.Max(3, m.h-qrH-8)
 	vp := m.txQRViewport
 	vp.Height = vpH
 	track := scrollbar.Track(vpH, vp.TotalLineCount(), vp.YOffset)
 	vpContent := scrollbar.Decorate(vp.View(), track)
-	// txQR dialog is vertically centered: panel height = vpH+4, top = (h-(vpH+4))/2.
-	// Viewport starts 3 lines below that (border + title + blank).
-	m.txQRScroll.PanelTop = (m.h-(vpH+4))/2 + 3
+
+	// Viewport scroll tracking: panel is vertically centred; viewport starts
+	// after title(1) + blank(1) + qrSection + blank(1) + panel top border+padding(2) = qrH+5
+	totalPanelH := 1 + 1 + qrH + 1 + vpH + 4 // title+blank+qr+blank+vp+borders/padding
+	panelTop := (m.h - totalPanelH) / 2
+	m.txQRScroll.PanelTop = panelTop + 2 + 1 + qrH + 1 // panel top + border+padding + qr + blank
 	m.txQRScroll.TrackCol = m.txQRViewport.Width + 3
 
-	result := title + "\n\n" + vpContent
+	result := title + "\n\n" + qrSection + "\n" + vpContent
 	if m.txCopiedMsg != "" {
 		result += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true).Render(m.txCopiedMsg)
 	}

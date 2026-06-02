@@ -156,6 +156,8 @@ type model struct {
 	txResultFormat    string
 	txResultError     string
 	txQRViewport      viewport.Model
+	txQRFrames        []string // pre-rendered QR ASCII art, one per animated frame
+	txQRFrameIdx      int      // index of the currently visible frame
 
 	// Uniswap swap state
 	uniswapFromTokenIdx    int    // index in available tokens
