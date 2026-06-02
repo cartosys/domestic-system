@@ -1201,3 +1201,16 @@ func decodeQR(img image.Image) string {
 	}
 	return result.String()
 }
+
+// cmdEnableMouseAllMotion switches the terminal to all-motion mouse reporting
+// so that hover events are received (used when no text input is active).
+func cmdEnableMouseAllMotion() tea.Cmd {
+	return func() tea.Msg { return tea.EnableMouseAllMotion() }
+}
+
+// cmdEnableMouseCellMotion drops back to button-only mouse reporting while a
+// text input is active. This prevents motion escape sequences from being split
+// across reads and leaking into focused input fields as raw key characters.
+func cmdEnableMouseCellMotion() tea.Cmd {
+	return func() tea.Msg { return tea.EnableMouseCellMotion() }
+}

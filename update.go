@@ -35,6 +35,38 @@ var (
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Mouse motion is consumed here before any form or input handler sees it.
+	// WithMouseAllMotion sends escape sequences on every cursor move; forwarding
+	// them to textinput components causes raw sequences like "[<35;238;1M" to
+	// appear in fields.
+	if mm, ok := msg.(tea.MouseMsg); ok && mm.Type == tea.MouseMotion {
+		if m.webcamLogScroll.Dragging {
+			m.webcamLogScroll.ApplyDrag(mm.Y, &m.webcamLogVP)
+			return m, nil
+		}
+		if m.logScroll.Dragging {
+			m.logScroll.ApplyDrag(mm.Y, &m.logViewport)
+			return m, nil
+		}
+		if m.v4Scroll.Dragging {
+			m.v4Scroll.ApplyDrag(mm.Y, &m.v4EventsViewport)
+			return m, nil
+		}
+		if m.txQRScroll.Dragging {
+			m.txQRScroll.ApplyDrag(mm.Y, &m.txQRViewport)
+			return m, nil
+		}
+		wasHovered := m.sendButtonHovered
+		m.sendButtonHovered = m.activePage == config.PageWallets &&
+			m.detailsInWallets && !m.showSendForm &&
+			m.activeDialog == dialogNone && m.sendBtnW > 0 &&
+			mm.Y == m.sendBtnY && mm.X >= m.sendBtnX && mm.X < m.sendBtnX+m.sendBtnW
+		if m.sendButtonHovered != wasHovered {
+			return m, nil
+		}
+		return m, nil
+	}
+
 	// Handle webcam messages at top level (active across any page/dialog)
 	if updated, cmd, handled := m.handleWebcamMsg(msg); handled {
 		return updated, cmd
@@ -672,26 +704,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Scrollbar drag: motion while dragging updates scroll offset.
-		if msg.Type == tea.MouseMotion {
-			if m.webcamLogScroll.Dragging {
-				m.webcamLogScroll.ApplyDrag(msg.Y, &m.webcamLogVP)
-				return m, nil
-			}
-			if m.logScroll.Dragging {
-				m.logScroll.ApplyDrag(msg.Y, &m.logViewport)
-				return m, nil
-			}
-			if m.v4Scroll.Dragging {
-				m.v4Scroll.ApplyDrag(msg.Y, &m.v4EventsViewport)
-				return m, nil
-			}
-			if m.txQRScroll.Dragging {
-				m.txQRScroll.ApplyDrag(msg.Y, &m.txQRViewport)
-				return m, nil
-			}
-		}
-
 		if msg.Type == tea.MouseLeft {
 			// Panel focus: when both V4 events and log panels are visible, set focus
 			// based on which region was clicked. Does not consume the click.
@@ -832,6 +844,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return m, openInBrowser(url)
 						}
 					}
+				}
+			}
+
+			// Send button click on the wallets split view.
+			if m.activePage == config.PageWallets && m.detailsInWallets && !m.showSendForm &&
+				m.activeDialog == dialogNone && m.sendBtnW > 0 &&
+				msg.Y == m.sendBtnY && msg.X >= m.sendBtnX && msg.X < m.sendBtnX+m.sendBtnW {
+				if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+					m.createSendForm()
+					m.showSendForm = true
+					m.sendButtonFocused = false
+					m.sendButtonHovered = false
+					return m, cmdEnableMouseCellMotion()
 				}
 			}
 

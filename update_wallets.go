@@ -71,7 +71,7 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 		m.showSendForm = false
 		m.sendForm = nil
-		return m, nil
+		return m, cmdEnableMouseAllMotion()
 	}
 
 	form, cmd := m.sendForm.Update(msg)
@@ -89,14 +89,14 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.txResultHex = ""
 			m.txResultError = ""
 			m.txResultFormat = "EIP-4527"
-			return m, packageTransaction(m.activeAddress, tempSendToAddr, tempSendAmount, m.rpcURL)
+			return m, tea.Batch(packageTransaction(m.activeAddress, tempSendToAddr, tempSendAmount, m.rpcURL), cmdEnableMouseAllMotion())
 		}
 
 		// Check if form was aborted (ESC pressed)
 		if m.sendForm.State == huh.StateAborted {
 			m.showSendForm = false
 			m.sendForm = nil
-			return m, nil
+			return m, cmdEnableMouseAllMotion()
 		}
 	}
 	return m, cmd
@@ -175,7 +175,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.createSendForm()
 			m.showSendForm = true
 			m.sendButtonFocused = false
-			return m, nil
+			return m, cmdEnableMouseCellMotion()
 		}
 	}
 	// adding flow
@@ -192,7 +192,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.addError = ""
 			m.ensLookupActive = false
 			m.ensLookupAddr = ""
-			return m, nil
+			return m, cmdEnableMouseAllMotion()
 		case "ctrl+v":
 			// Handle Ctrl+v paste explicitly to active input
 			text, err := clipboard.ReadAll()
@@ -305,7 +305,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.addLog("success", fmt.Sprintf("Added wallet `%s`", helpers.ShortenAddr(newAddr)))
 				}
 				// Load details for the newly added wallet if split view is enabled
-				return m, m.loadSelectedWalletDetails()
+				return m, tea.Batch(m.loadSelectedWalletDetails(), cmdEnableMouseAllMotion())
 			} else {
 				m.addError = "Invalid Etherem Address"
 				m.addErrTime = time.Now()
@@ -356,7 +356,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addError = ""
 		m.ensLookupActive = false
 		m.ensLookupAddr = ""
-		return m, nil
+		return m, cmdEnableMouseCellMotion()
 
 	case "enter":
 		// Set selected wallet as active

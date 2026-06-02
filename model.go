@@ -143,9 +143,11 @@ type model struct {
 	deleteRPCDialogYesSelected bool
 
 	// send button state
-	sendButtonFocused bool
-	showSendForm      bool
-	sendForm          *huh.Form
+	sendButtonFocused  bool
+	sendButtonHovered  bool
+	sendBtnX, sendBtnY, sendBtnW int
+	showSendForm       bool
+	sendForm           *huh.Form
 
 	// transaction result panel state
 	txResultPackaging bool
@@ -435,7 +437,7 @@ func newModel() model {
 
 // Init implements tea.Model interface and returns initial commands
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spin.Tick}
+	cmds := []tea.Cmd{m.spin.Tick, cmdEnableMouseAllMotion()}
 	if m.logEnabled {
 		cmds = append(cmds, initLogViewport(), m.logSpinner.Tick)
 	}

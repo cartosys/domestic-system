@@ -393,17 +393,21 @@ func (m *model) View() string {
 			rpcDetails := toRPCDetails(m.details)
 			detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
 
+			var detailsBaseH int
 			// Show transaction result panel if active
 			if m.activeDialog == dialogTxResult {
 				detailsContent = m.renderTxResultContent()
+				m.sendBtnW = 0
 				// Show send form if active
 			} else if m.showSendForm && m.sendForm != nil {
 				sendFormContent := styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
 				detailsContent = sendFormContent
+				m.sendBtnW = 0
 			} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+				detailsBaseH = lipgloss.Height(detailsContent)
 				// Add send button if ETH balance > 0 and form is not active
 				var sendButtonStyle lipgloss.Style
-				if m.sendButtonFocused {
+				if m.sendButtonFocused || m.sendButtonHovered {
 					sendButtonStyle = styles.ButtonActive.MarginTop(2)
 				} else {
 					sendButtonStyle = styles.ButtonNormal.MarginTop(2)
@@ -425,6 +429,8 @@ func (m *model) View() string {
 						Render("Press Enter to send")
 					detailsContent += "\n" + hintText
 				}
+			} else {
+				m.sendBtnW = 0
 			}
 
 			// Calculate panel widths (split 40/60)
@@ -434,6 +440,17 @@ func (m *model) View() string {
 			// Get the height of the left panel content to match it on the right
 			leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
 			leftPanelHeight := lipgloss.Height(leftPanel)
+
+			// Track send button coordinates for mouse click/hover detection.
+			// panelStyle has 1 border + 1 padding on each side.
+			// Left panel outer width = listWidth + 4 (h-padding) + 2 (h-border) = listWidth + 6.
+			// Right panel content start X = listWidth + 6 + 1 (border) + 2 (padding) = listWidth + 9.
+			// Button is placed at detailsBaseH + 2 (\n\n) + 2 (MarginTop) lines into the content.
+			if detailsBaseH > 0 {
+				m.sendBtnX = listWidth + 5
+				m.sendBtnY = lipgloss.Height(headerPanel) + 2 + detailsBaseH + 3
+				m.sendBtnW = 10 // "Send" with Padding(0,3) = 3+4+3 = 10
+			}
 
 			// Set the right panel to match the left panel height
 			rightPanel := panelStyle.
