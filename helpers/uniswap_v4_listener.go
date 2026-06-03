@@ -256,41 +256,6 @@ func (c *v4SymbolCache) getOrFetch(ctx context.Context, client *ethclient.Client
 
 // ---- Helpers ----
 
-func v4ShortAddr(a common.Address) string {
-	s := a.Hex()
-	if len(s) <= 10 {
-		return s
-	}
-	return s[:6] + "…" + s[len(s)-4:]
-}
-
-func v4ShortHash(h common.Hash) string {
-	s := h.Hex()
-	return s[:10] + "…" + s[len(s)-6:]
-}
-
-// v4FadePoolID renders a shortened pool ID with the domestic-system title gradient
-// and wraps it in an OSC 8 hyperlink using the poolinfo:// scheme so the TUI can
-// intercept clicks and show the Pool Info popup.
-func v4FadePoolID(h common.Hash) string {
-	display := FadeString(v4ShortHash(h), "#7EE787", "#82CFFD")
-	return ansi.SetHyperlink("poolinfo://"+h.Hex()) + display + ansi.ResetHyperlink()
-}
-
-// v4HyperAddr returns a FadeString-coloured, OSC 8 hyperlinked short address
-// pointing to the Etherscan address page.
-func v4HyperAddr(a common.Address) string {
-	display := FadeString(v4ShortAddr(a), "#F25D94", "#EDFF82")
-	return ansi.SetHyperlink("https://etherscan.io/address/"+a.Hex()) + display + ansi.ResetHyperlink()
-}
-
-// v4HyperTxHash returns a FadeString-coloured, OSC 8 hyperlinked short hash
-// pointing to the Etherscan transaction page.
-func v4HyperTxHash(h common.Hash) string {
-	display := FadeString(v4ShortHash(h), "#F25D94", "#EDFF82")
-	return ansi.SetHyperlink("https://etherscan.io/tx/"+h.Hex()) + display + ansi.ResetHyperlink()
-}
-
 func v4SignedStr(x *big.Int) string {
 	if x == nil {
 		return "nil"
@@ -323,7 +288,7 @@ func v4ResolvePool(mu *sync.RWMutex, poolKeys map[common.Hash]v4PoolKey, id comm
 	if sym1 == "" {
 		sym1 = v4CurrencyLabel(key.Currency1)
 	}
-	return sym0 + "/" + sym1, v4HyperAddr(key.Hooks)
+	return sym0 + "/" + sym1, HyperAddr(key.Hooks)
 }
 
 // ---- Per-event formatters (return line string) ----
@@ -361,9 +326,9 @@ func v4FmtInitialize(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKey
 	}
 	return fmt.Sprintf(
 		"[Initialize]         block=%d tx=%s poolId=%s c0=%s c1=%s fee=%s tickSpacing=%s hooks=%s sqrtPrice=%s tick=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
+		lg.BlockNumber, HyperTxHash(lg.TxHash), HyperPoolID(ev.Id),
 		c0Label, c1Label,
-		ev.Fee.String(), ev.TickSpacing.String(), v4HyperAddr(ev.Hooks),
+		ev.Fee.String(), ev.TickSpacing.String(), HyperAddr(ev.Hooks),
 		ev.SqrtPriceX96.String(), ev.Tick.String(),
 	), nil
 }
@@ -385,8 +350,8 @@ func v4FmtModifyLiquidity(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, po
 	}
 	return fmt.Sprintf(
 		"[ModifyLiquidity]    block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s action=%s delta=%s tickLow=%s tickHigh=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
-		pair, hooks, v4HyperAddr(ev.Sender),
+		lg.BlockNumber, HyperTxHash(lg.TxHash), HyperPoolID(ev.Id),
+		pair, hooks, HyperAddr(ev.Sender),
 		action, v4SignedStr(ev.LiquidityDelta),
 		v4SignedStr(ev.TickLower), v4SignedStr(ev.TickUpper),
 	), nil
@@ -411,8 +376,8 @@ func v4FmtSwap(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys map[
 	}
 	return fmt.Sprintf(
 		"[Swap]               block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s tick=%s fee=%s%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
-		pair, hooks, v4HyperAddr(ev.Sender),
+		lg.BlockNumber, HyperTxHash(lg.TxHash), HyperPoolID(ev.Id),
+		pair, hooks, HyperAddr(ev.Sender),
 		v4SignedStr(ev.Amount0), v4SignedStr(ev.Amount1),
 		v4SignedStr(ev.Tick), ev.Fee.String(), dirHint,
 	), nil
@@ -431,8 +396,8 @@ func v4FmtDonate(parsedABI *abi.ABI, lg types.Log, mu *sync.RWMutex, poolKeys ma
 	pair, hooks := v4ResolvePool(mu, poolKeys, ev.Id, syms)
 	return fmt.Sprintf(
 		"[Donate]             block=%d tx=%s poolId=%s pair=%s hooks=%s sender=%s amt0=%s amt1=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id),
-		pair, hooks, v4HyperAddr(ev.Sender),
+		lg.BlockNumber, HyperTxHash(lg.TxHash), HyperPoolID(ev.Id),
+		pair, hooks, HyperAddr(ev.Sender),
 		ev.Amount0.String(), ev.Amount1.String(),
 	), nil
 }
@@ -449,8 +414,8 @@ func v4FmtOperatorSet(parsedABI *abi.ABI, lg types.Log) (string, error) {
 	}
 	return fmt.Sprintf(
 		"[OperatorSet]        block=%d tx=%s owner=%s operator=%s approved=%v",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash),
-		v4HyperAddr(ev.Owner), v4HyperAddr(ev.Operator), ev.Approved,
+		lg.BlockNumber, HyperTxHash(lg.TxHash),
+		HyperAddr(ev.Owner), HyperAddr(ev.Operator), ev.Approved,
 	), nil
 }
 
@@ -467,9 +432,9 @@ func v4FmtTransfer(parsedABI *abi.ABI, lg types.Log) (string, error) {
 	}
 	return fmt.Sprintf(
 		"[Transfer]           block=%d tx=%s from=%s to=%s tokenId=%s amount=%s caller=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash),
-		v4HyperAddr(ev.From), v4HyperAddr(ev.To),
-		ev.Id.String(), ev.Amount.String(), v4HyperAddr(ev.Caller),
+		lg.BlockNumber, HyperTxHash(lg.TxHash),
+		HyperAddr(ev.From), HyperAddr(ev.To),
+		ev.Id.String(), ev.Amount.String(), HyperAddr(ev.Caller),
 	), nil
 }
 
@@ -484,7 +449,7 @@ func v4FmtProtocolFeeUpdated(parsedABI *abi.ABI, lg types.Log) (string, error) {
 	}
 	return fmt.Sprintf(
 		"[ProtocolFeeUpdated] block=%d tx=%s poolId=%s protocolFee=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4FadePoolID(ev.Id), ev.ProtocolFee.String(),
+		lg.BlockNumber, HyperTxHash(lg.TxHash), HyperPoolID(ev.Id), ev.ProtocolFee.String(),
 	), nil
 }
 
@@ -495,7 +460,7 @@ func v4FmtProtocolFeeControllerUpdated(lg types.Log) (string, error) {
 	controller := common.BytesToAddress(lg.Topics[1].Bytes()[12:])
 	return fmt.Sprintf(
 		"[FeeControllerUpd]   block=%d tx=%s newController=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4HyperAddr(controller),
+		lg.BlockNumber, HyperTxHash(lg.TxHash), HyperAddr(controller),
 	), nil
 }
 
@@ -507,7 +472,7 @@ func v4FmtOwnershipTransferred(lg types.Log) (string, error) {
 	next := common.BytesToAddress(lg.Topics[2].Bytes()[12:])
 	return fmt.Sprintf(
 		"[OwnershipXfer]      block=%d tx=%s from=%s to=%s",
-		lg.BlockNumber, v4HyperTxHash(lg.TxHash), v4HyperAddr(prev), v4HyperAddr(next),
+		lg.BlockNumber, HyperTxHash(lg.TxHash), HyperAddr(prev), HyperAddr(next),
 	), nil
 }
 

@@ -125,7 +125,7 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.webcamLogVP.Height = logH
 			m.webcamLogVP.SetContent(scanLogContent(m.webcamScanLog))
 			m.webcamLogVP.GotoTop()
-			m.addLog("success", "Scanned QR: "+truncate(msg.qrText, 80))
+			m.logSuccess("Scanned QR: "+truncate(msg.qrText, 80))
 		} else {
 			m.webcamLogVP.Height = logH
 		}
@@ -252,7 +252,7 @@ func (m *model) renderScanTxPanel() string {
 		Padding(1, 2).
 		Render(body)
 
-	return appStyle.Render(lipgloss.Place(
+	return styles.AppStyle.Render(lipgloss.Place(
 		m.w, m.h,
 		lipgloss.Center, lipgloss.Center,
 		panel,

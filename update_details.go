@@ -61,11 +61,11 @@ func (m *model) handleNicknameFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 					oldName := m.accounts[i].Name
 					m.accounts[i].Name = strings.TrimSpace(tempNicknameField)
 					if oldName == "" && m.accounts[i].Name != "" {
-						m.addLog("success", fmt.Sprintf("Set nickname `%s` for wallet `%s`", m.accounts[i].Name, helpers.ShortenAddr(m.details.Address)))
+						m.logSuccess(fmt.Sprintf("Set nickname `%s` for wallet `%s`", m.accounts[i].Name, helpers.ShortenAddr(m.details.Address)))
 					} else if m.accounts[i].Name == "" {
-						m.addLog("info", fmt.Sprintf("Cleared nickname for wallet `%s`", helpers.ShortenAddr(m.details.Address)))
+						m.logInfo(fmt.Sprintf("Cleared nickname for wallet `%s`", helpers.ShortenAddr(m.details.Address)))
 					} else {
-						m.addLog("success", fmt.Sprintf("Updated nickname to `%s` for wallet `%s`", m.accounts[i].Name, helpers.ShortenAddr(m.details.Address)))
+						m.logSuccess(fmt.Sprintf("Updated nickname to `%s` for wallet `%s`", m.accounts[i].Name, helpers.ShortenAddr(m.details.Address)))
 					}
 					break
 				}
@@ -97,7 +97,7 @@ func (m *model) handleDetailsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// refresh
 			addr := common.HexToAddress(m.details.Address)
 			m.loading = true
-			m.addLog("info", fmt.Sprintf("Refreshing details for `%s`", helpers.ShortenAddr(m.details.Address)))
+			m.logInfo(fmt.Sprintf("Refreshing details for `%s`", helpers.ShortenAddr(m.details.Address)))
 			return m, loadDetails(m.ethClient, addr, m.tokenWatch)
 
 		case "n", "N":

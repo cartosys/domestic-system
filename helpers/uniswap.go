@@ -91,85 +91,81 @@ func GetUniswapV2Pair(client *ethclient.Client, pairAddress common.Address) (*Un
 	}, nil
 }
 
-// GetSwapQuote calculates the expected output amount for a swap using Uniswap V2 constant product formula
-// tokenIn is the token you're selling, amountIn is the amount you want to sell
+// fetchReserves returns (reserve0, reserve1) for pairAddress.
+func fetchReserves(ctx context.Context, client *ethclient.Client, pairAddress common.Address) (reserve0, reserve1 *big.Int, err error) {
+	msg := ethereum.CallMsg{To: &pairAddress, Data: getReservesSelector}
+	data, err := client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get reserves: %w", err)
+	}
+	if len(data) < 32 {
+		return nil, nil, fmt.Errorf("invalid reserves data length: %d", len(data))
+	}
+	reserve0 = new(big.Int).SetBytes(data[0:32])
+	reserve1 = big.NewInt(0)
+	if len(data) >= 64 {
+		reserve1 = new(big.Int).SetBytes(data[32:64])
+	}
+	return reserve0, reserve1, nil
+}
+
+// orderReserves returns (reserveIn, reserveOut) given which token is the input.
+func orderReserves(pair *UniswapV2Pair, tokenIn common.Address, r0, r1 *big.Int) (reserveIn, reserveOut *big.Int, err error) {
+	switch tokenIn {
+	case pair.Token0:
+		return r0, r1, nil
+	case pair.Token1:
+		return r1, r0, nil
+	default:
+		return nil, nil, fmt.Errorf("tokenIn %s not in pair (token0: %s, token1: %s)",
+			tokenIn.Hex(), pair.Token0.Hex(), pair.Token1.Hex())
+	}
+}
+
+// computePriceImpact returns the price impact percentage given spot and effective prices.
+func computePriceImpact(reserveIn, reserveOut *big.Int, effectivePrice float64) float64 {
+	if reserveIn.Sign() <= 0 || reserveOut.Sign() <= 0 {
+		return 0
+	}
+	spotPrice := new(big.Float).Quo(new(big.Float).SetInt(reserveOut), new(big.Float).SetInt(reserveIn))
+	spot, _ := spotPrice.Float64()
+	if spot <= 0 {
+		return 0
+	}
+	return ((spot - effectivePrice) / spot) * 100
+}
+
+// GetSwapQuote calculates the expected output amount for a swap using the Uniswap V2 formula.
+// tokenIn is the token being sold; amountIn is the amount to sell.
 func GetSwapQuote(client *ethclient.Client, pairAddress common.Address, tokenIn common.Address, amountIn *big.Int) (*SwapQuote, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Get the pair info
 	pair, err := GetUniswapV2Pair(client, pairAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get reserves
-	reservesMsg := ethereum.CallMsg{
-		To:   &pairAddress,
-		Data: getReservesSelector,
-	}
-	reservesData, err := client.CallContract(ctx, reservesMsg, nil)
+	reserve0, reserve1, err := fetchReserves(ctx, client, pairAddress)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get reserves: %w", err)
+		return nil, err
 	}
 
-	// Parse reserves
-	// getReserves returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)
-	// All packed in 32 bytes: reserve0 (14 bytes) + reserve1 (14 bytes) + timestamp (4 bytes)
-	if len(reservesData) < 32 {
-		return nil, fmt.Errorf("invalid reserves data length: %d", len(reservesData))
+	reserveIn, reserveOut, err := orderReserves(pair, tokenIn, reserve0, reserve1)
+	if err != nil {
+		return nil, err
 	}
 
-	// reserve0 is bytes 18-31 (uint112 = 14 bytes, but padded in a 32-byte word it's at the end)
-	// Actually, Solidity returns these as separate 32-byte words
-	// Let's handle it as three separate 32-byte values
-	reserve0 := new(big.Int).SetBytes(reservesData[0:32])
-	reserve1 := big.NewInt(0)
-	if len(reservesData) >= 64 {
-		reserve1 = new(big.Int).SetBytes(reservesData[32:64])
-	}
-
-	// Determine which reserve is which based on token order
-	var reserveIn, reserveOut *big.Int
-	if tokenIn == pair.Token0 {
-		reserveIn = reserve0
-		reserveOut = reserve1
-	} else if tokenIn == pair.Token1 {
-		reserveIn = reserve1
-		reserveOut = reserve0
-	} else {
-		return nil, fmt.Errorf("tokenIn %s is not in pair (token0: %s, token1: %s)", 
-			tokenIn.Hex(), pair.Token0.Hex(), pair.Token1.Hex())
-	}
-
-	// Calculate output using Uniswap V2 formula: amountOut = (amountIn * 997 * reserveOut) / (reserveIn * 1000 + amountIn * 997)
-	// The 997/1000 factor accounts for the 0.3% fee
+	// amountOut = (amountIn * 997 * reserveOut) / (reserveIn * 1000 + amountIn * 997)
 	amountInWithFee := new(big.Int).Mul(amountIn, big.NewInt(997))
 	numerator := new(big.Int).Mul(amountInWithFee, reserveOut)
 	denominator := new(big.Int).Add(new(big.Int).Mul(reserveIn, big.NewInt(1000)), amountInWithFee)
 	amountOut := new(big.Int).Div(numerator, denominator)
 
-	// Calculate effective price (how much output per input)
 	effectivePrice := 0.0
 	if amountIn.Sign() > 0 {
-		// Convert to float for price calculation
-		amountInFloat := new(big.Float).SetInt(amountIn)
-		amountOutFloat := new(big.Float).SetInt(amountOut)
-		priceFloat := new(big.Float).Quo(amountOutFloat, amountInFloat)
-		effectivePrice, _ = priceFloat.Float64()
-	}
-
-	// Calculate price impact: how much worse than the reserve ratio
-	priceImpact := 0.0
-	if reserveIn.Sign() > 0 && reserveOut.Sign() > 0 {
-		// Spot price from reserves (before swap)
-		spotPrice := new(big.Float).Quo(new(big.Float).SetInt(reserveOut), new(big.Float).SetInt(reserveIn))
-		spotPriceFloat, _ := spotPrice.Float64()
-		
-		// Price impact = (spotPrice - effectivePrice) / spotPrice * 100
-		if spotPriceFloat > 0 {
-			priceImpact = ((spotPriceFloat - effectivePrice) / spotPriceFloat) * 100
-		}
+		ef := new(big.Float).Quo(new(big.Float).SetInt(amountOut), new(big.Float).SetInt(amountIn))
+		effectivePrice, _ = ef.Float64()
 	}
 
 	return &SwapQuote{
@@ -177,7 +173,52 @@ func GetSwapQuote(client *ethclient.Client, pairAddress common.Address, tokenIn 
 		AmountOut:      amountOut,
 		Token0Reserve:  reserve0,
 		Token1Reserve:  reserve1,
-		PriceImpact:    priceImpact,
+		PriceImpact:    computePriceImpact(reserveIn, reserveOut, effectivePrice),
+		EffectivePrice: effectivePrice,
+	}, nil
+}
+
+// GetReverseSwapQuote calculates the required input amount to receive a desired amountOut.
+func GetReverseSwapQuote(client *ethclient.Client, pairAddress, tokenIn common.Address, amountOut *big.Int) (*SwapQuote, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pair, err := GetUniswapV2Pair(client, pairAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	reserve0, reserve1, err := fetchReserves(ctx, client, pairAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	reserveIn, reserveOut, err := orderReserves(pair, tokenIn, reserve0, reserve1)
+	if err != nil {
+		return nil, err
+	}
+
+	// amountIn = (reserveIn * amountOut * 1000) / ((reserveOut - amountOut) * 997) + 1
+	denominator := new(big.Int).Sub(reserveOut, amountOut)
+	denominator.Mul(denominator, big.NewInt(997))
+	if denominator.Sign() <= 0 {
+		return nil, fmt.Errorf("insufficient liquidity for desired output amount")
+	}
+	numerator := new(big.Int).Mul(new(big.Int).Mul(reserveIn, amountOut), big.NewInt(1000))
+	amountIn := new(big.Int).Add(new(big.Int).Div(numerator, denominator), big.NewInt(1))
+
+	effectivePrice := 0.0
+	if amountIn.Sign() > 0 {
+		ef := new(big.Float).Quo(new(big.Float).SetInt(amountOut), new(big.Float).SetInt(amountIn))
+		effectivePrice, _ = ef.Float64()
+	}
+
+	return &SwapQuote{
+		AmountIn:       amountIn,
+		AmountOut:      amountOut,
+		Token0Reserve:  reserve0,
+		Token1Reserve:  reserve1,
+		PriceImpact:    computePriceImpact(reserveIn, reserveOut, effectivePrice),
 		EffectivePrice: effectivePrice,
 	}, nil
 }
