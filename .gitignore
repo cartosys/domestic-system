@@ -52,6 +52,7 @@ cache/
 
 charm-wallet-tui
 v4listener
+txtest
 
 # Python signer
 signer/__pycache__/
