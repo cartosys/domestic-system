@@ -4,7 +4,6 @@ import (
 	"image"
 	"math/big"
 
-	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
@@ -61,7 +60,7 @@ type rpcConnectedMsg struct {
 
 // detailsLoadedMsg contains wallet balance details after loading
 type detailsLoadedMsg struct {
-	d   config.WalletDetails
+	d   rpc.WalletDetails
 	err error
 }
 

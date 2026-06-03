@@ -8,6 +8,7 @@ import (
 
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
+	"charm-wallet-tui/rpc"
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
@@ -81,7 +82,7 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Check if form is completed
 		if m.sendForm.State == huh.StateCompleted {
 			// Package the transaction
-			m.addLog("info", fmt.Sprintf("Packaging transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
+			m.logInfo(fmt.Sprintf("Packaging transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
 			m.showSendForm = false
 			m.sendForm = nil
 			m.activeDialog = dialogTxResult
@@ -138,7 +139,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				// Save wallets to config
 				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-				m.addLog("warning", fmt.Sprintf("Deleted wallet `%s`", helpers.ShortenAddr(deletedAddr)))
+				m.logWarn(fmt.Sprintf("Deleted wallet `%s`", helpers.ShortenAddr(deletedAddr)))
 				m.activeDialog = dialogNone
 				// Load details for the newly selected wallet if split view is enabled
 				return m, m.loadSelectedWalletDetails()
@@ -300,9 +301,9 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// Save wallets to config
 				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 				if nickname != "" {
-					m.addLog("success", fmt.Sprintf("Added wallet `%s` with nickname `%s`", helpers.ShortenAddr(newAddr), nickname))
+					m.logSuccess(fmt.Sprintf("Added wallet `%s` with nickname `%s`", helpers.ShortenAddr(newAddr), nickname))
 				} else {
-					m.addLog("success", fmt.Sprintf("Added wallet `%s`", helpers.ShortenAddr(newAddr)))
+					m.logSuccess(fmt.Sprintf("Added wallet `%s`", helpers.ShortenAddr(newAddr)))
 				}
 				// Load details for the newly added wallet if split view is enabled
 				return m, tea.Batch(m.loadSelectedWalletDetails(), cmdEnableMouseAllMotion())
@@ -367,13 +368,13 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Update active address to the newly activated wallet
 			m.activeAddress = m.accounts[m.selectedWallet].Address
 			config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-			m.addLog("info", fmt.Sprintf("Activated wallet `%s`", helpers.ShortenAddr(m.activeAddress)))
+			m.logInfo(fmt.Sprintf("Activated wallet `%s`", helpers.ShortenAddr(m.activeAddress)))
 
 			// If split view is enabled, refresh details for the newly activated wallet
 			if m.detailsInWallets {
 				addr := m.accounts[m.selectedWallet].Address
 				m.loading = true
-				m.details = config.WalletDetails{Address: addr}
+				m.details = rpc.WalletDetails{Address: addr}
 				ethAddr := common.HexToAddress(addr)
 				return m, loadDetails(m.ethClient, ethAddr, m.tokenWatch)
 			}

@@ -52,7 +52,7 @@ func (m *model) handleTerraClaimPopupMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.terraNullMsgError = ""
 				m.activeDialog = dialogNone
 				m.terraNullMsgInput.Blur()
-				m.addLog("info", fmt.Sprintf("Terra Nullius: packaging claim → \"%s\"", msgVal))
+				m.logInfo(fmt.Sprintf("Terra Nullius: packaging claim → \"%s\"", msgVal))
 				m.activeDialog = dialogTxResult
 				m.txResultPackaging = true
 				m.txResultHex = ""
@@ -83,7 +83,7 @@ func (m *model) handleTerraKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			if m.txResultHex != "" {
-				m.addLog("info", "Copied EIP-4527 transaction to clipboard")
+				m.logInfo("Copied EIP-4527 transaction to clipboard")
 				return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
 			}
 			return m, vpCmd
@@ -149,7 +149,7 @@ func (m *model) handleTerraKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.terraNullClaimResult = nil
 			m.terraNullClaimResultErr = ""
 			m.terraNullLastQueriedIdx = m.terraNullClaimInput
-			m.addLog("info", fmt.Sprintf("Terra Nullius: querying claim #%s", m.terraNullClaimInput))
+			m.logInfo(fmt.Sprintf("Terra Nullius: querying claim #%s", m.terraNullClaimInput))
 			m.terraNullClaimInput = new(big.Int).Add(idx, big.NewInt(1)).String()
 			return m, fetchTerraClaim(m.ethClient, idx)
 		} else if m.terraNullFocusedField == 2 {

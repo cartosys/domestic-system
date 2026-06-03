@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"charm-wallet-tui/styles"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum"
@@ -18,15 +20,13 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-// ── Colours (matching the domestic-system palette without importing styles) ───
-
 var (
-	bsAccent  = lipgloss.NewStyle().Foreground(lipgloss.Color("#7EE787"))
-	bsAccent2 = lipgloss.NewStyle().Foreground(lipgloss.Color("#79C0FF"))
-	bsWarn    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA657"))
-	bsError   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F25D94"))
-	bsMuted   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6E7681"))
-	bsBorder  = lipgloss.NewStyle().Foreground(lipgloss.Color("#874BFD"))
+	bsAccent  = lipgloss.NewStyle().Foreground(styles.CAccent)
+	bsAccent2 = lipgloss.NewStyle().Foreground(styles.CAccent2)
+	bsWarn    = lipgloss.NewStyle().Foreground(styles.CWarn)
+	bsError   = lipgloss.NewStyle().Foreground(styles.CError)
+	bsMuted   = lipgloss.NewStyle().Foreground(styles.CMuted)
+	bsBorder  = lipgloss.NewStyle().Foreground(styles.CBorder)
 )
 
 func bsLabel(s string) string   { return bsAccent2.Render(s) }
@@ -47,20 +47,6 @@ func bsHyperBlock(n uint64) string {
 	return ansi.SetHyperlink(fmt.Sprintf("https://etherscan.io/block/%d", n)) + display + ansi.ResetHyperlink()
 }
 
-// bsHyperAddr = same gradient as v4HyperAddr (pink→yellow, Etherscan address link).
-func bsHyperAddr(a common.Address) string {
-	short := a.Hex()[:6] + "…" + a.Hex()[len(a.Hex())-4:]
-	display := FadeString(short, "#F25D94", "#EDFF82")
-	return ansi.SetHyperlink("https://etherscan.io/address/"+a.Hex()) + display + ansi.ResetHyperlink()
-}
-
-// bsHyperTx = same gradient as v4HyperTxHash (green→blue, Etherscan tx link).
-func bsHyperTx(h common.Hash) string {
-	s := h.Hex()
-	short := s[:10] + "…" + s[len(s)-6:]
-	display := FadeString(short, "#7EE787", "#82CFFD")
-	return ansi.SetHyperlink("https://etherscan.io/tx/"+h.Hex()) + display + ansi.ResetHyperlink()
-}
 
 // bsHyperHash returns a plain hash hyperlinked to Etherscan (block hash, etc.).
 func bsHyperHash(h common.Hash, urlPath string) string {
@@ -158,7 +144,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 
 	// ── Block header ──────────────────────────────────────────────────────────
 	s.emit(bsHeader(fmt.Sprintf("Block Scan · %s · from %s",
-		bsHyperBlock(blockNum), bsHyperAddr(fromAddr))))
+		bsHyperBlock(blockNum), HyperAddr(fromAddr))))
 
 	blockCtx, blockCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer blockCancel()
@@ -177,7 +163,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 		bsValue(fmt.Sprintf("%d", block.GasUsed())),
 		bsValue(fmt.Sprintf("%d", block.GasLimit()))))
 	s.emit(fmt.Sprintf("  %s %s wei", bsLabel("base fee    :"), bsValue(block.BaseFee().String())))
-	s.emit(fmt.Sprintf("  %s %s", bsLabel("miner       :"), bsHyperAddr(block.Coinbase())))
+	s.emit(fmt.Sprintf("  %s %s", bsLabel("miner       :"), HyperAddr(block.Coinbase())))
 
 	// ── Find txs from target address ──────────────────────────────────────────
 	signer := types.LatestSignerForChainID(new(big.Int).SetInt64(1))
@@ -213,12 +199,12 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 		s.emit(bsDivider())
 		s.emit(bsSection(fmt.Sprintf("  Transaction #%d", i+1)))
 
-		s.emit(fmt.Sprintf("  %s %s", bsLabel("hash       :"), bsHyperTx(tx.Hash())))
+		s.emit(fmt.Sprintf("  %s %s", bsLabel("hash       :"), HyperTxHash(tx.Hash())))
 		s.emit(fmt.Sprintf("  %s %s", bsLabel("type       :"),
 			bsValue(fmt.Sprintf("%d", tx.Type()))))
 		s.emit(fmt.Sprintf("  %s %s", bsLabel("nonce      :"),
 			bsValue(fmt.Sprintf("%d", tx.Nonce()))))
-		s.emit(fmt.Sprintf("  %s %s", bsLabel("to         :"), bsHyperAddr(addrOrZero(tx.To()))))
+		s.emit(fmt.Sprintf("  %s %s", bsLabel("to         :"), HyperAddr(addrOrZero(tx.To()))))
 		s.emit(fmt.Sprintf("  %s %s wei", bsLabel("value      :"), bsValue(tx.Value().String())))
 		s.emit(fmt.Sprintf("  %s %s", bsLabel("gas limit  :"), bsValue(fmt.Sprintf("%d", tx.Gas()))))
 		s.emit(fmt.Sprintf("  %s %s wei", bsLabel("gas price  :"), bsValue(tx.GasPrice().String())))
@@ -260,7 +246,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 			bsValue(fmt.Sprintf("%d", len(receipt.Logs)))))
 		if receipt.ContractAddress != (common.Address{}) {
 			s.emit(fmt.Sprintf("  %s %s",
-				bsLabel("contract   :"), bsHyperAddr(receipt.ContractAddress)))
+				bsLabel("contract   :"), HyperAddr(receipt.ContractAddress)))
 		}
 
 		// ── Logs ──────────────────────────────────────────────────────────────
@@ -274,7 +260,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 			s.emit(fmt.Sprintf("  %s #%d  %s  logIdx=%s",
 				bsAccent2.Render("log"),
 				li,
-				bsHyperAddr(lg.Address),
+				HyperAddr(lg.Address),
 				bsValue(fmt.Sprintf("%d", lg.Index))))
 
 			for ti, topic := range lg.Topics {
@@ -321,7 +307,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 				s.emit(fmt.Sprintf("    %s topic0=%s  emitter=%s",
 					bsWarn.Render("[unknown event]"),
 					bsMuted.Render(lg.Topics[0].Hex()),
-					bsHyperAddr(lg.Address)))
+					HyperAddr(lg.Address)))
 			}
 		}
 	}
@@ -382,7 +368,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 
 	s.emit(bsHeader(fmt.Sprintf("PositionManager · ERC-721 · block %s",
 		bsHyperBlock(blockNum))))
-	s.emit(fmt.Sprintf("  %s %s", bsLabel("address :"), bsHyperAddr(posManager)))
+	s.emit(fmt.Sprintf("  %s %s", bsLabel("address :"), HyperAddr(posManager)))
 
 	posCtx, posCancel := context.WithTimeout(ctx, 20*time.Second)
 	posLogs, posErr := client.FilterLogs(posCtx, ethereum.FilterQuery{
@@ -403,7 +389,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 			default:
 			}
 			s.emit(fmt.Sprintf("  [%d] tx=%s  logIdx=%s",
-				li, bsHyperTx(lg.TxHash), bsValue(fmt.Sprintf("%d", lg.Index))))
+				li, HyperTxHash(lg.TxHash), bsValue(fmt.Sprintf("%d", lg.Index))))
 			switch {
 			case len(lg.Topics) > 0 && lg.Topics[0] == erc721Sig:
 				s.emit("       " + decodeERC721Line(&lg))
@@ -456,8 +442,8 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 			} else {
 				c0Addr := common.HexToAddress(key.Currency0)
 				c1Addr := common.HexToAddress(key.Currency1)
-				c0Label := bsHyperAddr(c0Addr)
-				c1Label := bsHyperAddr(c1Addr)
+				c0Label := HyperAddr(c0Addr)
+				c1Label := HyperAddr(c1Addr)
 				if key.Currency0 == "NATIVE" {
 					c0Label = bsAccent.Render("NATIVE (ETH)")
 				}
@@ -472,7 +458,7 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 					bsMuted.Render(fmt.Sprintf("(%.4f%%)", float64(key.Fee)/1e4))))
 				s.emit(fmt.Sprintf("  %s %s", bsLabel("tickSpacing  :"), bsValue(fmt.Sprintf("%d", key.TickSpacing))))
 				hooksAddr := common.HexToAddress(key.Hooks)
-				s.emit(fmt.Sprintf("  %s %s", bsLabel("hooks        :"), bsHyperAddr(hooksAddr)))
+				s.emit(fmt.Sprintf("  %s %s", bsLabel("hooks        :"), HyperAddr(hooksAddr)))
 			}
 			s.emit(bsDivider())
 		}
@@ -514,9 +500,9 @@ func decodeERC721Line(lg *types.Log) string {
 	}
 	return fmt.Sprintf("[ERC-721 %s]  contract=%s  from=%s  to=%s  tokenId=%s",
 		bsAccent.Render(label),
-		bsHyperAddr(lg.Address),
-		bsHyperAddr(from),
-		bsHyperAddr(to),
+		HyperAddr(lg.Address),
+		HyperAddr(from),
+		HyperAddr(to),
 		bsValue(tokenID.String()),
 	)
 }
@@ -538,7 +524,7 @@ func decodeIncLiqLine(lg *types.Log) string {
 	amt0 := new(big.Int).SetBytes(lg.Data[32:64])
 	amt1 := new(big.Int).SetBytes(lg.Data[64:96])
 	return fmt.Sprintf("[IncreaseLiquidity]  contract=%s  tokenId=%s  liquidity=%s  amount0=%s  amount1=%s",
-		bsHyperAddr(lg.Address),
+		HyperAddr(lg.Address),
 		bsValue(tokenID.String()),
 		bsValue(liq.String()),
 		bsValue(amt0.String()),

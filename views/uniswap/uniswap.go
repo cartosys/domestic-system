@@ -198,7 +198,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 	var warningDisplay string
 	if priceImpactWarn != "" {
 		warningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF8C00")). // Orange color
+			Foreground(styles.CWarn). // Orange color
 			Width(containerWidth).
 			Align(lipgloss.Center)
 		warningDisplay = warningStyle.Render(priceImpactWarn)
@@ -220,7 +220,7 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(styles.CAccent).
 		Background(styles.CAccent).
-		Foreground(lipgloss.Color("#000000")).
+		Foreground(styles.CBlack).
 		Bold(true)
 	
 	var swapButton string

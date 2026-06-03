@@ -15,6 +15,10 @@ var (
 	CError   = lipgloss.Color("#F25D94") // pink/red
 	CInfo    = lipgloss.Color("#FFF7DB") // light yellow
 	CGray    = lipgloss.Color("#888B7E") // neutral inactive button background
+	CFail    = lipgloss.Color("#c01c28") // hard red for critical failures (RPC down etc.)
+	CSuccess = lipgloss.Color("#00FF00") // bright green for copy/success confirmations
+	CSubtle  = lipgloss.Color("#666666") // secondary hint text
+	CBlack   = lipgloss.Color("#000000") // pure black for high-contrast button text
 )
 
 // Shared styles

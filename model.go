@@ -76,8 +76,8 @@ type model struct {
 	// details state
 	spin          spinner.Model
 	loading       bool
-	details       config.WalletDetails
-	detailsCache  map[string]config.WalletDetails // cache wallet details by address
+	details       rpc.WalletDetails
+	detailsCache  map[string]rpc.WalletDetails // cache wallet details by address
 	rpcURL        string
 	ethClient     *rpc.Client
 	rpcConnected  bool // true if RPC is successfully connected
@@ -271,16 +271,6 @@ type model struct {
 	signerScanMode  bool // true when webcam was opened from the signer page
 }
 
-// walletItem is a list item for the bubble-tea list component
-// It has methods so it must stay in main package
-type walletItem struct {
-	addr string
-}
-
-func (w walletItem) Title() string       { return helpers.ShortenAddr(w.addr) }
-func (w walletItem) Description() string { return w.addr }
-func (w walletItem) FilterValue() string { return w.addr }
-
 // -------------------- INIT --------------------
 
 // newModel creates and initializes a new model with configuration from disk
@@ -423,7 +413,7 @@ func newModel() model {
 		txQRViewport:       txqrvp,
 		logBuffer:          &strings.Builder{},
 		logSpinner:         logSpin,
-		detailsCache:       make(map[string]config.WalletDetails),
+		detailsCache:       make(map[string]rpc.WalletDetails),
 		dapps:           config.DefaultDapps(),
 		selectedDappIdx: 0,
 		detailsInWallets:   true, // Enable split panel view by default

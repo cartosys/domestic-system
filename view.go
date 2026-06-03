@@ -3,27 +3,24 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"image/color"
 	"math/big"
 	"strings"
 	"time"
 
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
-	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/dapps"
 	"charm-wallet-tui/views/details"
 	logview "charm-wallet-tui/views/log"
+	"charm-wallet-tui/views/scrollbar"
 	"charm-wallet-tui/views/settings"
 	vsigner "charm-wallet-tui/views/signer"
 	"charm-wallet-tui/views/terra"
-	"charm-wallet-tui/views/scrollbar"
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lucasb-eyer/go-colorful"
 )
 
 // -------------------- VIEW --------------------
@@ -67,35 +64,51 @@ func (m model) renderRPCDeleteDialog() string {
 }
 
 func (m *model) renderAccountListPopup() string {
-	dialogBoxStyle := styles.DialogBox.Background(cPanel)
+	dialogBoxStyle := styles.DialogBox.Background(styles.CPanel)
 
 	title := lipgloss.NewStyle().
-		Foreground(cAccent2).
+		Foreground(styles.CAccent2).
 		Bold(true).
 		Align(lipgloss.Center).
 		Width(70).
 		Render("Select Account")
 
-	// Use the wallets view to render the account list
-	accountList, _, _ := wallets.RenderList(m.accounts, m.accountListSelectedIdx)
+	accountList, popupClickableAreas, _ := wallets.RenderList(m.accounts, m.accountListSelectedIdx)
 
 	help := lipgloss.NewStyle().
-		Foreground(cMuted).
+		Foreground(styles.CMuted).
 		Align(lipgloss.Center).
 		Width(70).
 		MarginTop(1).
 		Render("↑/↓: Navigate • Enter: Select • Esc: Cancel")
 
 	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", accountList, help)
-
 	dialog := dialogBoxStyle.Render(ui)
 
-	// Center the dialog on screen
-	return lipgloss.Place(
-		m.w, m.h,
-		lipgloss.Center, lipgloss.Center,
-		dialog,
+	// Register clickable areas with popup-relative coordinates.
+	const (
+		dialogWidth    = 74
+		renderListBaseX = 4
+		renderListBaseY = 9
 	)
+	dialogHeight := len(m.accounts)*3 + 8
+	popupStartX := (m.w - dialogWidth) / 2
+	popupStartY := (m.h - dialogHeight) / 2
+	contentStartX := popupStartX + 3 // border(1) + padding(2)
+	contentStartY := popupStartY + 4 // border(1) + padding(1) + title(1) + blank(1)
+
+	m.clickableAreas = nil
+	for _, area := range popupClickableAreas {
+		m.clickableAreas = append(m.clickableAreas, config.ClickableArea{
+			X:       contentStartX + (area.X - renderListBaseX),
+			Y:       contentStartY + (area.Y - renderListBaseY),
+			Width:   area.Width,
+			Height:  area.Height,
+			Address: area.Address,
+		})
+	}
+
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
 
@@ -106,8 +119,8 @@ func (m *model) renderTxResultContent() string {
 		return title + "\n\n" + m.spin.View() + " Packaging transaction..."
 	}
 	if m.txResultError != "" {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
-		muteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+		errorStyle := lipgloss.NewStyle().Foreground(styles.CFail).Bold(true)
+		muteStyle := lipgloss.NewStyle().Foreground(styles.CSubtle)
 		return title + "\n\n" +
 			errorStyle.Render("Error: "+m.txResultError) +
 			"\n\n" + muteStyle.Render("Press ESC or Enter to close")
@@ -145,7 +158,7 @@ func (m *model) renderTxResultContent() string {
 
 	result := title + "\n\n" + qrSection + "\n" + vpContent
 	if m.txCopiedMsg != "" {
-		result += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true).Render(m.txCopiedMsg)
+		result += "\n" + lipgloss.NewStyle().Foreground(styles.CSuccess).Bold(true).Render(m.txCopiedMsg)
 	}
 	return result
 }
@@ -153,8 +166,8 @@ func (m *model) renderTxResultContent() string {
 func (m *model) renderTxResultPanel() string {
 	contentWidth := helpers.Max(0, m.w-8)
 	centeredContent := lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(m.renderTxResultContent())
-	content := panelStyle.Width(helpers.Max(0, m.w-4)).Render(centeredContent)
-	return appStyle.Render(lipgloss.Place(
+	content := styles.PanelStyle.Width(helpers.Max(0, m.w-4)).Render(centeredContent)
+	return styles.AppStyle.Render(lipgloss.Place(
 		m.w, m.h,
 		lipgloss.Center, lipgloss.Center,
 		content,
@@ -168,7 +181,7 @@ func (m *model) globalHeader() string {
 	var addrDisplay string
 	if m.activeAddress != "" {
 		addrDisplay = lipgloss.NewStyle().
-			Foreground(cAccent2).
+			Foreground(styles.CAccent2).
 			Bold(true).
 			Render("Active Address: " + helpers.FadeString(helpers.ShortenAddr(m.activeAddress), "#F25D94", "#EDFF82"))
 
@@ -180,7 +193,7 @@ func (m *model) globalHeader() string {
 		m.headerAddrWidth = len(helpers.ShortenAddr(m.activeAddress))
 	} else {
 		addrDisplay = lipgloss.NewStyle().
-			Foreground(cMuted).
+			Foreground(styles.CMuted).
 			Render("Active Address: No selection")
 		m.headerAddrX = 0
 		m.headerAddrY = 0
@@ -194,19 +207,19 @@ func (m *model) globalHeader() string {
 
 	if m.rpcURL == "" {
 		statusIcon = "○"
-		statusColor = lipgloss.Color("#c01c28")
+		statusColor = styles.CFail
 		statusText = "No RPC"
 	} else if m.rpcConnecting {
 		statusIcon = "○"
-		statusColor = lipgloss.Color("#c01c28")
+		statusColor = styles.CFail
 		statusText = "Connecting..."
 	} else if !m.rpcConnected {
 		statusIcon = "○"
-		statusColor = lipgloss.Color("#c01c28")
+		statusColor = styles.CFail
 		statusText = "Connection Failed"
 	} else {
 		statusIcon = "●"
-		statusColor = cAccent
+		statusColor = styles.CAccent
 		// Find active RPC name
 		for _, r := range m.rpcURLs {
 			if r.Active && r.URL == m.rpcURL {
@@ -226,7 +239,7 @@ func (m *model) globalHeader() string {
 
 	// Center title
 	titleStyle := lipgloss.NewStyle().
-		Foreground(cAccent).
+		Foreground(styles.CAccent).
 		Bold(true)
 	titleText := titleStyle.Render(helpers.FadeString("domestic system", "#7EE787", "#82CFFD"))
 
@@ -257,7 +270,7 @@ func (m *model) globalHeader() string {
 
 	// Add separator line
 	separator := lipgloss.NewStyle().
-		Foreground(cBorder).
+		Foreground(styles.CBorder).
 		Render(strings.Repeat("─", availableWidth))
 
 	return headerLine + "\n" + separator
@@ -268,7 +281,7 @@ func (m *model) renderPoolInfoPopup() string {
 
 	// Title
 	title := lipgloss.NewStyle().
-		Foreground(cAccent2).
+		Foreground(styles.CAccent2).
 		Bold(true).
 		Align(lipgloss.Center).
 		Width(68).
@@ -283,7 +296,7 @@ func (m *model) renderPoolInfoPopup() string {
 	// Body
 	var body string
 	if m.poolInfoLoading {
-		body = lipgloss.NewStyle().Foreground(cMuted).Render(m.spin.View() + " Fetching pool data…")
+		body = lipgloss.NewStyle().Foreground(styles.CMuted).Render(m.spin.View() + " Fetching pool data…")
 	} else if m.poolInfoErr != "" {
 		body = lipgloss.NewStyle().Foreground(styles.CError).Render("Error: " + m.poolInfoErr)
 	} else if m.poolInfoData != nil {
@@ -291,14 +304,14 @@ func (m *model) renderPoolInfoPopup() string {
 		if err != nil {
 			body = lipgloss.NewStyle().Foreground(styles.CError).Render("Error marshalling data")
 		} else {
-			body = lipgloss.NewStyle().Foreground(cText).Render(string(raw))
+			body = lipgloss.NewStyle().Foreground(styles.CText).Render(string(raw))
 		}
 	}
 
 	// Eth logs loading row (shown while fetching pool key)
 	var keyRow string
 	if m.poolInfoKeyLoading {
-		keyRow = lipgloss.NewStyle().Foreground(cMuted).Render(m.spin.View() + " Loading eth logs…")
+		keyRow = lipgloss.NewStyle().Foreground(styles.CMuted).Render(m.spin.View() + " Loading eth logs…")
 	} else if m.poolInfoKeyErr != "" {
 		keyRow = lipgloss.NewStyle().Foreground(styles.CWarn).Render("⚠ " + m.poolInfoKeyErr)
 	}
@@ -348,426 +361,208 @@ func (m *model) renderPoolInfoPopup() string {
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
+// renderActiveOverlay returns a full-screen overlay string when a dialog is open,
+// or "" when no overlay applies. Checked before any page content is rendered.
+func (m *model) renderActiveOverlay() string {
+	switch m.activeDialog {
+	case dialogTxResult:
+		return m.renderTxResultPanel()
+	case dialogScanTx:
+		return m.renderScanTxPanel()
+	case dialogDeleteWallet:
+		return m.renderDeleteDialog()
+	case dialogDeleteRPC:
+		return m.renderRPCDeleteDialog()
+	case dialogAccountList:
+		return m.renderAccountListPopup()
+	case dialogPoolInfo:
+		return m.renderPoolInfoPopup()
+	case dialogTerraClaim:
+		return terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
+	}
+	return ""
+}
+
 func (m *model) View() string {
-	// Clear clickable areas for fresh render
 	m.clickableAreas = nil
-
-	// Render global header outside of page content
 	globalHdr := m.globalHeader()
-	headerPanel := panelStyle.Width(m.contentW).Render(globalHdr)
+	headerPanel := styles.PanelStyle.Width(m.contentW).Render(globalHdr)
 
-	// Note: Header address clickable area coordinates are set in globalHeader()
-
-	var pageContent string
-	var nav string
-
-	switch m.activePage {
-	case config.PageHome:
-		// TODO: home view not implemented yet
-		pageContent = panelStyle.Width(m.contentW).Render("Home view not implemented")
-		nav = ""
-
-	case config.PageWallets:
-		walletsContent, walletsClickableAreas := wallets.Render(m.accounts, m.selectedWallet, m.addError)
-
-		// Register clickable areas from wallets view
-		// Adjust Y coordinates to account for header and panel borders
-		for _, area := range walletsClickableAreas {
-			m.clickableAreas = append(m.clickableAreas, config.ClickableArea{
-				X:       area.X,
-				Y:       area.Y + 1, // Minimal offset for panel border
-				Width:   area.Width,
-				Height:  area.Height,
-				Address: area.Address,
-			})
-		}
-
-		// Show add wallet form if in adding mode
-		if m.adding {
-			inputView := m.input.View() + "\n" + m.nicknameInput.View() + "\n"
-
-			// Show ENS lookup status
-			if m.ensLookupActive {
-				inputView += m.spin.View() + " ENS lookup…\n"
-			}
-
-			inputView += hotkeyStyle.Render("Tab") + " next field   " +
-				hotkeyStyle.Render("Enter") + " next/save   " +
-				hotkeyStyle.Render("Esc") + " cancel   " +
-				hotkeyStyle.Render("Ctrl+v") + " paste"
-
-			// Show error message if present and recent
-			if m.addError != "" && time.Since(m.addErrTime) < 3*time.Second {
-				errorStyle := lipgloss.NewStyle().Foreground(cWarn).Bold(true)
-				inputView += "\n" + errorStyle.Render(m.addError)
-			}
-
-			addBoxView := "\n\n" + panelStyle.
-				BorderForeground(cAccent2).
-				Render(inputView)
-			walletsContent += addBoxView
-		}
-
-		// If detailsInWallets is enabled and we have a selected wallet, show split view
-		if m.detailsInWallets && len(m.accounts) > 0 {
-			rpcDetails := toRPCDetails(m.details)
-			detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
-
-			var detailsBaseH int
-			// Show transaction result panel if active
-			if m.activeDialog == dialogTxResult {
-				detailsContent = m.renderTxResultContent()
-				m.sendBtnW = 0
-				// Show send form if active
-			} else if m.showSendForm && m.sendForm != nil {
-				sendFormContent := styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
-				detailsContent = sendFormContent
-				m.sendBtnW = 0
-			} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
-				detailsBaseH = lipgloss.Height(detailsContent)
-				// Add send button if ETH balance > 0 and form is not active
-				var sendButtonStyle lipgloss.Style
-				if m.sendButtonFocused || m.sendButtonHovered {
-					sendButtonStyle = styles.ButtonActive.MarginTop(2)
-				} else {
-					sendButtonStyle = styles.ButtonNormal.MarginTop(2)
-				}
-				sendButton := sendButtonStyle.Render("Send")
-				detailsContent += "\n\n" + sendButton
-
-				// Add hint text
-				if !m.sendButtonFocused {
-					hintText := lipgloss.NewStyle().
-						Foreground(lipgloss.Color("#666666")).
-						MarginTop(1).
-						Render("Press Tab to select")
-					detailsContent += "\n" + hintText
-				} else {
-					hintText := lipgloss.NewStyle().
-						Foreground(lipgloss.Color("#666666")).
-						MarginTop(1).
-						Render("Press Enter to send")
-					detailsContent += "\n" + hintText
-				}
-			} else {
-				m.sendBtnW = 0
-			}
-
-			// Calculate panel widths (split 40/60)
-			listWidth := helpers.Max(0, (m.w*4)/10-2)
-			detailsWidth := helpers.Max(0, (m.w*6)/10-2)
-
-			// Get the height of the left panel content to match it on the right
-			leftPanel := panelStyle.Width(listWidth).Render(walletsContent)
-			leftPanelHeight := lipgloss.Height(leftPanel)
-
-			// Track send button coordinates for mouse click/hover detection.
-			// panelStyle has 1 border + 1 padding on each side.
-			// Left panel outer width = listWidth + 4 (h-padding) + 2 (h-border) = listWidth + 6.
-			// Right panel content start X = listWidth + 6 + 1 (border) + 2 (padding) = listWidth + 9.
-			// Button is placed at detailsBaseH + 2 (\n\n) + 2 (MarginTop) lines into the content.
-			if detailsBaseH > 0 {
-				m.sendBtnX = listWidth + 5
-				m.sendBtnY = lipgloss.Height(headerPanel) + 2 + detailsBaseH + 3
-				m.sendBtnW = 10 // "Send" with Padding(0,3) = 3+4+3 = 10
-			}
-
-			// Set the right panel to match the left panel height
-			rightPanel := panelStyle.
-				Width(detailsWidth + 1).
-				Height(leftPanelHeight - 2).
-				Render(detailsContent)
-
-			pageContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
-		} else {
-			pageContent = panelStyle.Width(m.contentW).Render(walletsContent)
-		}
-		nav = wallets.Nav(m.w-2, m.txIndexerActive)
-
-		// Render delete confirmation dialog overlay
-		if m.activeDialog == dialogDeleteWallet {
-			// Dialog overlays the current view
-			return m.renderDeleteDialog()
-		}
-
-		if m.activeDialog == dialogTxResult {
-			return m.renderTxResultPanel()
-		}
-		if m.activeDialog == dialogScanTx {
-			return m.renderScanTxPanel()
-		}
-
-	case config.PageDappBrowser:
-		dappBrowserContent := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx)
-		pageContent = panelStyle.Width(m.contentW).Render(dappBrowserContent)
-		nav = dapps.Nav(m.w-2, m.txIndexerActive)
-
-	case config.PageDetails:
-		rpcDetails := toRPCDetails(m.details)
-		detailsContent := details.Render(rpcDetails, m.accounts, m.loading, m.copiedMsg, m.spin.View())
-		pageContent = panelStyle.Width(m.contentW).Render(detailsContent)
-		nav = details.Nav(m.w-2, m.nicknaming, m.txIndexerActive)
-
-	case config.PageSettings:
-		settingsContent := settings.Render(m.rpcURLs, m.selectedRPCIdx)
-
-		// Show form if in add/edit mode
-		if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
-			settingsContent = styles.TitleStyle.Render("RPC Settings") + "\n\n" + m.form.View()
-		}
-
-		pageContent = panelStyle.Width(m.contentW).Render(settingsContent)
-		nav = settings.Nav(m.w-2, m.settingsMode, m.txIndexerActive)
-
-		if m.activeDialog == dialogDeleteRPC {
-			return m.renderRPCDeleteDialog()
-		}
-
-	case config.PageUniswap:
-		// Build token list from wallet details
-		tokens := m.buildTokenList()
-
-		// If showing token selector, render popup
-		if m.uniswapShowingSelector {
-			uniswapView := uniswap.RenderTokenSelector(
-				m.w,
-				m.h-8, // Account for header and nav
-				tokens,
-				m.uniswapSelectorIdx,
-				m.uniswapSelectorFor == 0,
-			)
-			pageContent = uniswapView
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
-		} else if m.uniswapShowingLiquidity {
-			liquidityView := uniswap.RenderLiquidity(
-				m.w-2,
-				m.h-8,
-				m.liquidityPositions,
-				m.liquidityLoading,
-				m.liquidityFocusedIdx,
-				m.liquidityErr,
-				m.spin.View(),
-			)
-			pageContent = panelStyle.Width(m.contentW).Render(liquidityView)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
-		} else if m.poolEventMonitorActive {
-			// Pool event monitor is active — show the V4 Events panel capped at 50% window height.
-			// panelStyle adds 4 vertical lines (border+padding); RenderV4Events overhead is 4 more.
-			// Passing (m.h/2 - 4) yields an outer panel height of exactly m.h/2.
-			v4View := uniswap.RenderV4Events(m.w-2, helpers.Max(1, m.h/2-4), m.v4EventsViewport)
-			v4BorderColor := styles.CBorder
-			if m.focusedPanel == focusedPanelV4Events {
-				v4BorderColor = styles.CAccent
-			}
-			pageContent = panelStyle.BorderForeground(v4BorderColor).Width(m.contentW).Render(v4View)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
-			// headerPanel rows + panelStyle overhead (1 border + 1 padding = 2) + title line + blank line = +4
-			m.v4Scroll.PanelTop = lipgloss.Height(headerPanel) + 4
-			m.v4Scroll.TrackCol = m.v4EventsViewport.Width + 3
-		} else {
-			// Render main swap interface
-			uniswapView := uniswap.Render(
-				m.w-2,
-				m.h-8, // Account for header and nav
-				tokens,
-				m.uniswapFromTokenIdx,
-				m.uniswapToTokenIdx,
-				m.uniswapFromAmount,
-				m.uniswapToAmount,
-				m.uniswapFocusedField,
-				m.uniswapEstimating,
-				m.uniswapPriceImpactWarn,
-			)
-			// Wrap in panel style to constrain properly
-			pageContent = panelStyle.Width(m.contentW).Render(uniswapView)
-			nav = uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
-		}
-
-		// Show pool info popup overlay if active
-		if m.activeDialog == dialogPoolInfo {
-			return m.renderPoolInfoPopup()
-		}
-
-		// Show transaction result panel overlay if active
-		if m.activeDialog == dialogTxResult {
-			return m.renderTxResultPanel()
-		}
-		if m.activeDialog == dialogScanTx {
-			return m.renderScanTxPanel()
-		}
-
-	case config.PageTerraNullius:
-		// Show claim popup overlay
-		if m.activeDialog == dialogTerraClaim {
-			return terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
-		}
-
-		var terraNullDesc string
-		for _, d := range m.dapps {
-			if d.Name == "Terra Nullius" {
-				terraNullDesc = d.Description
-				break
-			}
-		}
-		terraView := terra.Render(
-			m.w-2,
-			m.h-8,
-			m.terraNullFocusedField,
-			terraNullDesc,
-			m.terraNullClaimsCount, m.terraNullClaimsLoading,
-			m.terraNullClaimInput, m.terraNullClaimQuerying,
-			m.terraNullLastQueriedIdx,
-			m.terraNullClaimResult, m.terraNullClaimResultErr,
-		)
-		pageContent = panelStyle.Width(m.contentW).Render(terraView)
-		nav = terra.Nav(m.w-2, m.txIndexerActive)
-
-		if m.activeDialog == dialogTxResult {
-			return m.renderTxResultPanel()
-		}
-		if m.activeDialog == dialogScanTx {
-			return m.renderScanTxPanel()
-		}
-
-	case config.PageSigner:
-		if m.activeDialog == dialogScanTx {
-			return m.renderScanTxPanel()
-		}
-		signerContent := vsigner.Render(
-			m.contentW,
-			m.signerKeys,
-			m.signerKeyIdx,
-			m.signerDecoded,
-			m.signerResult,
-			m.signerSignErr,
-			m.signerScanMode,
-			m.spin.View(),
-		)
-		pageContent = panelStyle.Width(m.contentW).Render(signerContent)
-		nav = vsigner.Nav(m.w-2, m.txIndexerActive)
+	if overlay := m.renderActiveOverlay(); overlay != "" {
+		return overlay
 	}
 
-	// Render log panel only if enabled
+	pageContent, nav := m.renderPage(headerPanel)
+
 	var logPanel string
 	if m.logEnabled {
-		// Give the log panel all remaining vertical space.
-		// Total log panel height = viewportHeight + 4 (border top/bottom + title + blank line).
 		usedHeight := lipgloss.Height(headerPanel) + lipgloss.Height(pageContent) + lipgloss.Height(nav)
 		viewportHeight := helpers.Max(3, m.h-usedHeight-4)
 		m.logViewport.Height = viewportHeight
-
-		logFocused := m.poolEventMonitorActive && !m.uniswapShowingLiquidity && m.activePage == config.PageUniswap &&
-			m.focusedPanel == focusedPanelLog
+		logFocused := m.poolEventMonitorActive && !m.uniswapShowingLiquidity &&
+			m.activePage == config.PageUniswap && m.focusedPanel == focusedPanelLog
 		logPanel = logview.Render(m.w, viewportHeight, m.logReady, m.logSpinner.View(), m.logViewport, logFocused)
-		// Compute the on-screen Y of the log content start from the bottom of the terminal.
-		// Using lipgloss.Height(logPanel) is robust when the content above overflows m.h
-		// (the terminal shows the bottom m.h rows, so log border top = m.h - height(logPanel)).
-		// +3 accounts for top border(1) + title(1) + blank line(1).
+		// log border top = m.h - height(logPanel); +3 for top border(1)+title(1)+blank(1)
 		m.logScroll.PanelTop = (m.h - lipgloss.Height(logPanel)) + 3
 		m.logScroll.TrackCol = m.logViewport.Width + 3
 		content := lipgloss.JoinVertical(lipgloss.Left, headerPanel, pageContent, nav, logPanel)
-		baseView := appStyle.Render(content)
-
-		// Show account list popup overlay if active
-		if m.activeDialog == dialogAccountList {
-			popup := m.renderAccountListPopup()
-			return popup // Popup uses lipgloss.Place internally, so just return it
-		}
-
-		return baseView
+		return styles.AppStyle.Render(content)
 	}
 
-	// Use lipgloss to join sections vertically (without log panel)
 	content := lipgloss.JoinVertical(lipgloss.Left, headerPanel, pageContent, nav)
-	baseView := appStyle.Render(content)
-
-	// Show account list popup overlay if active
-	if m.activeDialog == dialogAccountList {
-		// Register clickable areas for popup before rendering
-		accountList, popupClickableAreas, _ := wallets.RenderList(m.accounts, m.accountListSelectedIdx)
-
-		// Calculate popup position (centered)
-		dialogHeight := len(m.accounts)*3 + 8 // Approximate dialog height
-		dialogWidth := 74 // Width including border and padding
-		popupStartX := (m.w - dialogWidth) / 2
-		popupStartY := (m.h - dialogHeight) / 2
-
-		// Clear and register clickable areas for popup
-		m.clickableAreas = nil
-
-		// RenderList returns areas with Y starting at 9 (for main panel)
-		// and X starting at 4 (for indentation)
-		// In popup we need to:
-		// - Subtract the base offsets from RenderList (9 for Y, 4 for X)
-		// - Add popup position + border (1) + padding (1 top, 2 left) + title lines (2)
-		const renderListBaseY = 9
-		const renderListBaseX = 4
-		popupContentStartX := popupStartX + 1 + 2 // border + padding left
-		popupContentStartY := popupStartY + 1 + 1 + 2 // border + padding top + title + blank line
-
-		m.addLog("debug", fmt.Sprintf("Popup position: (%d,%d), content starts at: (%d,%d)", popupStartX, popupStartY, popupContentStartX, popupContentStartY))
-
-		for i, area := range popupClickableAreas {
-			adjustedX := popupContentStartX + (area.X - renderListBaseX)
-			adjustedY := popupContentStartY + (area.Y - renderListBaseY)
-			m.clickableAreas = append(m.clickableAreas, config.ClickableArea{
-				X:       adjustedX,
-				Y:       adjustedY,
-				Width:   area.Width,
-				Height:  area.Height,
-				Address: area.Address,
-			})
-			if i == 0 {
-				m.addLog("debug", fmt.Sprintf("First area: orig=(%d,%d) adjusted=(%d,%d) addr=%s", area.X, area.Y, adjustedX, adjustedY, helpers.ShortenAddr(area.Address)))
-			}
-		}
-
-		// Suppress unused variable warning
-		_ = accountList
-
-		popup := m.renderAccountListPopup()
-		return popup // Popup uses lipgloss.Place internally, so just return it
-	}
-
-	return baseView
+	return styles.AppStyle.Render(content)
 }
 
-func toRPCDetails(details config.WalletDetails) rpc.WalletDetails {
-	rpcDetails := rpc.WalletDetails{
-		Address:    details.Address,
-		EthWei:     details.EthWei,
-		LoadedAt:   details.LoadedAt,
-		ErrMessage: details.ErrMessage,
+func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
+	switch m.activePage {
+	case config.PageHome:
+		return styles.PanelStyle.Width(m.contentW).Render("Home view not implemented"), ""
+
+	case config.PageWallets:
+		return m.renderWalletsPage(headerPanel)
+
+	case config.PageDappBrowser:
+		c := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx)
+		return styles.PanelStyle.Width(m.contentW).Render(c), dapps.Nav(m.w-2, m.txIndexerActive)
+
+	case config.PageDetails:
+		c := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View())
+		return styles.PanelStyle.Width(m.contentW).Render(c), details.Nav(m.w-2, m.nicknaming, m.txIndexerActive)
+
+	case config.PageSettings:
+		c := settings.Render(m.rpcURLs, m.selectedRPCIdx)
+		if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
+			c = styles.TitleStyle.Render("RPC Settings") + "\n\n" + m.form.View()
+		}
+		return styles.PanelStyle.Width(m.contentW).Render(c), settings.Nav(m.w-2, m.settingsMode, m.txIndexerActive)
+
+	case config.PageUniswap:
+		return m.renderUniswapPage(headerPanel)
+
+	case config.PageTerraNullius:
+		return m.renderTerraPage()
+
+	case config.PageSigner:
+		c := vsigner.Render(m.contentW, m.signerKeys, m.signerKeyIdx,
+			m.signerDecoded, m.signerResult, m.signerSignErr, m.signerScanMode, m.spin.View())
+		return styles.PanelStyle.Width(m.contentW).Render(c), vsigner.Nav(m.w-2, m.txIndexerActive)
 	}
-	for _, t := range details.Tokens {
-		rpcDetails.Tokens = append(rpcDetails.Tokens, rpc.TokenBalance{
-			Symbol:   t.Symbol,
-			Decimals: t.Decimals,
-			Balance:  t.Balance,
+	return "", ""
+}
+
+func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) {
+	walletsContent, walletsClickableAreas := wallets.Render(m.accounts, m.selectedWallet, m.addError)
+	for _, area := range walletsClickableAreas {
+		m.clickableAreas = append(m.clickableAreas, config.ClickableArea{
+			X: area.X, Y: area.Y + 1, Width: area.Width, Height: area.Height, Address: area.Address,
 		})
 	}
-	return rpcDetails
+
+	if m.adding {
+		inputView := m.input.View() + "\n" + m.nicknameInput.View() + "\n"
+		if m.ensLookupActive {
+			inputView += m.spin.View() + " ENS lookup…\n"
+		}
+		inputView += styles.HotkeyStyle.Render("Tab") + " next field   " +
+			styles.HotkeyStyle.Render("Enter") + " next/save   " +
+			styles.HotkeyStyle.Render("Esc") + " cancel   " +
+			styles.HotkeyStyle.Render("Ctrl+v") + " paste"
+		if m.addError != "" && time.Since(m.addErrTime) < 3*time.Second {
+			inputView += "\n" + lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true).Render(m.addError)
+		}
+		walletsContent += "\n\n" + styles.PanelStyle.BorderForeground(styles.CAccent2).Render(inputView)
+	}
+
+	nav = wallets.Nav(m.w-2, m.txIndexerActive)
+
+	if !m.detailsInWallets || len(m.accounts) == 0 {
+		return styles.PanelStyle.Width(m.contentW).Render(walletsContent), nav
+	}
+
+	detailsContent := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View())
+
+	var detailsBaseH int
+	if m.showSendForm && m.sendForm != nil {
+		detailsContent = styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
+		m.sendBtnW = 0
+	} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+		detailsBaseH = lipgloss.Height(detailsContent)
+		var btnStyle lipgloss.Style
+		if m.sendButtonFocused || m.sendButtonHovered {
+			btnStyle = styles.ButtonActive.MarginTop(2)
+		} else {
+			btnStyle = styles.ButtonNormal.MarginTop(2)
+		}
+		detailsContent += "\n\n" + btnStyle.Render("Send")
+		hint := "Press Tab to select"
+		if m.sendButtonFocused {
+			hint = "Press Enter to send"
+		}
+		detailsContent += "\n" + lipgloss.NewStyle().Foreground(styles.CSubtle).MarginTop(1).Render(hint)
+	} else {
+		m.sendBtnW = 0
+	}
+
+	listWidth := helpers.Max(0, (m.w*4)/10-2)
+	detailsWidth := helpers.Max(0, (m.w*6)/10-2)
+	leftPanel := styles.PanelStyle.Width(listWidth).Render(walletsContent)
+	leftPanelHeight := lipgloss.Height(leftPanel)
+
+	if detailsBaseH > 0 {
+		m.sendBtnX = listWidth + 5
+		m.sendBtnY = lipgloss.Height(headerPanel) + 2 + detailsBaseH + 3
+		m.sendBtnW = 10
+	}
+
+	rightPanel := styles.PanelStyle.Width(detailsWidth+1).Height(leftPanelHeight-2).Render(detailsContent)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel), nav
 }
 
-func key(s string) string {
-	return hotkeyKeyStyle.Render(s)
+func (m *model) renderUniswapPage(headerPanel string) (pageContent, nav string) {
+	tokens := m.buildTokenList()
+	navStr := uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
+
+	if m.uniswapShowingSelector {
+		c := uniswap.RenderTokenSelector(m.w, m.h-8, tokens, m.uniswapSelectorIdx, m.uniswapSelectorFor == 0)
+		return c, navStr
+	}
+	if m.uniswapShowingLiquidity {
+		c := uniswap.RenderLiquidity(m.w-2, m.h-8, m.liquidityPositions, m.liquidityLoading,
+			m.liquidityFocusedIdx, m.liquidityErr, m.spin.View())
+		return styles.PanelStyle.Width(m.contentW).Render(c), navStr
+	}
+	if m.poolEventMonitorActive {
+		// PanelStyle adds 4 vertical lines; RenderV4Events overhead is 4 — so m.h/2-4 yields half-height.
+		v4View := uniswap.RenderV4Events(m.w-2, helpers.Max(1, m.h/2-4), m.v4EventsViewport)
+		borderColor := styles.CBorder
+		if m.focusedPanel == focusedPanelV4Events {
+			borderColor = styles.CAccent
+		}
+		c := styles.PanelStyle.BorderForeground(borderColor).Width(m.contentW).Render(v4View)
+		m.v4Scroll.PanelTop = lipgloss.Height(headerPanel) + 4
+		m.v4Scroll.TrackCol = m.v4EventsViewport.Width + 3
+		return c, navStr
+	}
+	c := uniswap.Render(m.w-2, m.h-8, tokens,
+		m.uniswapFromTokenIdx, m.uniswapToTokenIdx,
+		m.uniswapFromAmount, m.uniswapToAmount,
+		m.uniswapFocusedField, m.uniswapEstimating, m.uniswapPriceImpactWarn)
+	return styles.PanelStyle.Width(m.contentW).Render(c), navStr
 }
 
-func rpcStatus(url string, c *rpc.Client) string {
-	if url == "" {
-		return "not set"
+func (m *model) renderTerraPage() (pageContent, nav string) {
+	var terraNullDesc string
+	for _, d := range m.dapps {
+		if d.Name == "Terra Nullius" {
+			terraNullDesc = d.Description
+			break
+		}
 	}
-	if c == nil {
-		return "connecting/failed"
-	}
-	return "connected"
+	c := terra.Render(m.w-2, m.h-8, m.terraNullFocusedField, terraNullDesc,
+		m.terraNullClaimsCount, m.terraNullClaimsLoading,
+		m.terraNullClaimInput, m.terraNullClaimQuerying,
+		m.terraNullLastQueriedIdx, m.terraNullClaimResult, m.terraNullClaimResultErr)
+	return styles.PanelStyle.Width(m.contentW).Render(c), terra.Nav(m.w-2, m.txIndexerActive)
 }
 
-func rainbow(base lipgloss.Style, s string, colors []color.Color) string {
-	var str string
-	for i, ss := range s {
-		color, _ := colorful.MakeColor(colors[i%len(colors)])
-		str = str + base.Foreground(lipgloss.Color(color.Hex())).Render(string(ss))
-	}
-	return str
-}
+

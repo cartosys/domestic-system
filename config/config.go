@@ -2,9 +2,7 @@ package config
 
 import (
 	"encoding/json"
-	"math/big"
 	"os"
-	"time"
 )
 
 // Config represents the application configuration
@@ -60,21 +58,6 @@ type ClickableArea struct {
 	Address       string // wallet address to navigate to
 }
 
-// TokenBalance represents an ERC20 token balance
-type TokenBalance struct {
-	Symbol   string
-	Decimals uint8
-	Balance  *big.Int
-}
-
-// WalletDetails contains all balance information for a wallet
-type WalletDetails struct {
-	Address    string
-	EthWei     *big.Int
-	Tokens     []TokenBalance
-	LoadedAt   time.Time
-	ErrMessage string
-}
 
 // -------------------- CONFIG MANAGEMENT --------------------
 

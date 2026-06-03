@@ -23,7 +23,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			if m.txResultHex != "" {
-				m.addLog("info", "Copied EIP-4527 transaction to clipboard")
+				m.logInfo("Copied EIP-4527 transaction to clipboard")
 				return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
 			}
 			return m, vpCmd
@@ -244,11 +244,11 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.uniswapFocusedField == 2 {
 			// Execute swap - package transaction and show QR code
 			if m.uniswapFromAmount == "" || m.uniswapToAmount == "" {
-				m.addLog("error", "Please enter an amount and get a quote first")
+				m.logError("Please enter an amount and get a quote first")
 				return m, nil
 			}
 			if m.uniswapQuote == nil {
-				m.addLog("error", "Please get a swap quote first")
+				m.logError("Please get a swap quote first")
 				return m, nil
 			}
 
@@ -263,7 +263,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			fromToken := tokens[m.uniswapFromTokenIdx]
 			toToken := tokens[m.uniswapToTokenIdx]
 
-			m.addLog("info", fmt.Sprintf("Packaging swap: %s %s → %s %s", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol))
+			m.logInfo(fmt.Sprintf("Packaging swap: %s %s → %s %s", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol))
 			m.activeDialog = dialogTxResult
 			m.txResultPackaging = true
 			m.txResultHex = ""
@@ -318,7 +318,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.uniswapFromAmount = balanceFloat.Text('f', 6)
 					m.uniswapEditingFrom = true // Mark that user is actively editing
 					// Trigger quote fetch immediately for max
-					m.addLog("info", fmt.Sprintf("Max balance: %s %s", m.uniswapFromAmount, fromToken.Symbol))
+					m.logInfo(fmt.Sprintf("Max balance: %s %s", m.uniswapFromAmount, fromToken.Symbol))
 					return m, m.maybeRequestUniswapQuote()
 				}
 			}
@@ -332,7 +332,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.liquidityLoading = true
 			m.liquidityPositions = nil
 			m.liquidityErr = ""
-			m.addLog("info", fmt.Sprintf("Fetching V4 liquidity positions for %s…", helpers.ShortenAddr(m.activeAddress)))
+			m.logInfo(fmt.Sprintf("Fetching V4 liquidity positions for %s…", helpers.ShortenAddr(m.activeAddress)))
 			return m, fetchLiquidityPositions(m.rpcURL, common.HexToAddress(m.activeAddress))
 		}
 		return m, nil
@@ -345,7 +345,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.poolEventMonitor = nil
 			}
 			m.poolEventMonitorActive = false
-			m.addLog("info", "Pool Event Monitor stopped")
+			m.logInfo("Pool Event Monitor stopped")
 		} else {
 			// Start the monitor
 			monitor := helpers.NewPoolEventMonitor()
@@ -353,7 +353,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.poolEventMonitor = monitor
 			m.poolEventMonitorActive = true
 			m.focusedPanel = focusedPanelV4Events
-			m.addLog("info", "Pool Event Monitor starting… (requires wss:// RPC endpoint)")
+			m.logInfo("Pool Event Monitor starting… (requires wss:// RPC endpoint)")
 			var startCmds []tea.Cmd
 			startCmds = append(startCmds, waitForPoolEvent(monitor), waitForPoolEventData(monitor))
 			if m.eventStore != nil {
@@ -370,13 +370,13 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.v4BlockScanner = nil
 			}
 			m.v4BlockScanActive = false
-			m.addLog("info", "V4 block scan cancelled")
+			m.logInfo("V4 block scan cancelled")
 		} else {
 			scanner := helpers.NewV4BlockScanner()
 			scanner.Start(m.rpcURL, 24686488, common.HexToAddress("0x5857bCe5490545a89598b9992DD0D409C4C20d86"))
 			m.v4BlockScanner = scanner
 			m.v4BlockScanActive = true
-			m.addLog("info", "V4 block scan started (block 24686488)…")
+			m.logInfo("V4 block scan started (block 24686488)…")
 			return m, waitForV4BlockScanLine(scanner)
 		}
 		return m, nil

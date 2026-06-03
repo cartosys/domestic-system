@@ -80,14 +80,14 @@ func (m *model) handleSettingsFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 					newRPC := config.RPCUrl{Name: tempRPCFormName, URL: tempRPCFormURL, Active: false}
 					m.rpcURLs = append(m.rpcURLs, newRPC)
 					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-					m.addLog("success", fmt.Sprintf("Added RPC endpoint: `%s` (%s)", tempRPCFormName, tempRPCFormURL))
+					m.logSuccess(fmt.Sprintf("Added RPC endpoint: `%s` (%s)", tempRPCFormName, tempRPCFormURL))
 				}
 			} else if m.settingsMode == "edit" {
 				if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
 					m.rpcURLs[m.selectedRPCIdx].Name = tempRPCFormName
 					m.rpcURLs[m.selectedRPCIdx].URL = tempRPCFormURL
 					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-					m.addLog("success", fmt.Sprintf("Updated RPC endpoint: `%s`", tempRPCFormName))
+					m.logSuccess(fmt.Sprintf("Updated RPC endpoint: `%s`", tempRPCFormName))
 				}
 			}
 			m.settingsMode = "list"
@@ -122,7 +122,7 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						m.selectedRPCIdx--
 					}
 					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-					m.addLog("warning", fmt.Sprintf("Deleted RPC endpoint `%s`", deletedName))
+					m.logWarn(fmt.Sprintf("Deleted RPC endpoint `%s`", deletedName))
 				}
 				m.activeDialog = dialogNone
 				return m, nil
