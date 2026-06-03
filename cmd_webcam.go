@@ -56,13 +56,21 @@ func animateQRTick() tea.Cmd {
 	})
 }
 
-// cmdEnableMouseAllMotion switches the terminal to all-motion reporting (hover events included).
-func cmdEnableMouseAllMotion() tea.Cmd {
-	return func() tea.Msg { return tea.EnableMouseAllMotion() }
-}
+// cmdEnableMouseAllMotion is intentionally a no-op.
+//
+// All-motion mode (tea.EnableMouseAllMotion / \x1b[?1003h) fires an escape
+// sequence on every cursor move. On Linux, these sequences arrive on stdin
+// before Bubble Tea's parser classifies them, so they come through as
+// tea.KeyMsg containing the raw SGR bytes (e.g. "[<35;238;1M"). When a huh
+// textinput has focus it faithfully types those characters into the field.
+//
+// cell-motion mode (tea.WithMouseCellMotion / \x1b[?1002h) — the program
+// default — reports button press, release, and motion while a button is held.
+// This is sufficient for scrollbar dragging and click handling. Hover
+// detection without a button pressed (sendButtonHovered) is disabled as a
+// consequence, but that was purely cosmetic.
+func cmdEnableMouseAllMotion() tea.Cmd { return nil }
 
-// cmdEnableMouseCellMotion drops back to button-only reporting while a text input is active.
-// This prevents motion escape sequences from leaking into focused input fields.
-func cmdEnableMouseCellMotion() tea.Cmd {
-	return func() tea.Msg { return tea.EnableMouseCellMotion() }
-}
+// cmdEnableMouseCellMotion is kept for call-site compatibility but is now a
+// no-op because the program stays in cell-motion mode for its entire lifetime.
+func cmdEnableMouseCellMotion() tea.Cmd { return nil }
