@@ -68,6 +68,12 @@ func (m *model) createSendForm() {
 }
 
 func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Belt-and-suspenders: drop mouse events that slipped past the Update() guard
+	// (raw SGR sequences can arrive as tea.KeyMsg on some terminals).
+	if _, ok := msg.(tea.MouseMsg); ok {
+		return m, nil
+	}
+
 	// Intercept ESC key to cancel form
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 		m.showSendForm = false

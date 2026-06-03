@@ -30,8 +30,19 @@ var (
 // -------------------- UPDATE --------------------
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Mouse motion is consumed first — prevents raw escape sequences from
-	// leaking into textinput components when WithMouseAllMotion is active.
+	// Drop ALL mouse events when a text field is capturing input.
+	// In all-motion mode the terminal fires an escape sequence on every cursor
+	// move (e.g. "\x1b[<35;238;1M"). Bubble Tea normally classifies these as
+	// tea.MouseMsg, but on some Linux terminal emulators they arrive before the
+	// parser recognises them and come through as tea.KeyMsg containing the raw
+	// coordinate bytes — which the huh textinput then faithfully types into the
+	// field. Dropping everything at this level is the only reliable fix.
+	if _, ok := msg.(tea.MouseMsg); ok && m.textInputActive() {
+		return m, nil
+	}
+
+	// Mouse motion consumed next — prevents hover/drag sequences from reaching
+	// any non-text handler while all-motion mode is active.
 	if mm, ok := msg.(tea.MouseMsg); ok && mm.Type == tea.MouseMotion {
 		return m.handleMouseMotion(mm)
 	}
