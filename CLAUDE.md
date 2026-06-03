@@ -115,3 +115,15 @@ Load/save only through `config/config.go`. Config path: `~/.charm-wallet-config.
 - Prefer editing existing files over creating new ones.
 - Do not add docstrings, comments, or type annotations to code you didn't change.
 - Do not add error handling for scenarios internal invariants already prevent.
+
+## Behavioral Rules
+
+**Think before coding.** State assumptions explicitly. Ask rather than guess. Push back when a simpler path exists.
+**Plan Mode required for tasks with 3+ steps.** Enter Plan Mode, get approval, then execute. Do not implement and plan simultaneously.
+**Use @@file references to anchor context.** When editing a module, reference its file explicitly (e.g., `@@src/signer.ts`) so context stays grounded in actual code, not memory.
+**Read before you write.** Before modifying any file, read its exports, immediate callers, and any shared utilities it depends on. Check `src/index.ts` before touching any public API.
+**Surgical changes only.** Touch only what the task requires. Do not improve adjacent code, rename variables, or refactor unless explicitly asked.
+**Surface conflicts, don't average them.** If two existing patterns contradict, pick the more recent or more tested one, explain the choice, and flag the other for cleanup.
+**Checkpoint after every significant step.** State: what was done, what is verified, what remains. Do not continue from a state you cannot describe back.
+**Fail loud.** "Done" is wrong if anything was skipped silently. "Tests pass" is wrong if any were skipped or commented out. Surface uncertainty — do not hide it.
+**Token budgets are not advisory.** Per-task: 4,000 tokens. Per-session: 30,000 tokens. Approaching the limit? Summarize and start fresh. Surface the breach.
