@@ -119,7 +119,7 @@ func (m *model) handlePackageTransaction(msg packageTransactionMsg) (tea.Model, 
 		m.logError("Transaction packaging failed: " + msg.err.Error())
 		return m, nil
 	}
-	m.txResultHex = msg.txDisplay
+	m.txResultHex = msg.txJSON
 	m.txResultEIP681 = msg.qrData
 	m.txResultFormat = msg.format
 
