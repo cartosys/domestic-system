@@ -32,6 +32,7 @@ func (m model) textInputActive() bool {
 		(m.showSendForm && m.sendForm != nil) ||
 		(m.nicknaming && m.form != nil) ||
 		((m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil) ||
+		(m.activeDialog == dialogPasteSignedTx && m.pasteTxPhase == pasteTxPhaseForm && m.pasteTxForm != nil) ||
 		m.activeDialog == dialogTerraClaim
 }
 

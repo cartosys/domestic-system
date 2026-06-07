@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"math/big"
@@ -462,6 +463,197 @@ func PackageTransactionEIP4527(fromAddress common.Address, toAddress common.Addr
 		new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)),
 	).Text('f', 6) + " ETH → " + toAddress.Hex()
 	return TransactionPackageEIP4527{URData: urStr, Summary: summary}, nil
+}
+
+// weiToEthStr formats a wei amount as an ETH string (up to 6 decimal places).
+func weiToEthStr(wei *big.Int) string {
+	if wei == nil || wei.Sign() == 0 {
+		return "0 ETH"
+	}
+	eth := new(big.Float).Quo(
+		new(big.Float).SetInt(wei),
+		new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)),
+	)
+	return eth.Text('f', 6) + " ETH"
+}
+
+// weiToGweiStr formats a wei amount as a Gwei string (up to 4 decimal places).
+func weiToGweiStr(wei *big.Int) string {
+	if wei == nil || wei.Sign() == 0 {
+		return "0 Gwei"
+	}
+	gwei := new(big.Float).Quo(
+		new(big.Float).SetInt(wei),
+		new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(9), nil)),
+	)
+	return gwei.Text('f', 4) + " Gwei"
+}
+
+// decodeRawTx hex-decodes and RLP/binary-unmarshals a "0x..."-prefixed signed
+// transaction payload.
+func decodeRawTx(rawHex string) (*types.Transaction, error) {
+	cleaned := strings.TrimPrefix(strings.TrimSpace(rawHex), "0x")
+	raw, err := hex.DecodeString(cleaned)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex: %w", err)
+	}
+	tx := new(types.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		return nil, fmt.Errorf("not a signed transaction: %w", err)
+	}
+	return tx, nil
+}
+
+// DecodedSignedTx holds human-readable fields extracted from a pasted signed
+// transaction. The sender is recovered from the transaction's own signature —
+// no private key is ever read or required.
+type DecodedSignedTx struct {
+	Hash          string
+	From          string
+	To            string
+	ValueHuman    string
+	Nonce         uint64
+	Gas           uint64
+	GasPriceHuman string
+	ChainID       *big.Int
+	JSON          string // pretty-printed transaction JSON
+}
+
+// DecodeSignedRawTx parses a "0x..." pre-signed raw transaction and extracts
+// display fields for the paste-transaction preview.
+func DecodeSignedRawTx(rawHex string) (DecodedSignedTx, error) {
+	tx, err := decodeRawTx(rawHex)
+	if err != nil {
+		return DecodedSignedTx{}, err
+	}
+
+	from, err := types.Sender(types.LatestSignerForChainID(tx.ChainId()), tx)
+	if err != nil {
+		return DecodedSignedTx{}, fmt.Errorf("recover sender: %w", err)
+	}
+
+	to := ""
+	if tx.To() != nil {
+		to = tx.To().Hex()
+	}
+
+	prettyJSON := ""
+	if rawJSON, err := tx.MarshalJSON(); err == nil {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, rawJSON, "", "  "); err == nil {
+			prettyJSON = buf.String()
+		}
+	}
+
+	return DecodedSignedTx{
+		Hash:          tx.Hash().Hex(),
+		From:          from.Hex(),
+		To:            to,
+		ValueHuman:    weiToEthStr(tx.Value()),
+		Nonce:         tx.Nonce(),
+		Gas:           tx.Gas(),
+		GasPriceHuman: weiToGweiStr(tx.GasPrice()),
+		ChainID:       tx.ChainId(),
+		JSON:          prettyJSON,
+	}, nil
+}
+
+// SendRawTransaction decodes a "0x..." pre-signed raw transaction and relays
+// it to the connected RPC endpoint via eth_sendRawTransaction. It only
+// broadcasts a transaction the user has already signed externally and pasted
+// in — the app never signs anything or holds private keys.
+func SendRawTransaction(client *Client, rawHex string) (txHash string, err error) {
+	if client == nil || client.Client == nil {
+		return "", context.DeadlineExceeded
+	}
+
+	tx, err := decodeRawTx(rawHex)
+	if err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	if err := client.SendTransaction(ctx, tx); err != nil {
+		return "", err
+	}
+	return tx.Hash().Hex(), nil
+}
+
+// TxOnChainInfo holds human-readable on-chain data for a confirmed (mined) transaction.
+type TxOnChainInfo struct {
+	Hash              string
+	Status            string // "Success" or "Failed"
+	BlockNumber       uint64
+	BlockHash         string
+	From              string
+	To                string
+	ValueHuman        string
+	Nonce             uint64
+	GasUsed           uint64
+	EffectiveGasPrice string
+	TransactionIndex  uint
+	Confirmations     uint64
+}
+
+// GetTransactionOnChain looks up a broadcast transaction by hash and returns
+// its on-chain data once mined. (nil, false, nil) means the transaction
+// hasn't been mined yet — the expected state while polling, not an error.
+func GetTransactionOnChain(client *Client, txHash common.Hash) (*TxOnChainInfo, bool, error) {
+	if client == nil || client.Client == nil {
+		return nil, false, context.DeadlineExceeded
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	receipt, err := client.TransactionReceipt(ctx, txHash)
+	if err != nil {
+		if errors.Is(err, ethereum.NotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	tx, _, err := client.TransactionByHash(ctx, txHash)
+	if err != nil {
+		return nil, false, err
+	}
+
+	status := "Failed"
+	if receipt.Status == types.ReceiptStatusSuccessful {
+		status = "Success"
+	}
+
+	to := ""
+	if tx.To() != nil {
+		to = tx.To().Hex()
+	}
+	fromStr := ""
+	if from, sErr := types.Sender(types.LatestSignerForChainID(tx.ChainId()), tx); sErr == nil {
+		fromStr = from.Hex()
+	}
+
+	var confirmations uint64
+	if head, hErr := GetBlockHeight(client); hErr == nil && head >= receipt.BlockNumber.Uint64() {
+		confirmations = head - receipt.BlockNumber.Uint64() + 1
+	}
+
+	return &TxOnChainInfo{
+		Hash:              receipt.TxHash.Hex(),
+		Status:            status,
+		BlockNumber:       receipt.BlockNumber.Uint64(),
+		BlockHash:         receipt.BlockHash.Hex(),
+		From:              fromStr,
+		To:                to,
+		ValueHuman:        weiToEthStr(tx.Value()),
+		Nonce:             tx.Nonce(),
+		GasUsed:           receipt.GasUsed,
+		EffectiveGasPrice: weiToGweiStr(receipt.EffectiveGasPrice),
+		TransactionIndex:  receipt.TransactionIndex,
+		Confirmations:     confirmations,
+	}, true, nil
 }
 
 // GenerateQRCode converts a string into a QR code representation for terminal display.

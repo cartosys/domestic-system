@@ -369,6 +369,8 @@ func (m *model) renderActiveOverlay() string {
 		return m.renderTxResultPanel()
 	case dialogScanTx:
 		return m.renderScanTxPanel()
+	case dialogPasteSignedTx:
+		return m.renderPasteSignedTxPanel()
 	case dialogDeleteWallet:
 		return m.renderDeleteDialog()
 	case dialogDeleteRPC:

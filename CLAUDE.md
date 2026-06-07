@@ -101,7 +101,7 @@ Load/save only through `config/config.go`. Config path: `~/.charm-wallet-config.
 ## Hard Constraints
 
 - **No private key storage or signing** anywhere in the codebase.
-- **No on-chain transaction broadcasting.** Txs are packaged as EIP-681/EIP-4527 QR only.
+- **No on-chain transaction broadcasting, except for user-pasted pre-signed transactions**, which may be submitted via `eth_sendRawTransaction` to the user's configured RPC endpoint. Unsigned txs built by the app are still packaged as EIP-681/EIP-4527 QR only — the app never signs anything itself.
 - **No telemetry, analytics, or external HTTP** outside user-configured RPC endpoints.
 - **No custodial services or hosted backends.**
 - Uniswap quoting is V2 pair reserves only (USDC ↔ ETH/WETH). Do not add routing.

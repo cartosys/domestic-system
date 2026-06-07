@@ -80,6 +80,8 @@ func (m *model) handleScanTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
 		return m.closeScanTxDialog()
+	case "p", "P":
+		return m.openPasteSignedTxDialog()
 	case "up", "k":
 		m.webcamLogVP.LineUp(1)
 	case "down", "j":
@@ -135,6 +137,13 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		if m.webcamActive {
 			m.webcamErrStr = msg.err.Error()
 			m.webcamActive = false
+			// No camera / camera error during the "scan signed tx response"
+			// flow: fall straight through to the paste-a-signed-tx form,
+			// focused and ready — there's nothing useful to show otherwise.
+			if m.activeDialog == dialogScanTx && !m.signerScanMode {
+				newModel, cmd := m.openPasteSignedTxDialog()
+				return newModel, cmd, true
+			}
 		}
 		return m, nil, true
 	}
@@ -217,21 +226,32 @@ func (m *model) renderScanTxPanel() string {
 	track := scrollbar.Track(logH, m.webcamLogVP.TotalLineCount(), m.webcamLogVP.YOffset)
 	logWithBar := scrollbar.Decorate(vpContent, track)
 
-	// Compute scroll hit-test coordinates.
+	// "Paste a signed transaction" button — alternate input path to scanning,
+	// always available; auto-triggered instead when the camera errors out.
+	pasteBtn := styles.ButtonNormal.Render("Paste a signed transaction")
+
+	// Compute scroll/button hit-test coordinates.
 	// Panel is centered: left edge = (m.w - panelW) / 2, top = (m.h - panelOuterH) / 2.
-	// Fixed rows above log: title(1) + blank(1) + videoH + blank(1) + divider(1) + logTitle(1) = 5 + videoH
-	panelOuterH := 11 + videoH + logH // 7 content rows + 4 border/padding overhead
+	// Content rows: title(1) blank(1) video(videoH) blank(1) divider(1) logTitle(1)
+	//               log(logH) blank(1) button(1) blank(1) hint(1) = 9 + videoH + logH
+	panelOuterH := 13 + videoH + logH // 9 content rows + 4 border/padding overhead
 	panelTopY := (m.h - panelOuterH) / 2
 	if panelTopY < 0 {
 		panelTopY = 0
 	}
 	// Log VP top = panelTopY + 1(border) + 1(padding) + 1(title) + 1(blank) + videoH + 1(blank) + 1(div) + 1(logTitle)
 	m.webcamLogScroll.PanelTop = panelTopY + 7 + videoH
-	// Track col = panel left + 1(border) + 2(padding) + vpWidth + 1(space from Decorate)
 	panelLeftX := (m.w - panelW) / 2
+	// Track col = panel left + 1(border) + 2(padding) + vpWidth + 1(space from Decorate)
 	m.webcamLogScroll.TrackCol = panelLeftX + 1 + 2 + m.webcamLogVP.Width + 1
 
-	hint := muteStyle.Render("↑/↓ scroll log   ESC to close")
+	// Button row = panelTop + 1(border) + 1(padding) + 1(title) + 1(blank) + videoH
+	//            + 1(blank) + 1(divider) + 1(logTitle) + logH + 1(blank)
+	m.pasteTxBtnY = panelTopY + 8 + videoH + logH
+	m.pasteTxBtnX1 = panelLeftX + 1 + 2
+	m.pasteTxBtnX2 = m.pasteTxBtnX1 + lipgloss.Width(pasteBtn)
+
+	hint := muteStyle.Render("↑/↓ scroll log   p paste signed tx   ESC to close")
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -241,6 +261,8 @@ func (m *model) renderScanTxPanel() string {
 		divider,
 		logTitle,
 		logWithBar,
+		"",
+		pasteBtn,
 		"",
 		hint,
 	)

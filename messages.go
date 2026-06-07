@@ -191,3 +191,23 @@ type webcamErrMsg struct{ err error }
 
 // txQRAnimTickMsg advances the animated QR display to the next frame.
 type txQRAnimTickMsg struct{}
+
+// signedTxBroadcastMsg carries the result of relaying a pasted signed
+// transaction to the RPC endpoint via eth_sendRawTransaction.
+type signedTxBroadcastMsg struct {
+	txHash string
+	err    error
+}
+
+// signedTxPollResultMsg carries the result of checking whether a broadcast
+// transaction has been mined yet. found=false with err=nil means "not yet
+// mined" — the expected state while polling.
+type signedTxPollResultMsg struct {
+	info  *rpc.TxOnChainInfo
+	found bool
+	err   error
+}
+
+// signedTxCountdownTickMsg fires once a second to drive the "next check in
+// Ns" countdown while polling for on-chain confirmation.
+type signedTxCountdownTickMsg struct{}

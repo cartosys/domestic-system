@@ -51,6 +51,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return updated, cmd
 	}
 
+	if m.activeDialog == dialogPasteSignedTx {
+		return m.handlePasteSignedTxMsg(msg)
+	}
+
 	if m.activePage == config.PageWallets && m.showSendForm && m.sendForm != nil {
 		return m.handleSendFormMsg(msg)
 	}
@@ -387,6 +391,13 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+
+	// "Paste a signed transaction" button inside the scan-tx panel.
+	if m.activeDialog == dialogScanTx && msg.Type == tea.MouseLeft {
+		if msg.Y == m.pasteTxBtnY && msg.X >= m.pasteTxBtnX1 && msg.X < m.pasteTxBtnX2 {
+			return m.openPasteSignedTxDialog()
+		}
 	}
 
 	if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown {

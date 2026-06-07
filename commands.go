@@ -101,6 +101,38 @@ func packageTerraClaimTx(fromAddr, message, rpcURL string) tea.Cmd {
 	}
 }
 
+// -------------------- SIGNED TX BROADCAST --------------------
+
+// broadcastSignedTx relays a pasted, pre-signed raw transaction to the
+// connected RPC endpoint via eth_sendRawTransaction.
+func broadcastSignedTx(client *rpc.Client, rawHex string) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return signedTxBroadcastMsg{err: fmt.Errorf("no RPC client")}
+		}
+		hash, err := rpc.SendRawTransaction(client, rawHex)
+		return signedTxBroadcastMsg{txHash: hash, err: err}
+	}
+}
+
+// pollTxOnChain checks whether a broadcast transaction has been mined yet.
+func pollTxOnChain(client *rpc.Client, txHash string) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return signedTxPollResultMsg{err: fmt.Errorf("no RPC client")}
+		}
+		info, found, err := rpc.GetTransactionOnChain(client, common.HexToHash(txHash))
+		return signedTxPollResultMsg{info: info, found: found, err: err}
+	}
+}
+
+// pasteTxCountdownTick fires once a second to drive the on-chain poll countdown.
+func pasteTxCountdownTick() tea.Cmd {
+	return tea.Tick(1*time.Second, func(time.Time) tea.Msg {
+		return signedTxCountdownTickMsg{}
+	})
+}
+
 // abiEncodeUint256 ABI-encodes a *big.Int as a 32-byte uint256.
 func abiEncodeUint256(v *big.Int) []byte {
 	b := make([]byte, 32)

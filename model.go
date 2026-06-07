@@ -50,6 +50,18 @@ const (
 	dialogAccountList             // account selector popup
 	dialogTerraClaim              // Terra Nullius claim form
 	dialogScanTx                  // webcam scan for signed transaction
+	dialogPasteSignedTx           // paste + broadcast a signed transaction
+)
+
+// pasteTxPhaseKind identifies which step of the paste-signed-transaction
+// flow is currently shown inside dialogPasteSignedTx.
+type pasteTxPhaseKind uint8
+
+const (
+	pasteTxPhaseForm    pasteTxPhaseKind = iota // pasting + previewing the signed tx
+	pasteTxPhaseSending                         // broadcasting via eth_sendRawTransaction
+	pasteTxPhasePolling                         // waiting for the tx to be mined
+	pasteTxPhaseResult                          // on-chain data found, awaiting dismissal
 )
 
 // model represents the application state following The Elm Architecture
@@ -261,6 +273,20 @@ type model struct {
 	webcamErrStr    string
 	webcamLogVP     viewport.Model
 	webcamLogScroll scrollbar.State
+
+	// "Paste a signed transaction" button hit-test (rendered inside dialogScanTx)
+	pasteTxBtnY  int
+	pasteTxBtnX1 int
+	pasteTxBtnX2 int
+
+	// Paste-signed-transaction dialog state (used by dialogPasteSignedTx)
+	pasteTxForm      *huh.Form
+	pasteTxPhase     pasteTxPhaseKind
+	pasteTxHash      string
+	pasteTxSendErr   string
+	pasteTxCountdown int
+	pasteTxPollErr   string
+	pasteTxOnChainInfo *rpc.TxOnChainInfo
 
 	// Signer page state
 	signerKeys      []signer.KeyEntry
