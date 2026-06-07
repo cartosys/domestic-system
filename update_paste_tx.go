@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/big"
 	"strings"
 
 	"charm-wallet-tui/rpc"
@@ -102,6 +103,23 @@ func (m *model) activeRPCLabel() string {
 	return m.rpcURL
 }
 
+// etherscanTxURL returns the correct Etherscan transaction URL for the given
+// chain ID, falling back to mainnet for unknown/nil chain IDs.
+func etherscanTxURL(chainID *big.Int, txHash string) string {
+	base := "https://etherscan.io"
+	if chainID != nil {
+		switch chainID.Int64() {
+		case 11155111:
+			base = "https://sepolia.etherscan.io"
+		case 17000:
+			base = "https://holesky.etherscan.io"
+		case 5:
+			base = "https://goerli.etherscan.io"
+		}
+	}
+	return base + "/tx/" + txHash
+}
+
 // openPasteSignedTxDialog releases the webcam (if active) and opens the
 // paste-signed-transaction popup, focused and ready for input. This is the
 // "default activated and on focus if no camera is detected or any camera
@@ -123,6 +141,8 @@ func (m *model) openPasteSignedTxDialog() (tea.Model, tea.Cmd) {
 	m.pasteTxCountdown = 0
 	m.pasteTxPollErr = ""
 	m.pasteTxOnChainInfo = nil
+	m.pasteTxChainID = nil
+	m.pasteTxHashLineY, m.pasteTxHashLineX1, m.pasteTxHashLineX2 = 0, 0, 0
 	m.createPasteSignedTxForm()
 
 	return m, tea.Batch(cmds...)
@@ -229,6 +249,9 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch m.pasteTxForm.State {
 			case huh.StateCompleted:
 				raw := tempPasteSignedTxHex
+				if decoded, err := rpc.DecodeSignedRawTx(raw); err == nil {
+					m.pasteTxChainID = decoded.ChainID
+				}
 				m.pasteTxForm = nil
 				m.pasteTxPhase = pasteTxPhaseSending
 				m.logInfo("Broadcasting pasted signed transaction…")
@@ -323,10 +346,13 @@ func (m *model) renderPasteTxSendingPhase() string {
 func (m *model) renderPasteTxPollingPhase() string {
 	muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
 
-	hashLine := muteStyle.Render("Tx hash: ") + lipgloss.NewStyle().Foreground(styles.CAccent).Render(m.pasteTxHash)
+	hashLabel := muteStyle.Render("Tx hash: ")
+	hashStyle := lipgloss.NewStyle().Foreground(styles.CAccent).Underline(true)
+	hashLine := hashLabel + hashStyle.Render(m.pasteTxHash)
 	status := m.spin.View() + muteStyle.Render(" Watching the chain for this transaction…")
 	countdown := muteStyle.Render(fmt.Sprintf("Next check in %ds", m.pasteTxCountdown))
 
+	const hashLineIdx = 2 // index of hashLine within rows below
 	rows := []string{
 		m.pasteTxDialogTitle("Message Sent — Awaiting Confirmation"),
 		"",
@@ -338,10 +364,23 @@ func (m *model) renderPasteTxPollingPhase() string {
 	if m.pasteTxPollErr != "" {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(styles.CWarn).Render("⚠ "+m.pasteTxPollErr))
 	}
-	rows = append(rows, "", lipgloss.NewStyle().Foreground(styles.CSubtle).Render("ESC to stop watching and return"))
+	rows = append(rows, "", lipgloss.NewStyle().Foreground(styles.CSubtle).Render("Double-click or ctrl-click hash → Etherscan   ESC to stop watching and return"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	dialog := styles.DialogBox.Width(pasteSignedTxDialogWidth).Render(content)
+
+	// Track the hash's click area. DialogBox uses Border(1) + Padding(1, 2),
+	// so content starts 2 rows / 3 cols from the dialog's screen origin
+	// (mirrors renderPoolInfoPopup's dialogStartX/Y derivation in view.go).
+	dialogH := lipgloss.Height(dialog)
+	dialogW := lipgloss.Width(dialog)
+	dialogStartX := (m.w - dialogW) / 2
+	dialogStartY := (m.h - dialogH) / 2
+	contentLeft := dialogStartX + 3
+	m.pasteTxHashLineY = dialogStartY + 2 + hashLineIdx
+	m.pasteTxHashLineX1 = contentLeft + lipgloss.Width(hashLabel)
+	m.pasteTxHashLineX2 = m.pasteTxHashLineX1 + lipgloss.Width(m.pasteTxHash)
+
 	return styles.AppStyle.Render(lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog))
 }
 

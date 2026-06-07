@@ -400,6 +400,15 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Tx hash in the "Message Sent — Awaiting Confirmation" popup: double-click
+	// or ctrl-click opens the transaction on the correct Etherscan subdomain.
+	if m.activeDialog == dialogPasteSignedTx && m.pasteTxPhase == pasteTxPhasePolling && msg.Type == tea.MouseLeft {
+		inHash := msg.Y == m.pasteTxHashLineY && msg.X >= m.pasteTxHashLineX1 && msg.X < m.pasteTxHashLineX2
+		if inHash && (msg.Ctrl || m.isDoubleClick(msg.X, msg.Y)) {
+			return m, openInBrowser(etherscanTxURL(m.pasteTxChainID, m.pasteTxHash))
+		}
+	}
+
 	if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown {
 		if m.activeDialog == dialogScanTx {
 			var cmd tea.Cmd

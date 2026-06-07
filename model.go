@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -287,6 +288,12 @@ type model struct {
 	pasteTxCountdown int
 	pasteTxPollErr   string
 	pasteTxOnChainInfo *rpc.TxOnChainInfo
+	pasteTxChainID   *big.Int // captured at submit time, picks the Etherscan subdomain
+
+	// Tx hash hit-test (clickable in the polling phase — opens Etherscan)
+	pasteTxHashLineY  int
+	pasteTxHashLineX1 int
+	pasteTxHashLineX2 int
 
 	// Signer page state
 	signerKeys      []signer.KeyEntry
