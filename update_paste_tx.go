@@ -5,6 +5,8 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/atotto/clipboard"
+
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 
@@ -22,8 +24,8 @@ var tempPasteSignedTxHex string
 
 // createPasteSignedTxForm builds the paste form: a live preview note above a
 // multi-line text input, styled like the Settings forms (Catppuccin theme).
-func (m *model) createPasteSignedTxForm() {
-	tempPasteSignedTxHex = ""
+func (m *model) createPasteSignedTxForm(initial string) {
+	tempPasteSignedTxHex = initial
 
 	m.pasteTxForm = huh.NewForm(
 		huh.NewGroup(
@@ -143,7 +145,7 @@ func (m *model) openPasteSignedTxDialog() (tea.Model, tea.Cmd) {
 	m.pasteTxOnChainInfo = nil
 	m.pasteTxChainID = nil
 	m.pasteTxHashLineY, m.pasteTxHashLineX1, m.pasteTxHashLineX2 = 0, 0, 0
-	m.createPasteSignedTxForm()
+	m.createPasteSignedTxForm("")
 
 	return m, tea.Batch(cmds...)
 }
@@ -239,6 +241,16 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case pasteTxPhaseForm:
 		if msg.String() == "esc" {
 			return m.closePasteSignedTxDialog()
+		}
+		if msg.String() == "ctrl+v" {
+			// Read the clipboard ourselves, synchronously — bypasses the
+			// textarea's async Paste cmd (clipboard.ReadAll in a goroutine,
+			// delivered later via an unexported pasteMsg), which otherwise
+			// races a fast Enter against an as-yet-unpopulated field.
+			if text, err := clipboard.ReadAll(); err == nil && text != "" {
+				m.createPasteSignedTxForm(text)
+			}
+			return m, nil
 		}
 		if m.pasteTxForm == nil {
 			return m, nil
