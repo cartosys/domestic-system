@@ -53,10 +53,12 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 }
 
 // packageSwapTransaction packages a Uniswap V2 swap as an EIP-4527 QR payload.
-func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOption, amountIn string, amountOutMin *big.Int, rpcURL string) tea.Cmd {
+// chainID picks the network-appropriate router/WETH addresses (mainnet vs Sepolia).
+func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOption, amountIn string, amountOutMin *big.Int, rpcURL string, chainID *big.Int) tea.Cmd {
 	return func() tea.Msg {
-		routerAddress := common.HexToAddress("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
-		wethAddress := common.HexToAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+		addrs := helpers.UniswapAddressesForChain(chainID)
+		routerAddress := addrs.Router
+		wethAddress := addrs.WETH
 		fromAddress := common.HexToAddress(fromAddr)
 
 		amountFloat := new(big.Float)

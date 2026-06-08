@@ -269,7 +269,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.txResultHex = ""
 			m.txResultError = ""
 			m.txResultFormat = "EIP-4527"
-			return m, packageSwapTransaction(m.activeAddress, fromToken, toToken, m.uniswapFromAmount, m.uniswapQuote.AmountOut, m.rpcURL)
+			return m, packageSwapTransaction(m.activeAddress, fromToken, toToken, m.uniswapFromAmount, m.uniswapQuote.AmountOut, m.rpcURL, m.chainID())
 		}
 		return m, nil
 

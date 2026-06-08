@@ -46,15 +46,26 @@ func (m model) buildTokenList() []uniswap.TokenOption {
 	return tokens
 }
 
+// chainID returns the connected chain's ID, or nil if there is no connection
+// or the lookup failed at connect time. helpers.UniswapAddressesForChain treats
+// nil as "assume mainnet", matching the app's existing default network.
+func (m *model) chainID() *big.Int {
+	if m.ethClient == nil {
+		return nil
+	}
+	return m.ethClient.DetectedChainID
+}
+
 // resolvePair returns (pairAddr, tokenInAddr, ok) for the given token pair.
 // Currently supports USDC⟺ETH only. Returns ok=false and logs a warning for unsupported pairs.
 func (m *model) resolvePair(from, to uniswap.TokenOption) (common.Address, common.Address, bool) {
+	addrs := helpers.UniswapAddressesForChain(m.chainID())
 	if (from.Symbol == "USDC" && to.Symbol == "ETH") || (from.Symbol == "ETH" && to.Symbol == "USDC") {
-		tokenIn := helpers.WETHAddress
+		tokenIn := addrs.WETH
 		if from.Symbol == "USDC" {
-			tokenIn = helpers.USDCAddress
+			tokenIn = addrs.USDC
 		}
-		return helpers.USDCWETHPairAddress, tokenIn, true
+		return addrs.USDCWETHPair, tokenIn, true
 	}
 	m.logWarn(fmt.Sprintf("Swap pair %s/%s not supported yet", from.Symbol, to.Symbol))
 	return common.Address{}, common.Address{}, false

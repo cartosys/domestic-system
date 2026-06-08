@@ -6,12 +6,25 @@ import (
 	"time"
 
 	"charm-wallet-tui/config"
+	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/signer"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ethereum/go-ethereum/common"
 )
+
+// buildTokenWatchlist returns the starter token watchlist (WETH/USDC/USDT/DAI)
+// pointed at the given network's token addresses, so balances are queried
+// against the contracts that actually exist on the connected chain.
+func buildTokenWatchlist(addrs helpers.UniswapNetworkAddresses) []rpc.WatchedToken {
+	return []rpc.WatchedToken{
+		{Symbol: "WETH", Decimals: 18, Address: addrs.WETH},
+		{Symbol: "USDC", Decimals: 6, Address: addrs.USDC},
+		{Symbol: "USDT", Decimals: 6, Address: addrs.USDT},
+		{Symbol: "DAI", Decimals: 18, Address: addrs.DAI},
+	}
+}
 
 // isDoubleClick returns true when (x, y) matches the previous click within 500 ms.
 // Always updates last-click state so a single call both detects and advances the window.

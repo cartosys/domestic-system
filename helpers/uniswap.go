@@ -53,6 +53,73 @@ var (
 	DAIAddress = common.HexToAddress("0x6B175474E89094C44Da98b954EedeAC495271d0F")
 )
 
+// SepoliaChainID is the chain ID of the Sepolia testnet (EIP-155).
+const SepoliaChainID = 11155111
+
+// UniswapNetworkAddresses bundles the Uniswap V2 router/factory contract
+// addresses plus the watched-token and reference-pair addresses to use on a
+// given network. UniswapAddressesForChain is the single place that decides
+// which set applies.
+type UniswapNetworkAddresses struct {
+	Router  common.Address
+	Factory common.Address
+
+	WETH common.Address
+	USDC common.Address
+	USDT common.Address
+	DAI  common.Address
+
+	USDCWETHPair common.Address
+	DAIWETHPair  common.Address
+	USDTWETHPair common.Address
+}
+
+// mainnetUniswapAddresses mirrors the package-level mainnet vars above so the
+// live-RPC tests in uniswap_test.go (which run against mainnet) keep working
+// against the same addresses. Router/Factory/USDT were previously inlined at
+// their call sites (commands.go, model.go) — named here for symmetry with Sepolia.
+var mainnetUniswapAddresses = UniswapNetworkAddresses{
+	Router:  common.HexToAddress("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"),
+	Factory: common.HexToAddress("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"),
+
+	WETH: WETHAddress,
+	USDC: USDCAddress,
+	USDT: common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7"),
+	DAI:  DAIAddress,
+
+	USDCWETHPair: USDCWETHPairAddress,
+	DAIWETHPair:  DAIWETHPairAddress,
+}
+
+// sepoliaUniswapAddresses holds the Uniswap V2 deployment and token addresses
+// on Sepolia (chain ID 11155111). Verified directly on-chain against a public
+// Sepolia RPC: router.factory()/router.WETH() match the listed Factory/WETH,
+// each token's symbol()/decimals() match, and each pair has live non-zero
+// reserves on the Factory's pair list.
+var sepoliaUniswapAddresses = UniswapNetworkAddresses{
+	Router:  common.HexToAddress("0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3"),
+	Factory: common.HexToAddress("0xF62c03E08ada871A0bEb309762E260a7a6a880E6"),
+
+	WETH: common.HexToAddress("0xfFf9976782d46CC05630D1f6eBAB18b2324d6B14"),
+	USDC: common.HexToAddress("0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8"),
+	USDT: common.HexToAddress("0xaa8E23Fb1079EA71e0a56F48a2aa51851D8433D0"),
+	DAI:  common.HexToAddress("0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D"),
+
+	USDCWETHPair: common.HexToAddress("0x06D1080CDcbf8aD77a65a40F4484E93eA6180269"),
+	DAIWETHPair:  common.HexToAddress("0x04ef46A6FAFc277dE43AAd0eF17d14Fb967e64B3"),
+	USDTWETHPair: common.HexToAddress("0xcbDB9cb0669906c8B12211824B4F069D183155fF"),
+}
+
+// UniswapAddressesForChain returns the Uniswap V2 router/factory/token/pair
+// addresses to use for chainID. Nil or unrecognized chain IDs default to
+// Ethereum mainnet, matching the app's existing default RPC/network.
+func UniswapAddressesForChain(chainID *big.Int) UniswapNetworkAddresses {
+	if chainID != nil && chainID.Cmp(big.NewInt(SepoliaChainID)) == 0 {
+		return sepoliaUniswapAddresses
+	}
+	return mainnetUniswapAddresses
+}
+
 // GetUniswapV2Pair fetches the token addresses for a Uniswap V2 pair
 func GetUniswapV2Pair(client *ethclient.Client, pairAddress common.Address) (*UniswapV2Pair, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -35,6 +35,10 @@ func (m *model) handleRPCConnected(msg rpcConnectedMsg) (tea.Model, tea.Cmd) {
 	} else {
 		m.ethClient = msg.client
 		m.rpcConnected = true
+		// Rebuild the watchlist for the connected chain (e.g. Sepolia vs mainnet)
+		// so token balances and Uniswap addresses match the contracts that
+		// actually exist on this network.
+		m.tokenWatch = buildTokenWatchlist(helpers.UniswapAddressesForChain(msg.client.DetectedChainID))
 		m.logSuccess(fmt.Sprintf("RPC connected to `%s`", msg.client.URL))
 		if m.activePage == config.PageWallets && m.detailsInWallets && len(m.accounts) > 0 {
 			return m, m.loadSelectedWalletDetails()

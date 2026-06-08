@@ -26,6 +26,10 @@ import (
 type Client struct {
 	*ethclient.Client
 	URL string
+	// DetectedChainID is captured once at connect time (nil if the lookup
+	// failed). Named distinctly from the embedded ChainID(ctx) method so that
+	// method remains callable on Client.
+	DetectedChainID *big.Int
 }
 
 // ConnectResult holds the result of an RPC connection attempt
@@ -49,10 +53,15 @@ func ConnectWithTimeout(url string, timeout time.Duration) ConnectResult {
 		return ConnectResult{Client: nil, Error: err}
 	}
 
+	// Best-effort: a failed chain ID lookup leaves ChainID nil, which downstream
+	// callers treat as "assume mainnet" (see helpers.UniswapAddressesForChain).
+	chainID, _ := client.ChainID(ctx)
+
 	return ConnectResult{
 		Client: &Client{
-			Client: client,
-			URL:    url,
+			Client:          client,
+			URL:             url,
+			DetectedChainID: chainID,
 		},
 		Error: nil,
 	}
