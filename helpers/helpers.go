@@ -18,6 +18,22 @@ import (
 	ens "github.com/wealdtech/go-ens/v3"
 )
 
+// ExplorerBaseURL returns the block explorer base URL for the given chain ID,
+// falling back to mainnet Etherscan for unknown or nil chain IDs.
+func ExplorerBaseURL(chainID *big.Int) string {
+	if chainID != nil {
+		switch chainID.Int64() {
+		case 11155111:
+			return "https://sepolia.etherscan.io"
+		case 17000:
+			return "https://holesky.etherscan.io"
+		case 5:
+			return "https://goerli.etherscan.io"
+		}
+	}
+	return "https://etherscan.io"
+}
+
 // ShortenAddr shortens an Ethereum address for display
 func ShortenAddr(addr string) string {
 	if len(addr) < 10 {

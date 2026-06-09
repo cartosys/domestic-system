@@ -428,7 +428,7 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 		return styles.PanelStyle.Width(m.contentW).Render(c), dapps.Nav(m.w-2, m.txIndexerActive)
 
 	case config.PageDetails:
-		c := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View())
+		c := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View(), m.chainID())
 		return styles.PanelStyle.Width(m.contentW).Render(c), details.Nav(m.w-2, m.nicknaming, m.txIndexerActive)
 
 	case config.PageSettings:
@@ -481,7 +481,7 @@ func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) 
 		return styles.PanelStyle.Width(m.contentW).Render(walletsContent), nav
 	}
 
-	detailsContent := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View())
+	detailsContent := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View(), m.chainID())
 
 	var detailsBaseH int
 	if m.showSendForm && m.sendForm != nil {

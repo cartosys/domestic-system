@@ -7,6 +7,7 @@ import (
 
 	"github.com/atotto/clipboard"
 
+	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 
@@ -105,21 +106,10 @@ func (m *model) activeRPCLabel() string {
 	return m.rpcURL
 }
 
-// etherscanTxURL returns the correct Etherscan transaction URL for the given
-// chain ID, falling back to mainnet for unknown/nil chain IDs.
+// etherscanTxURL returns the correct block explorer transaction URL for the
+// given chain ID, falling back to mainnet Etherscan for unknown/nil chain IDs.
 func etherscanTxURL(chainID *big.Int, txHash string) string {
-	base := "https://etherscan.io"
-	if chainID != nil {
-		switch chainID.Int64() {
-		case 11155111:
-			base = "https://sepolia.etherscan.io"
-		case 17000:
-			base = "https://holesky.etherscan.io"
-		case 5:
-			base = "https://goerli.etherscan.io"
-		}
-	}
-	return base + "/tx/" + txHash
+	return helpers.ExplorerBaseURL(chainID) + "/tx/" + txHash
 }
 
 // openPasteSignedTxDialog releases the webcam (if active) and opens the

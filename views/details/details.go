@@ -6,6 +6,7 @@ import (
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -47,7 +48,7 @@ func Nav(width int, nicknaming bool, indexerActive bool) string {
 }
 
 // Render renders the account details view
-func Render(details rpc.WalletDetails, wallets []config.WalletEntry, loading bool, copiedMsg string, spinnerView string) string {
+func Render(details rpc.WalletDetails, wallets []config.WalletEntry, loading bool, copiedMsg string, spinnerView string, chainID *big.Int) string {
 	h := styles.TitleStyle.Render("Account Details")
 
 	// Find nickname for current wallet
@@ -59,8 +60,8 @@ func Render(details rpc.WalletDetails, wallets []config.WalletEntry, loading boo
 		}
 	}
 
-	// Make address clickable with underline hint and hyperlink to Etherscan
-	etherscanURL := fmt.Sprintf("https://etherscan.io/address/%s", details.Address)
+	// Make address clickable with underline hint and hyperlink to the correct block explorer
+	etherscanURL := fmt.Sprintf("%s/address/%s", helpers.ExplorerBaseURL(chainID), details.Address)
 	addrStyle := lipgloss.NewStyle().Foreground(styles.CMuted).Underline(true)
 	// Use OSC 8 hyperlink format: \x1b]8;;URL\x1b\\TEXT\x1b]8;;\x1b\\
 	sub := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", etherscanURL, addrStyle.Render(details.Address))
