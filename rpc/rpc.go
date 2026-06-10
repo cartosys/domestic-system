@@ -343,6 +343,20 @@ type rlpEIP155UnsignedTx struct {
 	S        *big.Int // 0 for unsigned
 }
 
+// rlpEIP1559UnsignedTx is the RLP structure for an EIP-1559 type-2 signing preimage.
+// Per EIP-1559/EIP-2718: 0x02 || rlp([chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, accessList])
+type rlpEIP1559UnsignedTx struct {
+	ChainID              *big.Int
+	Nonce                uint64
+	MaxPriorityFeePerGas *big.Int
+	MaxFeePerGas         *big.Int
+	Gas                  uint64
+	To                   common.Address
+	Value                *big.Int
+	Data                 []byte
+	AccessList           []struct{}
+}
+
 // buildEthSignRequestCBOR builds the CBOR payload for an EIP-4527 eth-sign-request.
 // Map structure:
 //
@@ -378,21 +392,22 @@ func buildEthSignRequestCBOR(requestID [16]byte, signData []byte, chainID uint64
 // BuildUnsignedTxEIP4527 assembles an EIP-4527 UR from already-known transaction
 // parameters. Unlike PackUnsignedTxEIP4527 it does not require an RPC connection,
 // making it suitable for offline testing and batch tooling.
-func BuildUnsignedTxEIP4527(from, to common.Address, value *big.Int, gasLimit uint64, data []byte, nonce uint64, gasPrice, chainID *big.Int) (urString string, txJSON string, err error) {
-	rlpBytes, err := rlp.EncodeToBytes(&rlpEIP155UnsignedTx{
-		Nonce:    nonce,
-		GasPrice: gasPrice,
-		Gas:      gasLimit,
-		To:       to,
-		Value:    value,
-		Data:     data,
-		V:        chainID,
-		R:        big.NewInt(0),
-		S:        big.NewInt(0),
+func BuildUnsignedTxEIP4527(from, to common.Address, value *big.Int, gasLimit uint64, data []byte, nonce uint64, maxPriorityFeePerGas, maxFeePerGas, chainID *big.Int) (urString string, txJSON string, err error) {
+	rlpBytes, err := rlp.EncodeToBytes(&rlpEIP1559UnsignedTx{
+		ChainID:              chainID,
+		Nonce:                nonce,
+		MaxPriorityFeePerGas: maxPriorityFeePerGas,
+		MaxFeePerGas:         maxFeePerGas,
+		Gas:                  gasLimit,
+		To:                   to,
+		Value:                value,
+		Data:                 data,
+		AccessList:           []struct{}{},
 	})
 	if err != nil {
 		return "", "", err
 	}
+	signData := append([]byte{0x02}, rlpBytes...)
 
 	var requestID [16]byte
 	if _, err := rand.Read(requestID[:]); err != nil {
@@ -401,19 +416,21 @@ func BuildUnsignedTxEIP4527(from, to common.Address, value *big.Int, gasLimit ui
 	requestID[6] = (requestID[6] & 0x0F) | 0x40
 	requestID[8] = (requestID[8] & 0x3F) | 0x80
 
-	cborData := buildEthSignRequestCBOR(requestID, rlpBytes, chainID.Uint64(), from)
+	cborData := buildEthSignRequestCBOR(requestID, signData, chainID.Uint64(), from)
 	checksum := crc32.ChecksumIEEE(cborData)
 	payload := append(cborData, byte(checksum>>24), byte(checksum>>16), byte(checksum>>8), byte(checksum))
 	urStr := "ur:eth-sign-request/" + encodeBytewordsMinimal(payload)
 
 	txFields := map[string]interface{}{
-		"from":     from.Hex(),
-		"to":       to.Hex(),
-		"value":    fmt.Sprintf("0x%x", value),
-		"nonce":    fmt.Sprintf("0x%x", nonce),
-		"gasPrice": fmt.Sprintf("0x%x", gasPrice),
-		"gasLimit": fmt.Sprintf("0x%x", gasLimit),
-		"chainId":  fmt.Sprintf("0x%x", chainID),
+		"from":                 from.Hex(),
+		"to":                   to.Hex(),
+		"value":                fmt.Sprintf("0x%x", value),
+		"nonce":                fmt.Sprintf("0x%x", nonce),
+		"maxPriorityFeePerGas": fmt.Sprintf("0x%x", maxPriorityFeePerGas),
+		"maxFeePerGas":         fmt.Sprintf("0x%x", maxFeePerGas),
+		"gasLimit":             fmt.Sprintf("0x%x", gasLimit),
+		"chainId":              fmt.Sprintf("0x%x", chainID),
+		"type":                 "0x2",
 	}
 	if len(data) > 0 {
 		txFields["data"] = "0x" + hex.EncodeToString(data)
@@ -427,7 +444,7 @@ func BuildUnsignedTxEIP4527(from, to common.Address, value *big.Int, gasLimit ui
 	return urStr, txJSON, nil
 }
 
-// PackUnsignedTxEIP4527 fetches live nonce/gasPrice/chainId from rpcURL then
+// PackUnsignedTxEIP4527 fetches live nonce/fees/chainId from rpcURL then
 // delegates to BuildUnsignedTxEIP4527.
 func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.Int, gasLimit uint64, data []byte, rpcURL string) (urString string, txJSON string, err error) {
 	client, err := ethclient.Dial(rpcURL)
@@ -442,16 +459,22 @@ func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.In
 	if err != nil {
 		return "", "", err
 	}
-	gasPrice, err := client.SuggestGasPrice(ctx)
+	tip, err := client.SuggestGasTipCap(ctx)
 	if err != nil {
 		return "", "", err
 	}
+	header, err := client.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return "", "", err
+	}
+	// baseFee*2 + tip gives headroom for ~5 consecutive max-increase blocks
+	maxFee := new(big.Int).Add(new(big.Int).Mul(header.BaseFee, big.NewInt(2)), tip)
 	chainID, err := client.ChainID(ctx)
 	if err != nil {
 		return "", "", err
 	}
 
-	return BuildUnsignedTxEIP4527(from, to, value, gasLimit, data, nonce, gasPrice, chainID)
+	return BuildUnsignedTxEIP4527(from, to, value, gasLimit, data, nonce, tip, maxFee, chainID)
 }
 
 // TransactionPackageEIP4527 contains transaction data packaged per EIP-4527

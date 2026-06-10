@@ -72,11 +72,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  (fetching nonce / gas price / chain ID …)\n\n")
 		urStr, txJSON, err = rpc.PackUnsignedTxEIP4527(from, to, valueWei, *gasLimitFlag, nil, rpcURL)
 	} else {
-		fmt.Fprintf(os.Stderr, "  No RPC URL — using provided/default params (nonce=%d, gasPrice=%d Gwei, chainId=%d)\n\n",
+		fmt.Fprintf(os.Stderr, "  No RPC URL — using provided/default params (nonce=%d, maxFeePerGas=%d Gwei, chainId=%d)\n\n",
 			*nonceFlag, *gasPriceFlag, *chainIDFlag)
-		gasPriceWei := new(big.Int).Mul(big.NewInt(int64(*gasPriceFlag)), big.NewInt(1_000_000_000))
+		maxFeeWei := new(big.Int).Mul(big.NewInt(int64(*gasPriceFlag)), big.NewInt(1_000_000_000))
 		urStr, txJSON, err = rpc.BuildUnsignedTxEIP4527(from, to, valueWei, *gasLimitFlag, nil,
-			*nonceFlag, gasPriceWei, chainID)
+			*nonceFlag, maxFeeWei, maxFeeWei, chainID)
 	}
 	fatal(err, "pack")
 
