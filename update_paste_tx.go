@@ -23,19 +23,16 @@ const pasteSignedTxDialogWidth = 78
 // project's "Huh Forms" convention (see tempRPCFormName in update_settings.go).
 var tempPasteSignedTxHex string
 
-// createPasteSignedTxForm builds the paste form: a live preview note above a
-// multi-line text input, styled like the Settings forms (Catppuccin theme).
-func (m *model) createPasteSignedTxForm(initial string) {
+// createPasteSignedTxForm builds the paste form: a single multi-line text
+// input styled like the Settings forms (Catppuccin theme). The live preview
+// is rendered separately in renderPasteTxFormPhase rather than via a huh.Note
+// so that (a) the Note's required keypress is avoided, and (b) the Init cmd
+// can be returned and actually executed by the Tea runtime.
+func (m *model) createPasteSignedTxForm(initial string) tea.Cmd {
 	tempPasteSignedTxHex = initial
 
 	m.pasteTxForm = huh.NewForm(
 		huh.NewGroup(
-			huh.NewNote().
-				Title("Transaction Preview").
-				DescriptionFunc(func() string {
-					return formatSignedTxPreview(tempPasteSignedTxHex)
-				}, &tempPasteSignedTxHex),
-
 			huh.NewText().
 				Title("Paste the signed transaction in the input below").
 				Value(&tempPasteSignedTxHex).
@@ -50,7 +47,7 @@ func (m *model) createPasteSignedTxForm(initial string) {
 		),
 	).WithWidth(pasteSignedTxDialogWidth - 6).WithTheme(huh.ThemeCatppuccin())
 
-	m.pasteTxForm.Init()
+	return m.pasteTxForm.Init()
 }
 
 // formatSignedTxPreview renders the live "JSON and human readable tx" preview
@@ -135,7 +132,7 @@ func (m *model) openPasteSignedTxDialog() (tea.Model, tea.Cmd) {
 	m.pasteTxOnChainInfo = nil
 	m.pasteTxChainID = nil
 	m.pasteTxHashLineY, m.pasteTxHashLineX1, m.pasteTxHashLineX2 = 0, 0, 0
-	m.createPasteSignedTxForm("")
+	cmds = append(cmds, m.createPasteSignedTxForm(""))
 
 	return m, tea.Batch(cmds...)
 }
@@ -238,9 +235,24 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// delivered later via an unexported pasteMsg), which otherwise
 			// races a fast Enter against an as-yet-unpopulated field.
 			if text, err := clipboard.ReadAll(); err == nil && text != "" {
-				m.createPasteSignedTxForm(text)
+				return m, m.createPasteSignedTxForm(text)
 			}
 			return m, nil
+		}
+		// huh.Text is a multi-line textarea: Enter inserts a newline rather
+		// than completing the form. Intercept Enter here when the content
+		// already validates so the user only needs a single Enter to submit.
+		if msg.String() == "enter" {
+			raw := strings.TrimSpace(tempPasteSignedTxHex)
+			if decoded, err := rpc.DecodeSignedRawTx(raw); err == nil {
+				m.pasteTxChainID = decoded.ChainID
+				m.pasteTxForm = nil
+				m.pasteTxPhase = pasteTxPhaseSending
+				m.logInfo("Broadcasting pasted signed transaction…")
+				return m, broadcastSignedTx(m.ethClient, raw)
+			}
+			// Content not yet valid — fall through so huh can surface the
+			// validation error in the textarea UI.
 		}
 		if m.pasteTxForm == nil {
 			return m, nil
@@ -318,6 +330,8 @@ func (m *model) renderPasteTxFormPhase() string {
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		m.pasteTxDialogTitle("◉ Paste Signed Transaction"),
+		"",
+		formatSignedTxPreview(tempPasteSignedTxHex),
 		"",
 		m.pasteTxForm.View(),
 	)
