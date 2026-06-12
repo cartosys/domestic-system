@@ -268,7 +268,7 @@ var bytewordsLookup = [512]byte{
 	'l', 'a', 'l', 'y', 'l', 'f', 'l', 's', 'l', 'r', 'l', 'p', 'l', 'n', 'l', 't', // 128-135: lava lazy leaf legs liar limp lion list
 	'l', 'o', 'l', 'd', 'l', 'e', 'l', 'u', 'l', 'k', 'l', 'g', 'm', 'n', 'm', 'y', // 136-143: logo loud love luau luck lung main many
 	'm', 'h', 'm', 'e', 'm', 'o', 'm', 'u', 'm', 'w', 'm', 'd', 'm', 't', 'm', 's', // 144-151: math maze memo menu meow mild mint miss
-	'm', 'k', 'n', 'l', 'n', 'y', 'n', 'd', 'n', 'w', 'n', 't', 'n', 'n', 'n', 'e', // 152-159: monk nail navy need news next noon note
+	'm', 'k', 'n', 'l', 'n', 'y', 'n', 'd', 'n', 's', 'n', 't', 'n', 'n', 'n', 'e', // 152-159: monk nail navy need news next noon note
 	'n', 'b', 'o', 'y', 'o', 'e', 'o', 't', 'o', 'x', 'o', 'n', 'o', 'l', 'o', 's', // 160-167: numb obey oboe omit onyx open oval owls
 	'p', 'd', 'p', 't', 'p', 'k', 'p', 'y', 'p', 's', 'p', 'm', 'p', 'l', 'p', 'e', // 168-175: paid part peck play plus poem pool pose
 	'p', 'f', 'p', 'a', 'p', 'r', 'q', 'd', 'q', 'z', 'r', 'e', 'r', 'p', 'r', 'l', // 176-183: puff puma purr quad quiz race ramp real
