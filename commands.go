@@ -193,6 +193,65 @@ func buildSwapCalldata(fromToken, toToken uniswap.TokenOption, to common.Address
 	return d
 }
 
+// packageSwapTransactionV3 packages a Uniswap V3 exactInputSingle swap as an EIP-4527 QR payload.
+// fee is the pool fee tier in hundredths of a bip (e.g. 10000 = 1%, 3000 = 0.3%).
+func packageSwapTransactionV3(fromAddr string, fromToken, toToken uniswap.TokenOption, fee uint32, amountIn string, amountOutMin *big.Int, rpcURL string, chainID *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		addrs := helpers.UniswapAddressesForChain(chainID)
+		routerAddress := addrs.SwapRouterV3
+		fromAddress := common.HexToAddress(fromAddr)
+
+		amountFloat := new(big.Float)
+		amountFloat.SetString(amountIn)
+		multiplier := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
+		amountInBig, _ := new(big.Float).Mul(amountFloat, multiplier).Int(nil)
+
+		outDecimals := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil)
+		minOutHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(outDecimals)).Text('f', 6)
+
+		calldata := buildV3SwapCalldata(fromToken, toToken, fromAddress, amountInBig, amountOutMin, addrs.WETH, fee)
+
+		txValue := big.NewInt(0)
+		if fromToken.IsETH {
+			txValue = amountInBig
+		}
+
+		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, rpcURL)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+		feeLabel := fmt.Sprintf("%.2f%%", float64(fee)/10000.0)
+		summary := fmt.Sprintf("Uniswap V3 Swap (%s): %s %s → %s (min %s)\nRouter: %s",
+			feeLabel, amountIn, fromToken.Symbol, toToken.Symbol, minOutHuman, routerAddress.Hex())
+		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527"}
+	}
+}
+
+// buildV3SwapCalldata ABI-encodes exactInputSingle for SwapRouter02.
+// Selector 0x04e45aaf: exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))
+// SwapRouter02 omits the deadline field present in SwapRouter v1.
+func buildV3SwapCalldata(fromToken, toToken uniswap.TokenOption, to common.Address, amountIn, amountOutMin *big.Int, weth common.Address, fee uint32) []byte {
+	tokenIn := fromToken.Address
+	tokenOut := toToken.Address
+	if fromToken.IsETH {
+		tokenIn = weth
+	}
+	if toToken.IsETH {
+		tokenOut = weth
+	}
+
+	var d []byte
+	d = append(d, 0x04, 0xe4, 0x5a, 0xaf) // exactInputSingle selector
+	d = append(d, abiEncodeAddress(tokenIn)...)
+	d = append(d, abiEncodeAddress(tokenOut)...)
+	d = append(d, abiEncodeUint256(new(big.Int).SetUint64(uint64(fee)))...)
+	d = append(d, abiEncodeAddress(to)...)
+	d = append(d, abiEncodeUint256(amountIn)...)
+	d = append(d, abiEncodeUint256(amountOutMin)...)
+	d = append(d, abiEncodeUint256(big.NewInt(0))...) // sqrtPriceLimitX96 = 0 (no limit)
+	return d
+}
+
 // -------------------- CLIPBOARD --------------------
 
 func copyToClipboard(text string) tea.Cmd {

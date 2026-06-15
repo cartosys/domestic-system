@@ -22,10 +22,11 @@ type UniswapV2Pair struct {
 type SwapQuote struct {
 	AmountIn       *big.Int // Input amount
 	AmountOut      *big.Int // Expected output amount
-	Token0Reserve  *big.Int // Reserve of token0
-	Token1Reserve  *big.Int // Reserve of token1
+	Token0Reserve  *big.Int // Reserve of token0 (V2 only; zero for V3)
+	Token1Reserve  *big.Int // Reserve of token1 (V2 only; zero for V3)
 	PriceImpact    float64  // Price impact percentage
 	EffectivePrice float64  // Effective price (output/input)
+	IsV3           bool     // true when quote came from a Uniswap V3 pool
 }
 
 // Uniswap V2 function selectors
@@ -64,14 +65,22 @@ type UniswapNetworkAddresses struct {
 	Router  common.Address
 	Factory common.Address
 
-	WETH common.Address
-	USDC common.Address
-	USDT common.Address
-	DAI  common.Address
+	WETH  common.Address
+	USDC  common.Address
+	USDT  common.Address
+	DAI   common.Address
+	SPCXon common.Address // SpaceX (Ondo Tokenized) — mainnet only
 
-	USDCWETHPair common.Address
-	DAIWETHPair  common.Address
-	USDTWETHPair common.Address
+	USDCWETHPair   common.Address
+	DAIWETHPair    common.Address
+	USDTWETHPair   common.Address
+	SPCXonUSDCPair common.Address // USDC/SPCXon V2 pair — mainnet only
+
+	// Uniswap V3
+	QuoterV2        common.Address // QuoterV2 for off-chain quote simulation
+	SwapRouterV3    common.Address // SwapRouter02
+	SPCXonUSDCPoolV3 common.Address // SPCXon/USDC 1% V3 pool — mainnet only
+	SPCXonUSDTPoolV3 common.Address // SPCXon/USDT 0.3% V3 pool — mainnet only
 }
 
 // mainnetUniswapAddresses mirrors the package-level mainnet vars above so the
@@ -82,13 +91,20 @@ var mainnetUniswapAddresses = UniswapNetworkAddresses{
 	Router:  common.HexToAddress("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"),
 	Factory: common.HexToAddress("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"),
 
-	WETH: WETHAddress,
-	USDC: USDCAddress,
-	USDT: common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7"),
-	DAI:  DAIAddress,
+	WETH:   WETHAddress,
+	USDC:   USDCAddress,
+	USDT:   common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7"),
+	DAI:    DAIAddress,
+	SPCXon: common.HexToAddress("0xc9eef266834730340A55B6CC24621B31BAF55581"),
 
-	USDCWETHPair: USDCWETHPairAddress,
-	DAIWETHPair:  DAIWETHPairAddress,
+	USDCWETHPair:   USDCWETHPairAddress,
+	DAIWETHPair:    DAIWETHPairAddress,
+	SPCXonUSDCPair: common.HexToAddress("0x3fc51ce94bc6dd3cdfe599f1f99c05a5cc90e059"),
+
+	QuoterV2:         common.HexToAddress("0x61fFE014bA17989E743c5F6cB21bF9697530B21e"),
+	SwapRouterV3:     common.HexToAddress("0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"),
+	SPCXonUSDCPoolV3: common.HexToAddress("0x0461c60ad5fc24cb1fc075b7f202095819de6944"),
+	SPCXonUSDTPoolV3: common.HexToAddress("0xe88f804369cf4274207eb26fc801b6f2df10ec4b"),
 }
 
 // sepoliaUniswapAddresses holds the Uniswap V2 deployment and token addresses

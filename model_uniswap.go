@@ -56,19 +56,59 @@ func (m *model) chainID() *big.Int {
 	return m.ethClient.DetectedChainID
 }
 
-// resolvePair returns (pairAddr, tokenInAddr, ok) for the given token pair.
-// Currently supports USDC⟺ETH only. Returns ok=false and logs a warning for unsupported pairs.
-func (m *model) resolvePair(from, to uniswap.TokenOption) (common.Address, common.Address, bool) {
+// pairResolution carries routing metadata for a resolved token pair.
+type pairResolution struct {
+	pairAddr   common.Address // V2 pair contract or V3 pool contract
+	tokenIn    common.Address
+	isV3       bool
+	v3Fee      uint32
+	v3TokenOut common.Address // explicit tokenOut needed by QuoterV2
+}
+
+// resolvePair returns routing metadata for the given token pair.
+// Returns ok=false and logs a warning for unsupported pairs.
+func (m *model) resolvePair(from, to uniswap.TokenOption) (pairResolution, bool) {
 	addrs := helpers.UniswapAddressesForChain(m.chainID())
+
 	if (from.Symbol == "USDC" && to.Symbol == "ETH") || (from.Symbol == "ETH" && to.Symbol == "USDC") {
 		tokenIn := addrs.WETH
 		if from.Symbol == "USDC" {
 			tokenIn = addrs.USDC
 		}
-		return addrs.USDCWETHPair, tokenIn, true
+		return pairResolution{pairAddr: addrs.USDCWETHPair, tokenIn: tokenIn}, true
 	}
+
+	if (from.Symbol == "SPCXon" && to.Symbol == "USDC") || (from.Symbol == "USDC" && to.Symbol == "SPCXon") {
+		tokenIn := addrs.SPCXon
+		tokenOut := addrs.USDC
+		if from.Symbol == "USDC" {
+			tokenIn, tokenOut = addrs.USDC, addrs.SPCXon
+		}
+		if addrs.SPCXonUSDCPoolV3 != (common.Address{}) {
+			return pairResolution{
+				pairAddr: addrs.SPCXonUSDCPoolV3, tokenIn: tokenIn,
+				isV3: true, v3Fee: 10000, v3TokenOut: tokenOut,
+			}, true
+		}
+		return pairResolution{pairAddr: addrs.SPCXonUSDCPair, tokenIn: tokenIn}, true
+	}
+
+	if (from.Symbol == "SPCXon" && to.Symbol == "USDT") || (from.Symbol == "USDT" && to.Symbol == "SPCXon") {
+		tokenIn := addrs.SPCXon
+		tokenOut := addrs.USDT
+		if from.Symbol == "USDT" {
+			tokenIn, tokenOut = addrs.USDT, addrs.SPCXon
+		}
+		if addrs.SPCXonUSDTPoolV3 != (common.Address{}) {
+			return pairResolution{
+				pairAddr: addrs.SPCXonUSDTPoolV3, tokenIn: tokenIn,
+				isV3: true, v3Fee: 3000, v3TokenOut: tokenOut,
+			}, true
+		}
+	}
+
 	m.logWarn(fmt.Sprintf("Swap pair %s/%s not supported yet", from.Symbol, to.Symbol))
-	return common.Address{}, common.Address{}, false
+	return pairResolution{}, false
 }
 
 // resolveSwapTokens returns the from/to TokenOptions and whether the pair is valid.
@@ -124,7 +164,7 @@ func (m *model) maybeRequestUniswapQuote() tea.Cmd {
 		return nil
 	}
 
-	pairAddr, tokenInAddr, ok := m.resolvePair(fromToken, toToken)
+	pr, ok := m.resolvePair(fromToken, toToken)
 	if !ok {
 		return nil
 	}
@@ -135,7 +175,14 @@ func (m *model) maybeRequestUniswapQuote() tea.Cmd {
 	m.uniswapToAmount = ""
 	m.clearQuoteState()
 	m.uniswapEstimating = true
-	return fetchUniswapQuote(m.ethClient, pairAddr, tokenInAddr, amountIn)
+
+	if pr.isV3 {
+		m.uniswapLastFee = pr.v3Fee
+		addrs := helpers.UniswapAddressesForChain(m.chainID())
+		return fetchV3SwapQuote(m.ethClient, addrs.QuoterV2, pr.pairAddr, pr.tokenIn, pr.v3TokenOut, pr.v3Fee, amountIn)
+	}
+	m.uniswapLastFee = 0
+	return fetchUniswapQuote(m.ethClient, pr.pairAddr, pr.tokenIn, amountIn)
 }
 
 // maybeRequestReverseUniswapQuote triggers a reverse swap quote fetch (output → required input).
@@ -168,7 +215,7 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 		return nil
 	}
 
-	pairAddr, tokenInAddr, ok := m.resolvePair(fromToken, toToken)
+	pr, ok := m.resolvePair(fromToken, toToken)
 	if !ok {
 		return nil
 	}
@@ -180,7 +227,14 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 	m.clearQuoteState()
 	m.uniswapEstimating = true
 	m.logInfo(fmt.Sprintf("Calculating required input for %s %s", m.uniswapToAmount, toToken.Symbol))
-	return fetchReverseUniswapQuote(m.ethClient, pairAddr, tokenInAddr, amountOut, fromToken.Decimals)
+
+	if pr.isV3 {
+		m.uniswapLastFee = pr.v3Fee
+		addrs := helpers.UniswapAddressesForChain(m.chainID())
+		return fetchV3ReverseSwapQuote(m.ethClient, addrs.QuoterV2, pr.pairAddr, pr.tokenIn, pr.v3TokenOut, pr.v3Fee, amountOut)
+	}
+	m.uniswapLastFee = 0
+	return fetchReverseUniswapQuote(m.ethClient, pr.pairAddr, pr.tokenIn, amountOut, fromToken.Decimals)
 }
 
 // fetchUniswapQuote fetches a forward swap quote from Uniswap V2.
@@ -201,6 +255,28 @@ func fetchReverseUniswapQuote(client *rpc.Client, pairAddr, tokenInAddr common.A
 			return uniswapQuoteMsg{nil, fmt.Errorf("no RPC client")}
 		}
 		quote, err := helpers.GetReverseSwapQuote(client.Client, pairAddr, tokenInAddr, amountOut)
+		return uniswapQuoteMsg{quote, err}
+	}
+}
+
+// fetchV3SwapQuote fetches an exact-input quote from the Uniswap V3 QuoterV2.
+func fetchV3SwapQuote(client *rpc.Client, quoterV2, poolAddr, tokenIn, tokenOut common.Address, fee uint32, amountIn *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil || client.Client == nil {
+			return uniswapQuoteMsg{nil, fmt.Errorf("no RPC client")}
+		}
+		quote, err := helpers.GetV3SwapQuote(client.Client, quoterV2, poolAddr, tokenIn, tokenOut, fee, amountIn)
+		return uniswapQuoteMsg{quote, err}
+	}
+}
+
+// fetchV3ReverseSwapQuote fetches an exact-output quote from the Uniswap V3 QuoterV2.
+func fetchV3ReverseSwapQuote(client *rpc.Client, quoterV2, poolAddr, tokenIn, tokenOut common.Address, fee uint32, amountOut *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil || client.Client == nil {
+			return uniswapQuoteMsg{nil, fmt.Errorf("no RPC client")}
+		}
+		quote, err := helpers.GetV3ReverseSwapQuote(client.Client, quoterV2, poolAddr, tokenIn, tokenOut, fee, amountOut)
 		return uniswapQuoteMsg{quote, err}
 	}
 }

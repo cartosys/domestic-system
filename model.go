@@ -12,7 +12,6 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
-	"charm-wallet-tui/signer"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/scrollbar"
@@ -191,6 +190,7 @@ type model struct {
 	lastQuoteToAmount     string // last amount used for reverse quote
 	lastQuoteFromTokenIdx int    // last from token index used for quote
 	lastQuoteToTokenIdx   int    // last to token index used for quote
+	uniswapLastFee        uint32 // V3 fee tier of the last resolved pair; 0 means V2
 
 	// Liquidity positions view (within Uniswap page)
 	uniswapShowingLiquidity bool
@@ -293,14 +293,6 @@ type model struct {
 	pasteTxHashLineY  int
 	pasteTxHashLineX1 int
 	pasteTxHashLineX2 int
-
-	// Signer page state
-	signerKeys      []signer.KeyEntry
-	signerKeyIdx    int
-	signerDecoded   *signer.DecodedTx
-	signerResult    *signer.SignResult
-	signerSignErr   string
-	signerScanMode  bool // true when webcam was opened from the signer page
 }
 
 // -------------------- INIT --------------------

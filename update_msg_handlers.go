@@ -90,32 +90,6 @@ func (m *model) handleDetailsLoaded(msg detailsLoadedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) handleSignerKeysLoaded(msg signerKeysLoadedMsg) (tea.Model, tea.Cmd) {
-	if msg.err != nil {
-		m.signerSignErr = msg.err.Error()
-		m.logError("Signer: failed to load keys: " + msg.err.Error())
-	} else {
-		m.signerKeys = msg.keys
-		if m.signerKeyIdx >= len(m.signerKeys) {
-			m.signerKeyIdx = 0
-		}
-	}
-	return m, nil
-}
-
-func (m *model) handleSignerSigned(msg signerSignedMsg) (tea.Model, tea.Cmd) {
-	m.signerDecoded = msg.decoded
-	if msg.err != nil {
-		m.signerSignErr = msg.err.Error()
-		m.logError("Signer: " + msg.err.Error())
-	} else {
-		m.signerResult = msg.result
-		m.signerSignErr = ""
-		m.logSuccess("Signer: transaction signed — hash " + msg.result.TxHash)
-	}
-	return m, nil
-}
-
 func (m *model) handlePackageTransaction(msg packageTransactionMsg) (tea.Model, tea.Cmd) {
 	m.txResultPackaging = false
 	if msg.err != nil {
@@ -382,15 +356,20 @@ func (m *model) handleUniswapQuote(msg uniswapQuoteMsg) (tea.Model, tea.Cmd) {
 	toToken := tokens[m.uniswapToTokenIdx]
 	isReverseQuote := m.uniswapFromAmount == "" && m.uniswapToAmount != ""
 
+	version := "V2"
+	if msg.quote.IsV3 {
+		version = "V3"
+	}
+
 	if isReverseQuote {
 		divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
 		m.uniswapFromAmount = new(big.Float).Quo(new(big.Float).SetInt(msg.quote.AmountIn), divisor).Text('f', 6)
 		m.uniswapEditingFrom = false
-		m.logInfo(fmt.Sprintf("📊 Reverse Quote: %s → %s", fromToken.Symbol, toToken.Symbol))
+		m.logInfo(fmt.Sprintf("📊 %s Reverse Quote: %s → %s", version, fromToken.Symbol, toToken.Symbol))
 		m.logInfo(fmt.Sprintf("  Amount In: %s %s", m.uniswapFromAmount, fromToken.Symbol))
 		m.logInfo(fmt.Sprintf("  Amount Out: %s %s", m.uniswapToAmount, toToken.Symbol))
 	} else {
-		m.logInfo(fmt.Sprintf("📊 Swap Quote: %s → %s", fromToken.Symbol, toToken.Symbol))
+		m.logInfo(fmt.Sprintf("📊 %s Swap Quote: %s → %s", version, fromToken.Symbol, toToken.Symbol))
 		m.logInfo(fmt.Sprintf("  Amount In: %s %s", m.uniswapFromAmount, fromToken.Symbol))
 		divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil))
 		m.uniswapToAmount = new(big.Float).Quo(new(big.Float).SetInt(msg.quote.AmountOut), divisor).Text('f', 6)
@@ -398,10 +377,12 @@ func (m *model) handleUniswapQuote(msg uniswapQuoteMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.logInfo(fmt.Sprintf("  Price Impact: %.4f%%", msg.quote.PriceImpact))
-	divisor18 := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
-	r0 := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.Token0Reserve), divisor18)
-	r1 := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.Token1Reserve), divisor18)
-	m.logInfo(fmt.Sprintf("  Reserves: %s / %s", r0.Text('f', 2), r1.Text('f', 2)))
+	if !msg.quote.IsV3 && msg.quote.Token0Reserve != nil && msg.quote.Token1Reserve != nil {
+		divisor18 := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+		r0 := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.Token0Reserve), divisor18)
+		r1 := new(big.Float).Quo(new(big.Float).SetInt(msg.quote.Token1Reserve), divisor18)
+		m.logInfo(fmt.Sprintf("  Reserves: %s / %s", r0.Text('f', 2), r1.Text('f', 2)))
+	}
 
 	if msg.quote.PriceImpact > 1.0 {
 		m.uniswapPriceImpactWarn = fmt.Sprintf("⚠ High price impact: %.2f%%", msg.quote.PriceImpact)

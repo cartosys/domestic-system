@@ -1,14 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
-	"charm-wallet-tui/signer"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ethereum/go-ethereum/common"
@@ -18,12 +16,16 @@ import (
 // pointed at the given network's token addresses, so balances are queried
 // against the contracts that actually exist on the connected chain.
 func buildTokenWatchlist(addrs helpers.UniswapNetworkAddresses) []rpc.WatchedToken {
-	return []rpc.WatchedToken{
+	tokens := []rpc.WatchedToken{
 		{Symbol: "WETH", Decimals: 18, Address: addrs.WETH},
 		{Symbol: "USDC", Decimals: 6, Address: addrs.USDC},
 		{Symbol: "USDT", Decimals: 6, Address: addrs.USDT},
 		{Symbol: "DAI", Decimals: 18, Address: addrs.DAI},
 	}
+	if addrs.SPCXon != (common.Address{}) {
+		tokens = append(tokens, rpc.WatchedToken{Symbol: "SPCXon", Decimals: 18, Address: addrs.SPCXon})
+	}
+	return tokens
 }
 
 // isDoubleClick returns true when (x, y) matches the previous click within 500 ms.
@@ -101,41 +103,8 @@ func (m *model) navigateTo(page config.Page) tea.Cmd {
 		m.activeDialog = dialogNone
 		m.logInfo("Terra Nullius: loading number of claims…")
 		return fetchTerraNumberOfClaims(m.ethClient)
-	case config.PageSigner:
-		m.signerDecoded = nil
-		m.signerResult = nil
-		m.signerSignErr = ""
-		m.signerScanMode = false
-		return loadSignerKeys()
 	}
 	return nil
-}
-
-// loadSignerKeys reads the private-keys file, bootstrapping defaults when absent.
-func loadSignerKeys() tea.Cmd {
-	return func() tea.Msg {
-		keys, err := signer.LoadKeys()
-		return signerKeysLoadedMsg{keys: keys, err: err}
-	}
-}
-
-// signEIP4527 decodes a ur:eth-sign-request UR and signs it with the matching stored key.
-func signEIP4527(urText string, keys []signer.KeyEntry) tea.Cmd {
-	return func() tea.Msg {
-		tx, err := signer.DecodeEIP4527UR(urText)
-		if err != nil {
-			return signerSignedMsg{err: fmt.Errorf("decode: %w", err)}
-		}
-		privKey := signer.FindKey(tx.From, keys)
-		if privKey == "" {
-			return signerSignedMsg{decoded: &tx, err: fmt.Errorf("no key stored for %s", tx.From)}
-		}
-		result, err := signer.SignTx(tx, privKey)
-		if err != nil {
-			return signerSignedMsg{decoded: &tx, err: err}
-		}
-		return signerSignedMsg{decoded: &tx, result: &result}
-	}
 }
 
 // loadDetails fetches ETH and token balances for an address.
