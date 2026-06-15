@@ -50,6 +50,8 @@ const (
 	dialogTerraClaim              // Terra Nullius claim form
 	dialogScanTx                  // webcam scan for signed transaction
 	dialogPasteSignedTx           // paste + broadcast a signed transaction
+	dialogEditWallet              // edit address + nickname for an existing wallet
+	dialogAddWallet               // add a new wallet (same popup as edit)
 )
 
 // pasteTxPhaseKind identifies which step of the paste-signed-transaction
@@ -75,7 +77,6 @@ type model struct {
 	selectedWallet int
 
 	// add-wallet input
-	adding          bool
 	input           textinput.Model // address input
 	nicknameInput   textinput.Model // nickname input
 	focusedInput    int             // 0 = address, 1 = nickname
@@ -144,6 +145,9 @@ type model struct {
 
 	// active overlay dialog (only one at a time)
 	activeDialog dialogKind
+
+	// edit wallet dialog state
+	editingIdx int // index in m.accounts of the wallet being edited
 
 	// delete confirmation dialog state
 	deleteDialogAddr        string
@@ -416,7 +420,7 @@ func newModel() model {
 		selectedWallet:     selectedIdx,
 		highlightedAddress: activeAddr,
 		activeAddress:      activeAddr,
-		adding:             false,
+
 		input:              in,
 		nicknameInput:      nicknameIn,
 		focusedInput:       0,

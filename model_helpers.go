@@ -43,7 +43,8 @@ func (m *model) isDoubleClick(x, y int) bool {
 
 // textInputActive returns true if any text input is currently capturing keystrokes.
 func (m model) textInputActive() bool {
-	return m.adding ||
+	return m.activeDialog == dialogAddWallet ||
+		m.activeDialog == dialogEditWallet ||
 		(m.showSendForm && m.sendForm != nil) ||
 		(m.nicknaming && m.form != nil) ||
 		((m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil) ||

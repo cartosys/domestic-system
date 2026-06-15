@@ -263,16 +263,24 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			fromToken := tokens[m.uniswapFromTokenIdx]
 			toToken := tokens[m.uniswapToTokenIdx]
 
-			m.logInfo(fmt.Sprintf("Packaging swap: %s %s → %s %s", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol))
+			// Apply 0.5% slippage tolerance: amountOutMin = amountOut * 995 / 1000
+			amountOutMin := new(big.Int).Mul(m.uniswapQuote.AmountOut, big.NewInt(995))
+			amountOutMin.Div(amountOutMin, big.NewInt(1000))
+
+			tokens2 := m.buildTokenList()
+			toTok := tokens2[m.uniswapToTokenIdx]
+			divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toTok.Decimals)), nil))
+			minHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), divisor).Text('f', 6)
+			m.logInfo(fmt.Sprintf("Packaging swap: %s %s → %s %s (min out: %s, 0.5%% slippage)", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol, minHuman))
 			m.activeDialog = dialogTxResult
 			m.txResultPackaging = true
 			m.txResultHex = ""
 			m.txResultError = ""
 			m.txResultFormat = "EIP-4527"
 			if m.uniswapQuote.IsV3 {
-				return m, packageSwapTransactionV3(m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, m.uniswapQuote.AmountOut, m.rpcURL, m.chainID())
+				return m, packageSwapTransactionV3(m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
 			}
-			return m, packageSwapTransaction(m.activeAddress, fromToken, toToken, m.uniswapFromAmount, m.uniswapQuote.AmountOut, m.rpcURL, m.chainID())
+			return m, packageSwapTransaction(m.activeAddress, fromToken, toToken, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
 		}
 		return m, nil
 

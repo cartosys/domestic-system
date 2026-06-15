@@ -15,7 +15,6 @@ import (
 	logview "charm-wallet-tui/views/log"
 	"charm-wallet-tui/views/scrollbar"
 	"charm-wallet-tui/views/settings"
-	vsigner "charm-wallet-tui/views/signer"
 	"charm-wallet-tui/views/terra"
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
@@ -381,8 +380,78 @@ func (m *model) renderActiveOverlay() string {
 		return m.renderPoolInfoPopup()
 	case dialogTerraClaim:
 		return terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
+	case dialogEditWallet:
+		return m.renderEditWalletDialog()
+	case dialogAddWallet:
+		return m.renderAddWalletDialog()
 	}
 	return ""
+}
+
+func (m *model) renderAddWalletDialog() string {
+	title := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(54).
+		Render("Add Account")
+
+	inputView := m.input.View() + "\n\n" + m.nicknameInput.View()
+
+	if m.ensLookupActive {
+		inputView += "\n" + m.spin.View() + " ENS lookup…"
+	}
+
+	hints := lipgloss.NewStyle().Foreground(styles.CMuted).Render(
+		styles.HotkeyStyle.Render("Tab") + " next   " +
+			styles.HotkeyStyle.Render("Enter") + " save   " +
+			styles.HotkeyStyle.Render("Esc") + " cancel   " +
+			styles.HotkeyStyle.Render("Ctrl+v") + " paste",
+	)
+
+	var errLine string
+	if m.addError != "" && time.Since(m.addErrTime) < 3*time.Second {
+		errLine = "\n" + lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true).Render(m.addError)
+	}
+
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", inputView, "", hints+errLine)
+
+	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
+}
+
+func (m *model) renderEditWalletDialog() string {
+	title := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(54).
+		Render("Edit Account")
+
+	inputView := m.input.View() + "\n\n" + m.nicknameInput.View()
+
+	if m.ensLookupActive {
+		inputView += "\n" + m.spin.View() + " ENS lookup…"
+	}
+
+	hints := lipgloss.NewStyle().Foreground(styles.CMuted).Render(
+		styles.HotkeyStyle.Render("Tab") + " next   " +
+			styles.HotkeyStyle.Render("Enter") + " save   " +
+			styles.HotkeyStyle.Render("Esc") + " cancel   " +
+			styles.HotkeyStyle.Render("Ctrl+v") + " paste",
+	)
+
+	var errLine string
+	if m.addError != "" && time.Since(m.addErrTime) < 3*time.Second {
+		errLine = "\n" + lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true).Render(m.addError)
+	}
+
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", inputView, "", hints+errLine)
+
+	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
 func (m *model) View() string {
@@ -443,11 +512,6 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 
 	case config.PageTerraNullius:
 		return m.renderTerraPage()
-
-	case config.PageSigner:
-		c := vsigner.Render(m.contentW, m.signerKeys, m.signerKeyIdx,
-			m.signerDecoded, m.signerResult, m.signerSignErr, m.signerScanMode, m.spin.View())
-		return styles.PanelStyle.Width(m.contentW).Render(c), vsigner.Nav(m.w-2, m.txIndexerActive)
 	}
 	return "", ""
 }
@@ -458,21 +522,6 @@ func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) 
 		m.clickableAreas = append(m.clickableAreas, config.ClickableArea{
 			X: area.X, Y: area.Y + 1, Width: area.Width, Height: area.Height, Address: area.Address,
 		})
-	}
-
-	if m.adding {
-		inputView := m.input.View() + "\n" + m.nicknameInput.View() + "\n"
-		if m.ensLookupActive {
-			inputView += m.spin.View() + " ENS lookup…\n"
-		}
-		inputView += styles.HotkeyStyle.Render("Tab") + " next field   " +
-			styles.HotkeyStyle.Render("Enter") + " next/save   " +
-			styles.HotkeyStyle.Render("Esc") + " cancel   " +
-			styles.HotkeyStyle.Render("Ctrl+v") + " paste"
-		if m.addError != "" && time.Since(m.addErrTime) < 3*time.Second {
-			inputView += "\n" + lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true).Render(m.addError)
-		}
-		walletsContent += "\n\n" + styles.PanelStyle.BorderForeground(styles.CAccent2).Render(inputView)
 	}
 
 	nav = wallets.Nav(m.w-2, m.txIndexerActive)

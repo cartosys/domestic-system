@@ -161,36 +161,11 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle send button focus toggle with Tab
-
-	switch msg.String() {
-	case "tab":
-		// Don't allow tab navigation when send form or add wallet form is active
-		if m.showSendForm || m.adding {
-
-		} else {
-			// Only allow focusing send button if ETH balance > 0
-			if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
-				m.sendButtonFocused = !m.sendButtonFocused
-			}
-			return m, nil
-		}
-
-	case "enter":
-		// Show send form when send button is focused
-		if m.sendButtonFocused && m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
-			m.createSendForm()
-			m.showSendForm = true
-			m.sendButtonFocused = false
-			return m, cmdEnableMouseCellMotion()
-		}
-	}
-	// adding flow
-	if m.adding {
+	// Handle edit wallet dialog
+	if m.activeDialog == dialogEditWallet {
 		switch msg.String() {
 		case "esc", "escape":
-			// Cancel adding mode
-			m.adding = false
+			m.activeDialog = dialogNone
 			m.input.SetValue("")
 			m.nicknameInput.SetValue("")
 			m.input.Blur()
@@ -200,8 +175,8 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ensLookupActive = false
 			m.ensLookupAddr = ""
 			return m, cmdEnableMouseAllMotion()
+
 		case "ctrl+v":
-			// Handle Ctrl+v paste explicitly to active input
 			text, err := clipboard.ReadAll()
 			if err == nil && text != "" {
 				if m.focusedInput == 0 {
@@ -211,14 +186,12 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+
 		case "shift+tab", "tab", "ctrl+i", "down":
-			// Toggle between address and nickname fields
 			if m.focusedInput == 0 {
 				val := strings.TrimSpace(m.input.Value())
-				// Trigger ENS lookup if valid address
 				if helpers.IsValidEthAddress(val) {
 					newAddr := common.HexToAddress(val).Hex()
-					// Trigger ENS lookup if connected and not already looking up this address
 					if m.ethClient != nil && (!m.ensLookupActive || m.ensLookupAddr != newAddr) {
 						m.ensLookupActive = true
 						m.ensLookupAddr = newAddr
@@ -237,29 +210,23 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input.Focus()
 			}
 			return m, nil
+
 		case "enter":
-			// If on address field, check for .eth name or valid address
 			if m.focusedInput == 0 {
 				val := strings.TrimSpace(m.input.Value())
-
-				// Check if it's a .eth ENS name
 				if strings.HasSuffix(strings.ToLower(val), ".eth") {
-					// Trigger forward ENS resolution
 					if m.ethClient != nil {
 						m.ensLookupActive = true
-						m.ensLookupAddr = val // Store the ENS name being resolved
+						m.ensLookupAddr = val
 						return m, resolveENS(m.ethClient, val)
 					}
 					return m, nil
 				}
-
 				if helpers.IsValidEthAddress(val) {
 					newAddr := common.HexToAddress(val).Hex()
-					// Move to nickname field
 					m.focusedInput = 1
 					m.input.Blur()
 					m.nicknameInput.Focus()
-					// Trigger ENS reverse lookup if connected and not already looking up this address
 					if m.ethClient != nil && (!m.ensLookupActive || m.ensLookupAddr != newAddr) {
 						m.ensLookupActive = true
 						m.ensLookupAddr = newAddr
@@ -269,52 +236,160 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			// If on nickname field, submit the form
+			// Nickname field — submit
 			val := strings.TrimSpace(m.input.Value())
-			if helpers.IsValidEthAddress(val) {
-				newAddr := common.HexToAddress(val).Hex()
+			if !helpers.IsValidEthAddress(val) {
+				m.addError = "Invalid Ethereum Address"
+				m.addErrTime = time.Now()
+				m.focusedInput = 0
+				m.nicknameInput.Blur()
+				m.input.Focus()
+				return m, nil
+			}
+			newAddr := common.HexToAddress(val).Hex()
+			for i, w := range m.accounts {
+				if i != m.editingIdx && strings.EqualFold(w.Address, newAddr) {
+					m.addError = "Duplicate address - wallet already exists"
+					m.addErrTime = time.Now()
+					m.focusedInput = 0
+					m.nicknameInput.Blur()
+					m.input.Focus()
+					return m, nil
+				}
+			}
+			nickname := strings.TrimSpace(m.nicknameInput.Value())
+			m.accounts[m.editingIdx].Address = newAddr
+			m.accounts[m.editingIdx].Name = nickname
+			if m.accounts[m.editingIdx].Active {
+				m.activeAddress = newAddr
+				m.highlightedAddress = newAddr
+			}
+			config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
+			m.logSuccess(fmt.Sprintf("Updated wallet `%s`", helpers.ShortenAddr(newAddr)))
+			m.activeDialog = dialogNone
+			m.input.SetValue("")
+			m.nicknameInput.SetValue("")
+			m.input.Blur()
+			m.nicknameInput.Blur()
+			m.focusedInput = 0
+			m.addError = ""
+			m.ensLookupActive = false
+			m.ensLookupAddr = ""
+			return m, tea.Batch(m.loadSelectedWalletDetails(), cmdEnableMouseAllMotion())
+		}
 
-				// Check for duplicates
-				for _, w := range m.accounts {
-					if strings.EqualFold(w.Address, newAddr) {
-						m.addError = "Duplicate address - wallet already exists"
-						m.addErrTime = time.Now()
-						m.input.SetValue("")
-						m.nicknameInput.SetValue("")
-						m.focusedInput = 0
-						m.input.Focus()
-						return m, nil
+		var cmd tea.Cmd
+		if m.focusedInput == 0 {
+			m.input, cmd = m.input.Update(msg)
+		} else {
+			m.nicknameInput, cmd = m.nicknameInput.Update(msg)
+		}
+		return m, cmd
+	}
+
+	// Handle send button focus toggle with Tab
+
+	switch msg.String() {
+	case "tab":
+		// Don't allow tab navigation when send form or add wallet form is active
+		if m.showSendForm || m.activeDialog == dialogAddWallet {
+
+		} else {
+			// Only allow focusing send button if ETH balance > 0
+			if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+				m.sendButtonFocused = !m.sendButtonFocused
+			}
+			return m, nil
+		}
+
+	case "enter":
+		// Show send form when send button is focused
+		if m.sendButtonFocused && m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+			m.createSendForm()
+			m.showSendForm = true
+			m.sendButtonFocused = false
+			return m, cmdEnableMouseCellMotion()
+		}
+	}
+	// Handle add wallet dialog
+	if m.activeDialog == dialogAddWallet {
+		switch msg.String() {
+		case "esc", "escape":
+			m.activeDialog = dialogNone
+			m.input.SetValue("")
+			m.nicknameInput.SetValue("")
+			m.input.Blur()
+			m.nicknameInput.Blur()
+			m.focusedInput = 0
+			m.addError = ""
+			m.ensLookupActive = false
+			m.ensLookupAddr = ""
+			return m, cmdEnableMouseAllMotion()
+
+		case "ctrl+v":
+			text, err := clipboard.ReadAll()
+			if err == nil && text != "" {
+				if m.focusedInput == 0 {
+					m.input.SetValue(text)
+				} else {
+					m.nicknameInput.SetValue(text)
+				}
+			}
+			return m, nil
+
+		case "shift+tab", "tab", "ctrl+i", "down":
+			if m.focusedInput == 0 {
+				val := strings.TrimSpace(m.input.Value())
+				if helpers.IsValidEthAddress(val) {
+					newAddr := common.HexToAddress(val).Hex()
+					if m.ethClient != nil && (!m.ensLookupActive || m.ensLookupAddr != newAddr) {
+						m.ensLookupActive = true
+						m.ensLookupAddr = newAddr
+						m.focusedInput = 1
+						m.input.Blur()
+						m.nicknameInput.Focus()
+						return m, lookupENS(m.ethClient, newAddr)
 					}
 				}
-
-				// Create new wallet entry with nickname
-				nickname := strings.TrimSpace(m.nicknameInput.Value())
-				newWallet := config.WalletEntry{
-					Address: newAddr,
-					Name:    nickname,
-					Active:  false,
-				}
-				m.accounts = append(m.accounts, newWallet)
-				m.selectedWallet = len(m.accounts) - 1
-				m.highlightedAddress = newAddr
-				m.adding = false
-				m.input.SetValue("")
-				m.nicknameInput.SetValue("")
+				m.focusedInput = 1
 				m.input.Blur()
-				m.nicknameInput.Blur()
-				m.focusedInput = 0
-				m.addError = ""
-				// Save wallets to config
-				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-				if nickname != "" {
-					m.logSuccess(fmt.Sprintf("Added wallet `%s` with nickname `%s`", helpers.ShortenAddr(newAddr), nickname))
-				} else {
-					m.logSuccess(fmt.Sprintf("Added wallet `%s`", helpers.ShortenAddr(newAddr)))
-				}
-				// Load details for the newly added wallet if split view is enabled
-				return m, tea.Batch(m.loadSelectedWalletDetails(), cmdEnableMouseAllMotion())
+				m.nicknameInput.Focus()
 			} else {
-				m.addError = "Invalid Etherem Address"
+				m.focusedInput = 0
+				m.nicknameInput.Blur()
+				m.input.Focus()
+			}
+			return m, nil
+
+		case "enter":
+			if m.focusedInput == 0 {
+				val := strings.TrimSpace(m.input.Value())
+				if strings.HasSuffix(strings.ToLower(val), ".eth") {
+					if m.ethClient != nil {
+						m.ensLookupActive = true
+						m.ensLookupAddr = val
+						return m, resolveENS(m.ethClient, val)
+					}
+					return m, nil
+				}
+				if helpers.IsValidEthAddress(val) {
+					newAddr := common.HexToAddress(val).Hex()
+					m.focusedInput = 1
+					m.input.Blur()
+					m.nicknameInput.Focus()
+					if m.ethClient != nil && (!m.ensLookupActive || m.ensLookupAddr != newAddr) {
+						m.ensLookupActive = true
+						m.ensLookupAddr = newAddr
+						return m, lookupENS(m.ethClient, newAddr)
+					}
+					return m, nil
+				}
+				return m, nil
+			}
+			// Nickname field — submit
+			val := strings.TrimSpace(m.input.Value())
+			if !helpers.IsValidEthAddress(val) {
+				m.addError = "Invalid Ethereum Address"
 				m.addErrTime = time.Now()
 				m.input.SetValue("")
 				m.nicknameInput.SetValue("")
@@ -322,6 +397,37 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input.Focus()
 				return m, nil
 			}
+			newAddr := common.HexToAddress(val).Hex()
+			for _, w := range m.accounts {
+				if strings.EqualFold(w.Address, newAddr) {
+					m.addError = "Duplicate address - wallet already exists"
+					m.addErrTime = time.Now()
+					m.input.SetValue("")
+					m.nicknameInput.SetValue("")
+					m.focusedInput = 0
+					m.input.Focus()
+					return m, nil
+				}
+			}
+			nickname := strings.TrimSpace(m.nicknameInput.Value())
+			newWallet := config.WalletEntry{Address: newAddr, Name: nickname, Active: false}
+			m.accounts = append(m.accounts, newWallet)
+			m.selectedWallet = len(m.accounts) - 1
+			m.highlightedAddress = newAddr
+			m.activeDialog = dialogNone
+			m.input.SetValue("")
+			m.nicknameInput.SetValue("")
+			m.input.Blur()
+			m.nicknameInput.Blur()
+			m.focusedInput = 0
+			m.addError = ""
+			config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
+			if nickname != "" {
+				m.logSuccess(fmt.Sprintf("Added wallet `%s` with nickname `%s`", helpers.ShortenAddr(newAddr), nickname))
+			} else {
+				m.logSuccess(fmt.Sprintf("Added wallet `%s`", helpers.ShortenAddr(newAddr)))
+			}
+			return m, tea.Batch(m.loadSelectedWalletDetails(), cmdEnableMouseAllMotion())
 		}
 
 		var cmd tea.Cmd
@@ -354,7 +460,6 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "a", "A":
-		m.adding = true
 		m.focusedInput = 0
 		m.input.SetValue("")
 		m.nicknameInput.SetValue("")
@@ -363,6 +468,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addError = ""
 		m.ensLookupActive = false
 		m.ensLookupAddr = ""
+		m.activeDialog = dialogAddWallet
 		return m, cmdEnableMouseCellMotion()
 
 	case "enter":
@@ -387,14 +493,28 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "e", "E":
+		if len(m.accounts) > 0 {
+			w := m.accounts[m.selectedWallet]
+			m.editingIdx = m.selectedWallet
+			m.input.SetValue(w.Address)
+			m.nicknameInput.SetValue(w.Name)
+			m.focusedInput = 0
+			m.input.Focus()
+			m.nicknameInput.Blur()
+			m.addError = ""
+			m.ensLookupActive = false
+			m.ensLookupAddr = ""
+			m.activeDialog = dialogEditWallet
+			return m, cmdEnableMouseCellMotion()
+		}
+		return m, nil
+
 	case "s", "S":
 		return m, m.navigateTo(config.PageSettings)
 
 	case "b", "B":
 		return m, m.navigateTo(config.PageDappBrowser)
-
-	case "x", "X":
-		return m, m.navigateTo(config.PageSigner)
 
 	case "h", "H":
 
