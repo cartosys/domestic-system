@@ -504,12 +504,44 @@ func FetchTxParams(rpcURL string, from common.Address) (TxParams, error) {
 	return TxParams{Nonce: nonce, Tip: tip, MaxFee: maxFee, ChainID: chainID}, nil
 }
 
+// EstimateGasWithBuffer calls eth_estimateGas and returns the result with a
+// 25% safety buffer, rounded up to the nearest 1000. Pass this to
+// PackUnsignedTxEIP4527 / BuildUnsignedTxEIP4527 when the gas cost of a
+// contract call is not known in advance.
+func EstimateGasWithBuffer(rpcURL string, from, to common.Address, value *big.Int, data []byte) (uint64, error) {
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return 0, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	estimate, err := client.EstimateGas(ctx, ethereum.CallMsg{
+		From:  from,
+		To:    &to,
+		Value: value,
+		Data:  data,
+	})
+	if err != nil {
+		return 0, err
+	}
+	buffered := (estimate*5/4 + 999) / 1000 * 1000
+	return buffered, nil
+}
+
 // PackUnsignedTxEIP4527 fetches live nonce/fees/chainId from rpcURL then
-// delegates to BuildUnsignedTxEIP4527.
+// delegates to BuildUnsignedTxEIP4527. Pass gasLimit=0 to have the gas limit
+// estimated live via eth_estimateGas (with a 25% buffer).
 func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.Int, gasLimit uint64, data []byte, rpcURL string) (urString string, txJSON string, err error) {
 	p, err := FetchTxParams(rpcURL, from)
 	if err != nil {
 		return "", "", err
+	}
+	if gasLimit == 0 {
+		gasLimit, err = EstimateGasWithBuffer(rpcURL, from, to, value, data)
+		if err != nil {
+			return "", "", fmt.Errorf("eth_estimateGas: %w", err)
+		}
 	}
 	return BuildUnsignedTxEIP4527(from, to, value, gasLimit, data, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
 }

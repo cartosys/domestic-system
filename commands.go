@@ -122,7 +122,7 @@ func packageTerraClaimTx(fromAddr, message, rpcURL string) tea.Cmd {
 		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(
 			common.HexToAddress(fromAddr),
 			common.HexToAddress(helpers.TerraContractAddress),
-			big.NewInt(0), 100000, calldata, rpcURL,
+			big.NewInt(0), 0, calldata, rpcURL,
 		)
 		if err != nil {
 			return packageTransactionMsg{err: err}
