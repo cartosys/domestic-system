@@ -97,29 +97,81 @@ func (m *model) handlePackageTransaction(msg packageTransactionMsg) (tea.Model, 
 		m.logError("Transaction packaging failed: " + msg.err.Error())
 		return m, nil
 	}
-	m.txResultHex = msg.txJSON
-	m.txResultEIP681 = msg.qrData
 	m.txResultFormat = msg.format
 
-	frames, err := txqr.RenderAnimated(msg.qrData, 50)
-	if err != nil || len(frames) == 0 {
-		m.logWarn(fmt.Sprintf("animated QR generation failed (%v), using single frame", err))
-		frames = []string{txqr.Render(msg.qrData)}
+	renderFrames := func(urData string) []string {
+		f, err := txqr.RenderAnimated(urData, 50)
+		if err != nil || len(f) == 0 {
+			return []string{txqr.Render(urData)}
+		}
+		return f
 	}
-	m.txQRFrames = frames
-	m.txQRFrameIdx = 0
 
+	if msg.approveQRData != "" {
+		// Two-step flow: approve (nonce N) then swap (nonce N+1).
+		m.txApproveQRFrames = renderFrames(msg.approveQRData)
+		m.txApproveJSON = msg.approveJSON
+		m.txSwapQRFrames = renderFrames(msg.qrData)
+		m.txSwapJSON = msg.txJSON
+		m.txSwapSummary = msg.txDisplay
+		m.txSwapStep = false // start on step 1 (approve)
+		m.txQRFrames = m.txApproveQRFrames
+		m.txQRFrameIdx = 0
+		m.txResultHex = msg.approveJSON // Ctrl+C copies the active step's JSON
+		m.txResultEIP681 = msg.approveQRData
+		m.setTxViewportContent()
+		m.logSuccess(fmt.Sprintf("Packaged approve + swap (%s) — sign Step 1 first", msg.format))
+	} else {
+		// Single-step flow.
+		m.txApproveQRFrames = nil
+		m.txApproveJSON = ""
+		m.txSwapQRFrames = nil
+		m.txSwapJSON = ""
+		m.txSwapSummary = msg.txDisplay
+		m.txSwapStep = false
+		m.txQRFrames = renderFrames(msg.qrData)
+		m.txQRFrameIdx = 0
+		m.txResultHex = msg.txJSON
+		m.txResultEIP681 = msg.qrData
+		m.setTxViewportContent()
+		m.logSuccess(fmt.Sprintf("Transaction packaged (%s, %d QR frame(s))", msg.format, len(m.txQRFrames)))
+	}
+	return m, animateQRTick()
+}
+
+// setTxViewportContent rebuilds the scrollable text content for the tx result
+// dialog from current model state.
+func (m *model) setTxViewportContent() {
 	labelStyle := lipgloss.NewStyle().Foreground(styles.CSuccess)
 	muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
-	content := msg.txDisplay + "\n\n" +
-		labelStyle.Render("Transaction data (JSON):") + "\n\n" +
-		msg.txJSON + "\n\n" +
-		muteStyle.Render("Scan the animated QR with your air-gapped wallet to sign") + "\n" +
-		muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • Enter to scan response • ESC to close")
+	warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true)
+	stepStyle := lipgloss.NewStyle().Foreground(styles.CAccent2).Bold(true)
+
+	var content string
+	if m.txApproveQRFrames != nil {
+		if !m.txSwapStep {
+			content = stepStyle.Render("Step 1 of 2: Approve token spend") + "\n" +
+				warnStyle.Render("Sign and broadcast this transaction before the swap.") + "\n\n" +
+				labelStyle.Render("Approve transaction (JSON):") + "\n\n" +
+				m.txApproveJSON + "\n\n" +
+				muteStyle.Render("Scan the animated QR • Ctrl+C to copy JSON • Tab → Step 2 • ESC to close")
+		} else {
+			content = stepStyle.Render("Step 2 of 2: Swap") + "\n" +
+				muteStyle.Render("Sign after the approve (Step 1) has confirmed on-chain.") + "\n\n" +
+				m.txSwapSummary + "\n\n" +
+				labelStyle.Render("Swap transaction (JSON):") + "\n\n" +
+				m.txSwapJSON + "\n\n" +
+				muteStyle.Render("Scan the animated QR • Ctrl+C to copy JSON • Tab → Step 1 • ESC to close")
+		}
+	} else {
+		content = m.txSwapSummary + "\n\n" +
+			labelStyle.Render("Transaction data (JSON):") + "\n\n" +
+			m.txResultHex + "\n\n" +
+			muteStyle.Render("Scan the animated QR with your air-gapped wallet to sign") + "\n" +
+			muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • Enter to scan response • ESC to close")
+	}
 	m.txQRViewport.SetContent(content)
 	m.txQRViewport.GotoTop()
-	m.logSuccess(fmt.Sprintf("Transaction packaged (%s, %d QR frame(s))", msg.format, len(frames)))
-	return m, animateQRTick()
 }
 
 func (m *model) handleQRAnimTick() (tea.Model, tea.Cmd) {

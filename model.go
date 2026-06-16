@@ -165,14 +165,20 @@ type model struct {
 	sendForm           *huh.Form
 
 	// transaction result panel state
-	txResultPackaging bool
-	txResultHex       string
-	txResultEIP681    string
-	txResultFormat    string
-	txResultError     string
-	txQRViewport      viewport.Model
-	txQRFrames        []string // pre-rendered QR ASCII art, one per animated frame
-	txQRFrameIdx      int      // index of the currently visible frame
+	txResultPackaging  bool
+	txResultHex        string
+	txResultEIP681     string
+	txResultFormat     string
+	txResultError      string
+	txQRViewport       viewport.Model
+	txQRFrames         []string // pre-rendered QR ASCII art for the active step
+	txQRFrameIdx       int      // index of the currently visible frame
+	txApproveQRFrames  []string // step-1 approve QR frames (nil when no approve needed)
+	txApproveJSON      string   // approve tx JSON for display
+	txSwapQRFrames     []string // step-2 swap QR frames (populated when approve is present)
+	txSwapJSON         string   // swap tx JSON for display
+	txSwapSummary      string   // human-readable swap summary for step-2 content
+	txSwapStep         bool     // false=showing approve (step 1), true=showing swap (step 2)
 
 	// Uniswap swap state
 	uniswapFromTokenIdx    int    // index in available tokens

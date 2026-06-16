@@ -7,7 +7,6 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/rpc"
-	"charm-wallet-tui/signer"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/webcam/capture"
 )
@@ -66,24 +65,13 @@ type detailsLoadedMsg struct {
 
 // packageTransactionMsg contains packaged transaction ready for QR display
 type packageTransactionMsg struct {
-	txDisplay string
-	txJSON    string
-	qrData    string
-	format    string
-	err       error
-}
-
-// signerKeysLoadedMsg carries the result of loading the private-keys file.
-type signerKeysLoadedMsg struct {
-	keys []signer.KeyEntry
-	err  error
-}
-
-// signerSignedMsg carries the result of signing an EIP-4527 transaction.
-type signerSignedMsg struct {
-	decoded *signer.DecodedTx
-	result  *signer.SignResult
-	err     error
+	txDisplay    string
+	txJSON       string
+	qrData       string
+	format       string
+	approveQRData string // non-empty when an approve tx must be signed first
+	approveJSON  string
+	err          error
 }
 
 // terraNullClaimsCountMsg contains the result of a number_of_claims() call

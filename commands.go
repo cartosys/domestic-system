@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"os/exec"
@@ -54,7 +55,9 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 
 // packageSwapTransaction packages a Uniswap V2 swap as an EIP-4527 QR payload.
 // chainID picks the network-appropriate router/WETH addresses (mainnet vs Sepolia).
-func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOption, amountIn string, amountOutMin *big.Int, rpcURL string, chainID *big.Int) tea.Cmd {
+// When the ERC-20 allowance is insufficient an approve tx is packaged at nonce N
+// and the swap tx at nonce N+1 so both can be pre-signed in sequence.
+func packageSwapTransaction(client *rpc.Client, fromAddr string, fromToken, toToken uniswap.TokenOption, amountIn string, amountOutMin *big.Int, rpcURL string, chainID *big.Int) tea.Cmd {
 	return func() tea.Msg {
 		addrs := helpers.UniswapAddressesForChain(chainID)
 		routerAddress := addrs.Router
@@ -70,19 +73,45 @@ func packageSwapTransaction(fromAddr string, fromToken, toToken uniswap.TokenOpt
 		minOutHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(outDecimals)).Text('f', 6)
 
 		calldata := buildSwapCalldata(fromToken, toToken, fromAddress, amountInBig, amountOutMin, wethAddress, int64(time.Now().Unix()+1200))
-
 		txValue := big.NewInt(0)
 		if fromToken.IsETH {
 			txValue = amountInBig
 		}
 
-		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, rpcURL)
+		// Check allowance for ERC-20 input tokens.
+		needsApprove := false
+		if !fromToken.IsETH && client != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			allowance, err := rpc.ERC20Allowance(ctx, client, fromToken.Address, fromAddress, routerAddress)
+			cancel()
+			if err == nil && allowance.Cmp(amountInBig) < 0 {
+				needsApprove = true
+			}
+		}
+
+		p, err := rpc.FetchTxParams(rpcURL, fromAddress)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+
+		swapNonce := p.Nonce
+		var approveQRData, approveJSON string
+		if needsApprove {
+			approveCalldata := buildApproveCalldata(routerAddress, amountInBig)
+			approveQRData, approveJSON, err = rpc.BuildUnsignedTxEIP4527(fromAddress, fromToken.Address, big.NewInt(0), 60000, approveCalldata, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
+			if err != nil {
+				return packageTransactionMsg{err: err}
+			}
+			swapNonce = p.Nonce + 1
+		}
+
+		urStr, txJSON, err := rpc.BuildUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, swapNonce, p.Tip, p.MaxFee, p.ChainID)
 		if err != nil {
 			return packageTransactionMsg{err: err}
 		}
 		summary := fmt.Sprintf("Uniswap V2 Swap: %s %s → %s (min %s)\nRouter: %s",
 			amountIn, fromToken.Symbol, toToken.Symbol, minOutHuman, routerAddress.Hex())
-		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527"}
+		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527", approveQRData: approveQRData, approveJSON: approveJSON}
 	}
 }
 
@@ -149,6 +178,16 @@ func abiEncodeAddress(addr common.Address) []byte {
 	return b
 }
 
+// buildApproveCalldata ABI-encodes approve(spender, amount) for an ERC-20 token.
+// Selector 0x095ea7b3: approve(address,uint256)
+func buildApproveCalldata(spender common.Address, amount *big.Int) []byte {
+	var d []byte
+	d = append(d, 0x09, 0x5e, 0xa7, 0xb3)
+	d = append(d, abiEncodeAddress(spender)...)
+	d = append(d, abiEncodeUint256(amount)...)
+	return d
+}
+
 // buildSwapCalldata builds ABI-encoded calldata for the appropriate Uniswap V2 swap function.
 func buildSwapCalldata(fromToken, toToken uniswap.TokenOption, to common.Address, amountIn, amountOutMin *big.Int, weth common.Address, deadline int64) []byte {
 	dl := big.NewInt(deadline)
@@ -195,7 +234,9 @@ func buildSwapCalldata(fromToken, toToken uniswap.TokenOption, to common.Address
 
 // packageSwapTransactionV3 packages a Uniswap V3 exactInputSingle swap as an EIP-4527 QR payload.
 // fee is the pool fee tier in hundredths of a bip (e.g. 10000 = 1%, 3000 = 0.3%).
-func packageSwapTransactionV3(fromAddr string, fromToken, toToken uniswap.TokenOption, fee uint32, amountIn string, amountOutMin *big.Int, rpcURL string, chainID *big.Int) tea.Cmd {
+// When the ERC-20 allowance is insufficient an approve tx is packaged at nonce N
+// and the swap tx at nonce N+1 so both can be pre-signed in sequence.
+func packageSwapTransactionV3(client *rpc.Client, fromAddr string, fromToken, toToken uniswap.TokenOption, fee uint32, amountIn string, amountOutMin *big.Int, rpcURL string, chainID *big.Int) tea.Cmd {
 	return func() tea.Msg {
 		addrs := helpers.UniswapAddressesForChain(chainID)
 		routerAddress := addrs.SwapRouterV3
@@ -210,20 +251,46 @@ func packageSwapTransactionV3(fromAddr string, fromToken, toToken uniswap.TokenO
 		minOutHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(outDecimals)).Text('f', 6)
 
 		calldata := buildV3SwapCalldata(fromToken, toToken, fromAddress, amountInBig, amountOutMin, addrs.WETH, fee)
-
 		txValue := big.NewInt(0)
 		if fromToken.IsETH {
 			txValue = amountInBig
 		}
 
-		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, rpcURL)
+		// Check allowance for ERC-20 input tokens.
+		needsApprove := false
+		if !fromToken.IsETH && client != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			allowance, err := rpc.ERC20Allowance(ctx, client, fromToken.Address, fromAddress, routerAddress)
+			cancel()
+			if err == nil && allowance.Cmp(amountInBig) < 0 {
+				needsApprove = true
+			}
+		}
+
+		p, err := rpc.FetchTxParams(rpcURL, fromAddress)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+
+		swapNonce := p.Nonce
+		var approveQRData, approveJSON string
+		if needsApprove {
+			approveCalldata := buildApproveCalldata(routerAddress, amountInBig)
+			approveQRData, approveJSON, err = rpc.BuildUnsignedTxEIP4527(fromAddress, fromToken.Address, big.NewInt(0), 60000, approveCalldata, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
+			if err != nil {
+				return packageTransactionMsg{err: err}
+			}
+			swapNonce = p.Nonce + 1
+		}
+
+		urStr, txJSON, err := rpc.BuildUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 200000, calldata, swapNonce, p.Tip, p.MaxFee, p.ChainID)
 		if err != nil {
 			return packageTransactionMsg{err: err}
 		}
 		feeLabel := fmt.Sprintf("%.2f%%", float64(fee)/10000.0)
 		summary := fmt.Sprintf("Uniswap V3 Swap (%s): %s %s → %s (min %s)\nRouter: %s",
 			feeLabel, amountIn, fromToken.Symbol, toToken.Symbol, minOutHuman, routerAddress.Hex())
-		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527"}
+		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527", approveQRData: approveQRData, approveJSON: approveJSON}
 	}
 }
 

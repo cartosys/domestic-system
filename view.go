@@ -112,7 +112,15 @@ func (m *model) renderAccountListPopup() string {
 
 
 func (m *model) renderTxResultContent() string {
-	title := styles.TitleStyle.Render("Transaction Ready To Sign (EIP-4527)")
+	titleStr := "Transaction Ready To Sign (EIP-4527)"
+	if m.txApproveQRFrames != nil {
+		if !m.txSwapStep {
+			titleStr = "Step 1 of 2: Approve — Tab to switch steps"
+		} else {
+			titleStr = "Step 2 of 2: Swap — Tab to switch steps"
+		}
+	}
+	title := styles.TitleStyle.Render(titleStr)
 
 	if m.txResultPackaging {
 		return title + "\n\n" + m.spin.View() + " Packaging transaction..."

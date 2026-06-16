@@ -82,10 +82,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSpinnerTick(msg)
 	case detailsLoadedMsg:
 		return m.handleDetailsLoaded(msg)
-	case signerKeysLoadedMsg:
-		return m.handleSignerKeysLoaded(msg)
-	case signerSignedMsg:
-		return m.handleSignerSigned(msg)
 	case packageTransactionMsg:
 		return m.handlePackageTransaction(msg)
 	case txQRAnimTickMsg:
@@ -210,10 +206,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.activeDialog == dialogScanTx {
-		return m.handleScanTxKey(msg)
-	}
-
 	if m.activeDialog == dialogTxResult {
 		var vpCmd tea.Cmd
 		m.txQRViewport, vpCmd = m.txQRViewport.Update(msg)
@@ -222,6 +214,21 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.txResultHex != "" {
 				m.logInfo("Copied EIP-4527 transaction to clipboard")
 				return m, tea.Batch(vpCmd, copyTxJsonToClipboard(m.txResultHex))
+			}
+			return m, vpCmd
+		case "tab":
+			if m.txApproveQRFrames != nil {
+				m.txSwapStep = !m.txSwapStep
+				m.txQRFrameIdx = 0
+				if m.txSwapStep {
+					m.txQRFrames = m.txSwapQRFrames
+					m.txResultHex = m.txSwapJSON
+					m.txResultEIP681 = ""
+				} else {
+					m.txQRFrames = m.txApproveQRFrames
+					m.txResultHex = m.txApproveJSON
+				}
+				m.setTxViewportContent()
 			}
 			return m, vpCmd
 		case "enter":
@@ -234,9 +241,18 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.txResultPackaging = false
 			m.txResultFormat = ""
 			m.txCopiedMsg = ""
+			m.txApproveQRFrames = nil
+			m.txApproveJSON = ""
+			m.txSwapQRFrames = nil
+			m.txSwapJSON = ""
+			m.txSwapStep = false
 			return m, nil
 		}
 		return m, vpCmd
+	}
+
+	if m.activeDialog == dialogScanTx {
+		return m.handleScanTxKey(msg)
 	}
 
 	if m.activeDialog == dialogAccountList {
@@ -328,8 +344,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleUniswapKey(msg)
 	case config.PageTerraNullius:
 		return m.handleTerraKey(msg)
-	case config.PageSigner:
-		return m.handleSignerKey(msg)
 	}
 	return m, nil
 }

@@ -167,10 +167,12 @@ func GetBlockHeightWithTimeout(client *Client, timeout time.Duration) (uint64, e
 	return blockNumber, nil
 }
 
-// Minimal ERC20 balanceOf via eth_call.
+// Minimal ERC20 balanceOf/allowance via eth_call.
 var (
 	// balanceOf(address) methodID = keccak256("balanceOf(address)")[:4]
 	balanceOfSelector = []byte{0x70, 0xa0, 0x82, 0x31}
+	// allowance(address,address) methodID = keccak256("allowance(address,address)")[:4]
+	allowanceSelector = []byte{0xdd, 0x62, 0xed, 0x3e}
 )
 
 func erc20BalanceOf(ctx context.Context, client *ethclient.Client, token common.Address, owner common.Address) (*big.Int, error) {
@@ -183,6 +185,23 @@ func erc20BalanceOf(ctx context.Context, client *ethclient.Client, token common.
 		To:   &token,
 		Data: data,
 	}
+	out, err := client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return big.NewInt(0), nil
+	}
+	return new(big.Int).SetBytes(out), nil
+}
+
+// ERC20Allowance returns the amount of token that spender is allowed to transfer
+// on behalf of owner, via eth_call (no gas cost).
+func ERC20Allowance(ctx context.Context, client *Client, token, owner, spender common.Address) (*big.Int, error) {
+	data := append(allowanceSelector,
+		common.LeftPadBytes(owner.Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(spender.Bytes(), 32)...)
+	msg := ethereum.CallMsg{To: &token, Data: data}
 	out, err := client.CallContract(ctx, msg, nil)
 	if err != nil {
 		return nil, err
@@ -444,12 +463,22 @@ func BuildUnsignedTxEIP4527(from, to common.Address, value *big.Int, gasLimit ui
 	return urStr, txJSON, nil
 }
 
-// PackUnsignedTxEIP4527 fetches live nonce/fees/chainId from rpcURL then
-// delegates to BuildUnsignedTxEIP4527.
-func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.Int, gasLimit uint64, data []byte, rpcURL string) (urString string, txJSON string, err error) {
+// TxParams holds the network-fetched parameters needed to build an EIP-1559 tx.
+type TxParams struct {
+	Nonce   uint64
+	Tip     *big.Int
+	MaxFee  *big.Int
+	ChainID *big.Int
+}
+
+// FetchTxParams fetches the current pending nonce, suggested tip, effective max
+// fee, and chain ID from rpcURL in a single connection. Callers can use the
+// result with BuildUnsignedTxEIP4527 to package multiple transactions in
+// sequence (e.g. approve at Nonce, swap at Nonce+1).
+func FetchTxParams(rpcURL string, from common.Address) (TxParams, error) {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
-		return "", "", err
+		return TxParams{}, err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
@@ -457,24 +486,32 @@ func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.In
 
 	nonce, err := client.PendingNonceAt(ctx, from)
 	if err != nil {
-		return "", "", err
+		return TxParams{}, err
 	}
 	tip, err := client.SuggestGasTipCap(ctx)
 	if err != nil {
-		return "", "", err
+		return TxParams{}, err
 	}
 	header, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
-		return "", "", err
+		return TxParams{}, err
 	}
-	// baseFee*2 + tip gives headroom for ~5 consecutive max-increase blocks
 	maxFee := new(big.Int).Add(new(big.Int).Mul(header.BaseFee, big.NewInt(2)), tip)
 	chainID, err := client.ChainID(ctx)
 	if err != nil {
+		return TxParams{}, err
+	}
+	return TxParams{Nonce: nonce, Tip: tip, MaxFee: maxFee, ChainID: chainID}, nil
+}
+
+// PackUnsignedTxEIP4527 fetches live nonce/fees/chainId from rpcURL then
+// delegates to BuildUnsignedTxEIP4527.
+func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.Int, gasLimit uint64, data []byte, rpcURL string) (urString string, txJSON string, err error) {
+	p, err := FetchTxParams(rpcURL, from)
+	if err != nil {
 		return "", "", err
 	}
-
-	return BuildUnsignedTxEIP4527(from, to, value, gasLimit, data, nonce, tip, maxFee, chainID)
+	return BuildUnsignedTxEIP4527(from, to, value, gasLimit, data, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
 }
 
 // TransactionPackageEIP4527 contains transaction data packaged per EIP-4527

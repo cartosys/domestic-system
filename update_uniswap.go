@@ -278,9 +278,9 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.txResultError = ""
 			m.txResultFormat = "EIP-4527"
 			if m.uniswapQuote.IsV3 {
-				return m, packageSwapTransactionV3(m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
+				return m, packageSwapTransactionV3(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
 			}
-			return m, packageSwapTransaction(m.activeAddress, fromToken, toToken, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
+			return m, packageSwapTransaction(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
 		}
 		return m, nil
 
