@@ -98,7 +98,7 @@ func packageSwapTransaction(client *rpc.Client, fromAddr string, fromToken, toTo
 		swapNonce := p.Nonce
 		var approveQRData, approveJSON string
 		if needsApprove {
-			approveCalldata := buildApproveCalldata(routerAddress, maxUint256)
+			approveCalldata := buildApproveCalldata(routerAddress, amountInBig)
 			approveQRData, approveJSON, err = rpc.BuildUnsignedTxEIP4527(fromAddress, fromToken.Address, big.NewInt(0), 60000, approveCalldata, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
 			if err != nil {
 				return packageTransactionMsg{err: err}
@@ -164,10 +164,6 @@ func pasteTxCountdownTick() tea.Cmd {
 		return signedTxCountdownTickMsg{}
 	})
 }
-
-// maxUint256 is used as the approve amount for ERC-20 allowances so that a
-// single approve covers all future swaps through the same router.
-var maxUint256 = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
 
 // abiEncodeUint256 ABI-encodes a *big.Int as a 32-byte uint256.
 func abiEncodeUint256(v *big.Int) []byte {
@@ -281,7 +277,7 @@ func packageSwapTransactionV3(client *rpc.Client, fromAddr string, fromToken, to
 		swapNonce := p.Nonce
 		var approveQRData, approveJSON string
 		if needsApprove {
-			approveCalldata := buildApproveCalldata(routerAddress, maxUint256)
+			approveCalldata := buildApproveCalldata(routerAddress, amountInBig)
 			approveQRData, approveJSON, err = rpc.BuildUnsignedTxEIP4527(fromAddress, fromToken.Address, big.NewInt(0), 60000, approveCalldata, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
 			if err != nil {
 				return packageTransactionMsg{err: err}
