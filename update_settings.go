@@ -28,9 +28,8 @@ func (m *model) createAddRPCForm() {
 				Value(&tempRPCFormURL).
 				Placeholder("https://mainnet.infura.io/v3/..."),
 		),
-	).WithTheme(huh.ThemeCatppuccin())
+	).WithWidth(RPCFormPopupInnerWidth).WithTheme(huh.ThemeCatppuccin())
 
-	// Initialize the form
 	m.form.Init()
 }
 
@@ -55,9 +54,8 @@ func (m *model) createEditRPCForm(idx int) {
 				Value(&tempRPCFormURL).
 				Placeholder("https://..."),
 		),
-	).WithTheme(huh.ThemeCatppuccin())
+	).WithWidth(RPCFormPopupInnerWidth).WithTheme(huh.ThemeCatppuccin())
 
-	// Initialize the form
 	m.form.Init()
 }
 

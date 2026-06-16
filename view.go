@@ -22,6 +22,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// RPCFormPopupWidth is the outer dialog box width for the RPC add/edit popup.
+// RPCFormPopupInnerWidth is the huh.Form width (dialog minus border+padding).
+const (
+	RPCFormPopupWidth      = 64
+	RPCFormPopupInnerWidth = RPCFormPopupWidth - 6
+)
+
 // -------------------- VIEW --------------------
 
 func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
@@ -371,6 +378,10 @@ func (m *model) renderPoolInfoPopup() string {
 // renderActiveOverlay returns a full-screen overlay string when a dialog is open,
 // or "" when no overlay applies. Checked before any page content is rendered.
 func (m *model) renderActiveOverlay() string {
+	if m.activePage == config.PageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
+		return m.renderRPCFormPopup()
+	}
+
 	switch m.activeDialog {
 	case dialogTxResult:
 		return m.renderTxResultPanel()
@@ -462,6 +473,33 @@ func (m *model) renderEditWalletDialog() string {
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
+func (m *model) renderRPCFormPopup() string {
+	var titleText string
+	if m.settingsMode == "edit" {
+		titleText = "Edit RPC Endpoint"
+	} else {
+		titleText = "Add RPC Endpoint"
+	}
+
+	title := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(RPCFormPopupWidth - 8).
+		Render(titleText)
+
+	hints := lipgloss.NewStyle().Foreground(styles.CMuted).Render(
+		styles.HotkeyStyle.Render("Tab") + " next   " +
+			styles.HotkeyStyle.Render("Enter") + " save   " +
+			styles.HotkeyStyle.Render("Esc") + " cancel",
+	)
+
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", m.form.View(), "", hints)
+	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
+}
+
 func (m *model) View() string {
 	m.clickableAreas = nil
 	globalHdr := m.globalHeader()
@@ -510,9 +548,6 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 
 	case config.PageSettings:
 		c := settings.Render(m.rpcURLs, m.selectedRPCIdx)
-		if (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
-			c = styles.TitleStyle.Render("RPC Settings") + "\n\n" + m.form.View()
-		}
 		return styles.PanelStyle.Width(m.contentW).Render(c), settings.Nav(m.w-2, m.settingsMode, m.txIndexerActive)
 
 	case config.PageUniswap:
