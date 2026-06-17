@@ -52,6 +52,7 @@ const (
 	dialogPasteSignedTx           // paste + broadcast a signed transaction
 	dialogEditWallet              // edit address + nickname for an existing wallet
 	dialogAddWallet               // add a new wallet (same popup as edit)
+	dialogSendTx                  // send transaction form
 )
 
 // pasteTxPhaseKind identifies which step of the paste-signed-transaction
@@ -161,8 +162,15 @@ type model struct {
 	sendButtonFocused  bool
 	sendButtonHovered  bool
 	sendBtnX, sendBtnY, sendBtnW int
-	showSendForm       bool
 	sendForm           *huh.Form
+
+	// send tx popup submit button state
+	sendSubmitBtnHovered     bool
+	sendSubmitBtnY           int
+	sendSubmitBtnX1          int
+	sendSubmitBtnX2          int
+	sendFormError            string
+	sendFormErrTime          time.Time
 
 	// transaction result panel state
 	txResultPackaging  bool

@@ -19,6 +19,7 @@ import (
 func (m *model) createSendForm() {
 	tempSendToAddr = ""
 	tempSendAmount = ""
+	m.sendFormError = ""
 
 	m.sendForm = huh.NewForm(
 		huh.NewGroup(
@@ -61,7 +62,7 @@ func (m *model) createSendForm() {
 					return nil
 				}),
 		),
-	).WithTheme(huh.ThemeCatppuccin())
+	).WithWidth(SendFormPopupInnerWidth).WithTheme(huh.ThemeCatppuccin())
 
 	// Initialize the form
 	m.sendForm.Init()
@@ -76,7 +77,7 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Intercept ESC key to cancel form
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
-		m.showSendForm = false
+		m.activeDialog = dialogNone
 		m.sendForm = nil
 		return m, cmdEnableMouseAllMotion()
 	}
@@ -89,7 +90,6 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.sendForm.State == huh.StateCompleted {
 			// Package the transaction
 			m.logInfo(fmt.Sprintf("Packaging transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(tempSendToAddr)))
-			m.showSendForm = false
 			m.sendForm = nil
 			m.activeDialog = dialogTxResult
 			m.txResultPackaging = true
@@ -101,12 +101,60 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check if form was aborted (ESC pressed)
 		if m.sendForm.State == huh.StateAborted {
-			m.showSendForm = false
+			m.activeDialog = dialogNone
 			m.sendForm = nil
 			return m, cmdEnableMouseAllMotion()
 		}
 	}
 	return m, cmd
+}
+
+// trySubmitSendForm validates the send form's current field values and, if
+// valid, packages the transaction the same way completing the huh form does.
+// Used by the mouse-clickable Submit button, since clicks never reach huh's
+// own per-field validation (which only runs on a real Enter keypress).
+func (m *model) trySubmitSendForm() (tea.Model, tea.Cmd) {
+	addr := strings.TrimSpace(tempSendToAddr)
+	if !helpers.IsValidEthAddress(addr) {
+		m.sendFormError = "Invalid Ethereum Address"
+		m.sendFormErrTime = time.Now()
+		return m, nil
+	}
+
+	amtStr := strings.TrimSpace(tempSendAmount)
+	if amtStr == "" {
+		m.sendFormError = "Amount is required"
+		m.sendFormErrTime = time.Now()
+		return m, nil
+	}
+	amount := new(big.Float)
+	if _, ok := amount.SetString(amtStr); !ok {
+		m.sendFormError = "Invalid amount"
+		m.sendFormErrTime = time.Now()
+		return m, nil
+	}
+	balanceFloat := new(big.Float).SetInt(m.details.EthWei)
+	balanceETH := new(big.Float).Quo(balanceFloat, big.NewFloat(1e18))
+	if amount.Cmp(balanceETH) > 0 {
+		m.sendFormError = "Amount exceeds balance"
+		m.sendFormErrTime = time.Now()
+		return m, nil
+	}
+	if amount.Cmp(big.NewFloat(0)) <= 0 {
+		m.sendFormError = "Amount must be greater than 0"
+		m.sendFormErrTime = time.Now()
+		return m, nil
+	}
+
+	m.logInfo(fmt.Sprintf("Packaging transaction: %s ETH to %s", tempSendAmount, helpers.ShortenAddr(addr)))
+	m.sendFormError = ""
+	m.sendForm = nil
+	m.activeDialog = dialogTxResult
+	m.txResultPackaging = true
+	m.txResultHex = ""
+	m.txResultError = ""
+	m.txResultFormat = "EIP-4527"
+	return m, tea.Batch(packageTransaction(m.activeAddress, addr, tempSendAmount, m.rpcURL), cmdEnableMouseAllMotion())
 }
 
 func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -292,7 +340,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "tab":
 		// Don't allow tab navigation when send form or add wallet form is active
-		if m.showSendForm || m.activeDialog == dialogAddWallet {
+		if m.activeDialog == dialogSendTx || m.activeDialog == dialogAddWallet {
 
 		} else {
 			// Only allow focusing send button if ETH balance > 0
@@ -306,7 +354,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Show send form when send button is focused
 		if m.sendButtonFocused && m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
 			m.createSendForm()
-			m.showSendForm = true
+			m.activeDialog = dialogSendTx
 			m.sendButtonFocused = false
 			return m, cmdEnableMouseCellMotion()
 		}

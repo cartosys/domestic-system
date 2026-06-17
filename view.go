@@ -29,6 +29,13 @@ const (
 	RPCFormPopupInnerWidth = RPCFormPopupWidth - 6
 )
 
+// SendFormPopupWidth is the outer dialog box width for the Send Transaction popup.
+// SendFormPopupInnerWidth is the huh.Form width (dialog minus border+padding).
+const (
+	SendFormPopupWidth      = 64
+	SendFormPopupInnerWidth = SendFormPopupWidth - 6
+)
+
 // -------------------- VIEW --------------------
 
 func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
@@ -403,8 +410,63 @@ func (m *model) renderActiveOverlay() string {
 		return m.renderEditWalletDialog()
 	case dialogAddWallet:
 		return m.renderAddWalletDialog()
+	case dialogSendTx:
+		return m.renderSendTxPopup()
 	}
 	return ""
+}
+
+func (m *model) renderSendTxPopup() string {
+	title := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(SendFormPopupWidth - 8).
+		Render("Send Transaction")
+
+	formView := m.sendForm.View()
+
+	btnStyle := styles.ButtonNormal
+	if m.sendSubmitBtnHovered {
+		btnStyle = styles.ButtonActive
+	}
+	submitBtn := btnStyle.Render("Submit")
+	btnRow := lipgloss.NewStyle().
+		Width(SendFormPopupWidth - 8).
+		Align(lipgloss.Center).
+		Render(submitBtn)
+
+	hints := lipgloss.NewStyle().Foreground(styles.CMuted).Render(
+		styles.HotkeyStyle.Render("Tab") + " next   " +
+			styles.HotkeyStyle.Render("Enter") + " continue   " +
+			styles.HotkeyStyle.Render("Esc") + " cancel",
+	)
+
+	var errLine string
+	if m.sendFormError != "" && time.Since(m.sendFormErrTime) < 3*time.Second {
+		errLine = "\n" + lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true).
+			Width(SendFormPopupWidth - 8).Align(lipgloss.Center).Render(m.sendFormError)
+	}
+
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", formView, "", btnRow, errLine, "", hints)
+	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+
+	dialogW := lipgloss.Width(dialog)
+	dialogH := lipgloss.Height(dialog)
+	dialogStartX := (m.w - dialogW) / 2
+	dialogStartY := (m.h - dialogH) / 2
+	contentLeft := dialogStartX + 3
+
+	// Rows above the button row inside ui: title(1) + blank(1) + form + blank(1).
+	btnRowOffset := lipgloss.Height(title) + 1 + lipgloss.Height(formView) + 1
+	m.sendSubmitBtnY = dialogStartY + 2 + btnRowOffset
+
+	rowWidth := SendFormPopupWidth - 8
+	btnWidth := lipgloss.Width(submitBtn)
+	m.sendSubmitBtnX1 = contentLeft + (rowWidth-btnWidth)/2
+	m.sendSubmitBtnX2 = m.sendSubmitBtnX1 + btnWidth
+
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
 func (m *model) renderAddWalletDialog() string {
@@ -576,10 +638,7 @@ func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) 
 	detailsContent := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View(), m.chainID())
 
 	var detailsBaseH int
-	if m.showSendForm && m.sendForm != nil {
-		detailsContent = styles.TitleStyle.Render("Send Transaction") + "\n\n" + m.sendForm.View()
-		m.sendBtnW = 0
-	} else if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
+	if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
 		detailsBaseH = lipgloss.Height(detailsContent)
 		var btnStyle lipgloss.Style
 		if m.sendButtonFocused || m.sendButtonHovered {

@@ -30,6 +30,22 @@ var (
 // -------------------- UPDATE --------------------
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Send-tx popup's Submit button: must be handled before the text-input
+	// mouse-drop guard below, since the send form makes textInputActive()
+	// true and would otherwise swallow this click before it's ever seen.
+	if mouseMsg, ok := msg.(tea.MouseMsg); ok && m.activeDialog == dialogSendTx {
+		inBounds := mouseMsg.Y == m.sendSubmitBtnY && mouseMsg.X >= m.sendSubmitBtnX1 && mouseMsg.X < m.sendSubmitBtnX2
+		switch mouseMsg.Type {
+		case tea.MouseLeft:
+			if inBounds {
+				return m.trySubmitSendForm()
+			}
+		case tea.MouseMotion:
+			m.sendSubmitBtnHovered = inBounds
+		}
+		return m, nil
+	}
+
 	// Drop ALL mouse events when a text field is capturing input.
 	// In all-motion mode the terminal fires an escape sequence on every cursor
 	// move (e.g. "\x1b[<35;238;1M"). Bubble Tea normally classifies these as
@@ -55,7 +71,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePasteSignedTxMsg(msg)
 	}
 
-	if m.activePage == config.PageWallets && m.showSendForm && m.sendForm != nil {
+	if m.activePage == config.PageWallets && m.activeDialog == dialogSendTx && m.sendForm != nil {
 		return m.handleSendFormMsg(msg)
 	}
 	if m.activePage == config.PageHome {
@@ -180,7 +196,7 @@ func (m *model) handleMouseMotion(mm tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	wasHovered := m.sendButtonHovered
 	m.sendButtonHovered = m.activePage == config.PageWallets &&
-		m.detailsInWallets && !m.showSendForm &&
+		m.detailsInWallets &&
 		m.activeDialog == dialogNone && m.sendBtnW > 0 &&
 		mm.Y == m.sendBtnY && mm.X >= m.sendBtnX && mm.X < m.sendBtnX+m.sendBtnW
 	if m.sendButtonHovered != wasHovered {
@@ -555,12 +571,12 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Send button click.
-	if m.activePage == config.PageWallets && m.detailsInWallets && !m.showSendForm &&
+	if m.activePage == config.PageWallets && m.detailsInWallets &&
 		m.activeDialog == dialogNone && m.sendBtnW > 0 &&
 		msg.Y == m.sendBtnY && msg.X >= m.sendBtnX && msg.X < m.sendBtnX+m.sendBtnW {
 		if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
 			m.createSendForm()
-			m.showSendForm = true
+			m.activeDialog = dialogSendTx
 			m.sendButtonFocused = false
 			m.sendButtonHovered = false
 			return m, cmdEnableMouseCellMotion()
