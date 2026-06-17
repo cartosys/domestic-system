@@ -115,6 +115,14 @@ func etherscanTxURL(chainID *big.Int, txHash string) string {
 // error occurs" entry point, and also the target of the visible
 // "Paste a signed transaction" button when the camera is working.
 func (m *model) openPasteSignedTxDialog() (tea.Model, tea.Cmd) {
+	return m.openPasteSignedTxDialogWithHex("")
+}
+
+// openPasteSignedTxDialogWithHex is openPasteSignedTxDialog with the paste
+// field prefilled — used when a webcam-scanned QR code already decodes as a
+// complete signed transaction, so the user lands straight on the
+// human-readable preview/Submit step instead of an empty paste box.
+func (m *model) openPasteSignedTxDialogWithHex(initial string) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	if m.activeDialog == dialogScanTx {
 		_, closeCmd := m.closeScanTxDialog()
@@ -132,7 +140,7 @@ func (m *model) openPasteSignedTxDialog() (tea.Model, tea.Cmd) {
 	m.pasteTxOnChainInfo = nil
 	m.pasteTxChainID = nil
 	m.pasteTxHashLineY, m.pasteTxHashLineX1, m.pasteTxHashLineX2 = 0, 0, 0
-	cmds = append(cmds, m.createPasteSignedTxForm(""))
+	cmds = append(cmds, m.createPasteSignedTxForm(initial))
 
 	return m, tea.Batch(cmds...)
 }
@@ -349,7 +357,11 @@ func (m *model) renderPasteTxFormPhase() string {
 		Render(submitBtn)
 
 	title := m.pasteTxDialogTitle("◉ Paste Signed Transaction")
-	preview := formatSignedTxPreview(tempPasteSignedTxHex)
+	// Constrained to the dialog's content width: formatSignedTxPreview's JSON
+	// dump line is otherwise unwrapped and can render far wider than the
+	// dialog once a valid tx is pasted, which throws off every width-based
+	// offset computed below (button centering, hit-test geometry).
+	preview := lipgloss.NewStyle().Width(pasteSignedTxDialogWidth - 4).Render(formatSignedTxPreview(tempPasteSignedTxHex))
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm-wallet-tui/helpers"
+	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/scrollbar"
 	"charm-wallet-tui/webcam/render"
@@ -120,6 +121,16 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.webcamLogVP.SetContent(scanLogContent(m.webcamScanLog))
 			m.webcamLogVP.GotoTop()
 			m.logSuccess("Scanned QR: "+truncate(msg.qrText, 80))
+
+			// If the decoded QR is itself a signed transaction, advance
+			// straight to the paste-signed-tx form, prefilled with it, so the
+			// user reviews the human-readable preview and confirms broadcast
+			// rather than the scan staying stuck on the camera feed.
+			trimmed := strings.TrimSpace(msg.qrText)
+			if _, err := rpc.DecodeSignedRawTx(trimmed); err == nil {
+				updated, cmd := m.openPasteSignedTxDialogWithHex(trimmed)
+				return updated, cmd, true
+			}
 		} else {
 			m.webcamLogVP.Height = logH
 		}
