@@ -21,47 +21,48 @@ func (m *model) createSendForm() {
 	tempSendAmount = ""
 	m.sendFormError = ""
 
-	m.sendForm = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Send To").
-				Description("Enter a valid Ethereum address (Ctrl+v to paste)").
-				Value(&tempSendToAddr).
-				Placeholder("0x...").
-				Validate(func(s string) error {
-					if !helpers.IsValidEthAddress(s) {
-						return fmt.Errorf("invalid ethereum address")
-					}
-					return nil
-				}),
+	addrField := huh.NewInput().
+		Title("Send To").
+		Description("Enter a valid Ethereum address (Ctrl+v to paste)").
+		Value(&tempSendToAddr).
+		Placeholder("0x...").
+		Validate(func(s string) error {
+			if !helpers.IsValidEthAddress(s) {
+				return fmt.Errorf("invalid ethereum address")
+			}
+			return nil
+		})
 
-			huh.NewInput().
-				Title("Amount (ETH)").
-				Description(fmt.Sprintf("Available: %s ETH", helpers.FormatETH(m.details.EthWei))).
-				Value(&tempSendAmount).
-				Placeholder("0.0").
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("amount is required")
-					}
-					// Parse amount as big.Float
-					amount := new(big.Float)
-					_, ok := amount.SetString(s)
-					if !ok {
-						return fmt.Errorf("invalid amount")
-					}
-					// Check if amount is <= balance
-					balanceFloat := new(big.Float).SetInt(m.details.EthWei)
-					balanceETH := new(big.Float).Quo(balanceFloat, big.NewFloat(1e18))
-					if amount.Cmp(balanceETH) > 0 {
-						return fmt.Errorf("amount exceeds balance")
-					}
-					if amount.Cmp(big.NewFloat(0)) <= 0 {
-						return fmt.Errorf("amount must be greater than 0")
-					}
-					return nil
-				}),
-		),
+	amountField := huh.NewInput().
+		Title("Amount (ETH)").
+		Description(fmt.Sprintf("Available: %s ETH", helpers.FormatETH(m.details.EthWei))).
+		Value(&tempSendAmount).
+		Placeholder("0.0").
+		Validate(func(s string) error {
+			if s == "" {
+				return fmt.Errorf("amount is required")
+			}
+			// Parse amount as big.Float
+			amount := new(big.Float)
+			_, ok := amount.SetString(s)
+			if !ok {
+				return fmt.Errorf("invalid amount")
+			}
+			// Check if amount is <= balance
+			balanceFloat := new(big.Float).SetInt(m.details.EthWei)
+			balanceETH := new(big.Float).Quo(balanceFloat, big.NewFloat(1e18))
+			if amount.Cmp(balanceETH) > 0 {
+				return fmt.Errorf("amount exceeds balance")
+			}
+			if amount.Cmp(big.NewFloat(0)) <= 0 {
+				return fmt.Errorf("amount must be greater than 0")
+			}
+			return nil
+		})
+
+	m.sendFormFields = []huh.Field{addrField, amountField}
+	m.sendForm = huh.NewForm(
+		huh.NewGroup(addrField, amountField),
 	).WithWidth(SendFormPopupInnerWidth).WithTheme(huh.ThemeCatppuccin())
 
 	// Initialize the form
@@ -189,6 +190,26 @@ func (m *model) confirmDeleteWalletYes() (tea.Model, tea.Cmd) {
 func (m *model) confirmDeleteWalletNo() (tea.Model, tea.Cmd) {
 	m.activeDialog = dialogNone
 	return m, nil
+}
+
+// focusWalletFormField moves focus to the given field (0=address, 1=nickname)
+// in the Add/Edit Wallet dialog. Used by the mouse click-to-focus regions —
+// kept separate from the Tab-key handler, which also conditionally triggers
+// an ENS lookup as part of advancing focus; clicking a field directly should
+// just move focus, not replicate that side effect.
+func (m *model) focusWalletFormField(idx int) {
+	if idx == m.focusedInput {
+		return
+	}
+	if idx == 0 {
+		m.nicknameInput.Blur()
+		m.input.Focus()
+		m.focusedInput = 0
+	} else {
+		m.input.Blur()
+		m.nicknameInput.Focus()
+		m.focusedInput = 1
+	}
 }
 
 func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

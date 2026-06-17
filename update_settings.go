@@ -14,20 +14,21 @@ func (m *model) createAddRPCForm() {
 	tempRPCFormName = ""
 	tempRPCFormURL = ""
 
-	m.form = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("RPC Name").
-				Description("A friendly name for this RPC endpoint").
-				Value(&tempRPCFormName).
-				Placeholder("My Infura Node"),
+	nameField := huh.NewInput().
+		Title("RPC Name").
+		Description("A friendly name for this RPC endpoint").
+		Value(&tempRPCFormName).
+		Placeholder("My Infura Node")
 
-			huh.NewInput().
-				Title("RPC URL").
-				Description("The complete RPC URL (https://...)").
-				Value(&tempRPCFormURL).
-				Placeholder("https://mainnet.infura.io/v3/..."),
-		),
+	urlField := huh.NewInput().
+		Title("RPC URL").
+		Description("The complete RPC URL (https://...)").
+		Value(&tempRPCFormURL).
+		Placeholder("https://mainnet.infura.io/v3/...")
+
+	m.formFields = []huh.Field{nameField, urlField}
+	m.form = huh.NewForm(
+		huh.NewGroup(nameField, urlField),
 	).WithWidth(RPCFormPopupInnerWidth).WithTheme(huh.ThemeCatppuccin())
 
 	m.form.Init()
@@ -42,18 +43,19 @@ func (m *model) createEditRPCForm(idx int) {
 	tempRPCFormName = rpc.Name
 	tempRPCFormURL = rpc.URL
 
-	m.form = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("RPC Name").
-				Value(&tempRPCFormName).
-				Placeholder("My Node"),
+	nameField := huh.NewInput().
+		Title("RPC Name").
+		Value(&tempRPCFormName).
+		Placeholder("My Node")
 
-			huh.NewInput().
-				Title("RPC URL").
-				Value(&tempRPCFormURL).
-				Placeholder("https://..."),
-		),
+	urlField := huh.NewInput().
+		Title("RPC URL").
+		Value(&tempRPCFormURL).
+		Placeholder("https://...")
+
+	m.formFields = []huh.Field{nameField, urlField}
+	m.form = huh.NewForm(
+		huh.NewGroup(nameField, urlField),
 	).WithWidth(RPCFormPopupInnerWidth).WithTheme(huh.ThemeCatppuccin())
 
 	m.form.Init()

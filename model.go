@@ -113,6 +113,7 @@ type model struct {
 	rpcURLs        []config.RPCUrl
 	selectedRPCIdx int
 	form           *huh.Form
+	formFields     []huh.Field // for click-to-focus stepping, see focusHuhField
 	configPath     string
 
 	// dApp browser state
@@ -137,6 +138,10 @@ type model struct {
 	uiRegions       []uiRegion
 	hoveredRegionID string
 	focusedRegionID string
+
+	// tracks which mouse mode is currently requested from the terminal, so
+	// Update() only sends a mode-switch command on an actual transition
+	mouseAllMotionActive bool
 
 	// logger panel
 	logEnabled  bool
@@ -166,6 +171,7 @@ type model struct {
 	// send button state
 	sendButtonFocused  bool
 	sendForm           *huh.Form
+	sendFormFields     []huh.Field // for click-to-focus stepping, see focusHuhField
 
 	// send tx popup state
 	sendFormError   string
@@ -417,7 +423,8 @@ func newModel() model {
 	logSpin.Style = lipgloss.NewStyle().Foreground(styles.CAccent2)
 
 	m := model{
-		activePage:         config.PageWallets,
+		mouseAllMotionActive: true, // matches the cmdEnableMouseAllMotion() issued by Init()
+		activePage:           config.PageWallets,
 		accounts:           accounts,
 		selectedWallet:     selectedIdx,
 		highlightedAddress: activeAddr,

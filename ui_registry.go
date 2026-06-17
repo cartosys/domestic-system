@@ -1,6 +1,9 @@
 package main
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
+)
 
 // uiRegionKind distinguishes buttons (click-to-activate) from inputs
 // (click-to-focus) for styling purposes — both are clickable the same way.
@@ -71,4 +74,40 @@ func (m *model) dispatchRegionClick(msg tea.MouseMsg) (tea.Model, tea.Cmd, bool)
 		}
 	}
 	return m, nil, false
+}
+
+// focusHuhField moves a huh.Form's focus to the field at targetIdx within
+// fields (the same field pointers the form was built with), by stepping via
+// huh's exported NextField()/PrevField() — huh has no random-access focus
+// API. fields must be in the same order the form's single group was built
+// with. A known limitation: if a validation-error line shifts field rows
+// between the frame a region was registered and the frame the click is
+// processed, the click can target the wrong field by one row — low
+// frequency, not worth engineering around here.
+func focusHuhField(form *huh.Form, fields []huh.Field, targetIdx int) tea.Cmd {
+	if form == nil || targetIdx < 0 || targetIdx >= len(fields) {
+		return nil
+	}
+	focused := form.GetFocusedField()
+	current := -1
+	for i, f := range fields {
+		if f == focused {
+			current = i
+			break
+		}
+	}
+	if current == -1 || current == targetIdx {
+		return nil
+	}
+	var cmds []tea.Cmd
+	if targetIdx > current {
+		for i := current; i < targetIdx; i++ {
+			cmds = append(cmds, tea.Cmd(huh.NextField))
+		}
+	} else {
+		for i := current; i > targetIdx; i-- {
+			cmds = append(cmds, tea.Cmd(huh.PrevField))
+		}
+	}
+	return tea.Sequence(cmds...)
 }

@@ -56,21 +56,36 @@ func animateQRTick() tea.Cmd {
 	})
 }
 
-// cmdEnableMouseAllMotion is intentionally a no-op.
-//
-// All-motion mode (tea.EnableMouseAllMotion / \x1b[?1003h) fires an escape
-// sequence on every cursor move. On Linux, these sequences arrive on stdin
-// before Bubble Tea's parser classifies them, so they come through as
-// tea.KeyMsg containing the raw SGR bytes (e.g. "[<35;238;1M"). When a huh
-// textinput has focus it faithfully types those characters into the field.
-//
-// cell-motion mode (tea.WithMouseCellMotion / \x1b[?1002h) — the program
-// default — reports button press, release, and motion while a button is held.
-// This is sufficient for scrollbar dragging and click handling. Hover
-// detection without a button pressed (sendButtonHovered) is disabled as a
-// consequence, but that was purely cosmetic.
-func cmdEnableMouseAllMotion() tea.Cmd { return nil }
+// enableHoverAllMotion is the single kill switch for hover-via-all-motion
+// (Phase C). All-motion mode (tea.EnableMouseAllMotion / \x1b[?1003h) fires an
+// escape sequence on every cursor move; on some Linux terminals these
+// sequences have arrived on stdin in a form Bubble Tea's parser didn't
+// recognize in time, landing as a tea.KeyMsg containing raw SGR bytes (e.g.
+// "[<35;238;1M") that a focused huh textinput would faithfully type. The
+// fix here is to only run all-motion while no text input has focus (see the
+// end-of-Update() toggle keyed off textInputActive() in update.go) — cell
+// motion mode (mode 1002), which reliably reports press/release/drag and is
+// used for scrollbar dragging and clicks, is unaffected either way. If
+// real-terminal testing ever reproduces the corruption under this toggle,
+// flip this to false: the two commands below become no-ops again exactly
+// like before, and clicks/click-to-focus do not depend on motion-without-click
+// so they're unaffected by the revert.
+const enableHoverAllMotion = true
 
-// cmdEnableMouseCellMotion is kept for call-site compatibility but is now a
-// no-op because the program stays in cell-motion mode for its entire lifetime.
-func cmdEnableMouseCellMotion() tea.Cmd { return nil }
+// cmdEnableMouseAllMotion requests all-motion mouse reporting so hover can be
+// detected without a button held. No-op when enableHoverAllMotion is false.
+func cmdEnableMouseAllMotion() tea.Cmd {
+	if !enableHoverAllMotion {
+		return nil
+	}
+	return tea.EnableMouseAllMotion
+}
+
+// cmdEnableMouseCellMotion requests cell-motion mouse reporting (press/
+// release/drag only) — the safe mode while any text input has focus.
+func cmdEnableMouseCellMotion() tea.Cmd {
+	if !enableHoverAllMotion {
+		return nil
+	}
+	return tea.EnableMouseCellMotion
+}

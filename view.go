@@ -20,6 +20,7 @@ import (
 	"charm-wallet-tui/views/wallets"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -454,6 +455,14 @@ func (m *model) renderActiveOverlay() string {
 		popup, geo := terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
 		m.registerRegion("terraClaim.submit", uiRegionButton, geo.ButtonX1, geo.ButtonY, geo.ButtonX2, geo.ButtonY+1,
 			func(m *model) (tea.Model, tea.Cmd) { return m.submitTerraClaim() })
+		m.registerRegion("terraClaim.input", uiRegionInput, geo.InputX1, geo.InputY, geo.InputX2, geo.InputY+1,
+			func(m *model) (tea.Model, tea.Cmd) {
+				if m.terraNullFormFocused != 0 {
+					m.terraNullFormFocused = 0
+					return m, m.terraNullMsgInput.Focus()
+				}
+				return m, nil
+			})
 		return popup
 	case dialogEditWallet:
 		return m.renderEditWalletDialog()
@@ -518,7 +527,54 @@ func (m *model) renderSendTxPopup() string {
 		return m.trySubmitSendForm()
 	})
 
+	fieldsTop := dialogStartY + 2 + lipgloss.Height(title) + 1
+	m.registerHuhFieldRegions("sendPopup", fieldsTop, contentLeft, m.sendForm, m.sendFormFields)
+
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
+}
+
+// registerHuhFieldRegions registers one click-to-focus region per field of a
+// huh.Form, stacked top-to-bottom starting at (top, left) — matching the
+// vertical layout huh.Group renders fields in (each field's own View(),
+// separated by the theme's FieldSeparator). fields must be in the same order
+// the form's group was built with. Used for the two-field forms (Send,
+// RPC add/edit); single-field forms have nothing to click-to-focus between.
+func (m *model) registerHuhFieldRegions(idPrefix string, top, left int, form *huh.Form, fields []huh.Field) {
+	if form == nil || len(fields) < 2 {
+		return
+	}
+	gap := lipgloss.Height(huh.ThemeCatppuccin().FieldSeparator.Render())
+	y := top
+	for i, f := range fields {
+		fv := f.View()
+		h := lipgloss.Height(fv)
+		idx := i
+		m.registerRegion(fmt.Sprintf("%s.field%d", idPrefix, idx), uiRegionInput, left, y, left+lipgloss.Width(fv), y+h,
+			func(m *model) (tea.Model, tea.Cmd) { return m, focusHuhField(form, fields, idx) })
+		y += h + gap
+	}
+}
+
+// registerWalletFormInputRegions registers click-to-focus regions for the
+// address/nickname fields shared by the Add and Edit Wallet dialogs, using
+// the same title/inputView layout each renderer already builds.
+func (m *model) registerWalletFormInputRegions(dialog string, title string) {
+	dialogW := lipgloss.Width(dialog)
+	dialogH := lipgloss.Height(dialog)
+	dialogStartX := (m.w - dialogW) / 2
+	dialogStartY := (m.h - dialogH) / 2
+	contentLeft := dialogStartX + 3
+	contentTop := dialogStartY + 2
+
+	addrView := m.input.View()
+	nickView := m.nicknameInput.View()
+	addrY := contentTop + lipgloss.Height(title) + 1
+	nickY := addrY + lipgloss.Height(addrView) + 1
+
+	m.registerRegion("walletForm.address", uiRegionInput, contentLeft, addrY, contentLeft+lipgloss.Width(addrView), addrY+1,
+		func(m *model) (tea.Model, tea.Cmd) { m.focusWalletFormField(0); return m, nil })
+	m.registerRegion("walletForm.nickname", uiRegionInput, contentLeft, nickY, contentLeft+lipgloss.Width(nickView), nickY+1,
+		func(m *model) (tea.Model, tea.Cmd) { m.focusWalletFormField(1); return m, nil })
 }
 
 func (m *model) renderAddWalletDialog() string {
@@ -550,6 +606,7 @@ func (m *model) renderAddWalletDialog() string {
 	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", inputView, "", hints+errLine)
 
 	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+	m.registerWalletFormInputRegions(dialog, title)
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
@@ -583,6 +640,7 @@ func (m *model) renderEditWalletDialog() string {
 	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", inputView, "", hints+errLine)
 
 	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+	m.registerWalletFormInputRegions(dialog, title)
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
@@ -610,6 +668,14 @@ func (m *model) renderRPCFormPopup() string {
 
 	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", m.form.View(), "", hints)
 	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+
+	dialogW := lipgloss.Width(dialog)
+	dialogH := lipgloss.Height(dialog)
+	dialogStartX := (m.w - dialogW) / 2
+	dialogStartY := (m.h - dialogH) / 2
+	contentLeft := dialogStartX + 3
+	fieldsTop := dialogStartY + 2 + lipgloss.Height(title) + 1
+	m.registerHuhFieldRegions("rpcForm", fieldsTop, contentLeft, m.form, m.formFields)
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }

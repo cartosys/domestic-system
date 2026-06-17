@@ -28,7 +28,30 @@ var (
 
 // -------------------- UPDATE --------------------
 
+// Update is the tea.Model entry point. It delegates to updateInner and then
+// applies the mouse-mode toggle (Phase C hover) on top of every code path,
+// so no early return inside updateInner has to remember to do it itself.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := m.updateInner(msg)
+	mm, ok := updated.(*model)
+	if !ok {
+		return updated, cmd
+	}
+	wantAllMotion := enableHoverAllMotion && !mm.textInputActive()
+	if wantAllMotion == mm.mouseAllMotionActive {
+		return mm, cmd
+	}
+	mm.mouseAllMotionActive = wantAllMotion
+	var modeCmd tea.Cmd
+	if wantAllMotion {
+		modeCmd = cmdEnableMouseAllMotion()
+	} else {
+		modeCmd = cmdEnableMouseCellMotion()
+	}
+	return mm, tea.Batch(cmd, modeCmd)
+}
+
+func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Generic clickable/hoverable region dispatch: must run before the
 	// text-input mouse-drop guard below, since several dialogs (e.g. the Send
 	// Transaction popup) make textInputActive() true and would otherwise
