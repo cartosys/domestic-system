@@ -20,6 +20,7 @@ func (m *model) createSendForm() {
 	tempSendToAddr = ""
 	tempSendAmount = ""
 	m.sendFormError = ""
+	m.sendFormButtonFocused = false
 
 	addrField := huh.NewInput().
 		Title("Send To").
@@ -76,11 +77,40 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Intercept ESC key to cancel form
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
-		m.activeDialog = dialogNone
-		m.sendForm = nil
-		return m, cmdEnableMouseAllMotion()
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		// Intercept ESC key to cancel form
+		if keyMsg.String() == "esc" {
+			m.activeDialog = dialogNone
+			m.sendForm = nil
+			m.sendFormButtonFocused = false
+			return m, cmdEnableMouseAllMotion()
+		}
+
+		lastField := m.sendFormFields[len(m.sendFormFields)-1]
+
+		if m.sendFormButtonFocused {
+			// Focus is on the Submit button, not a text field — handle the
+			// button's own keys here rather than forwarding to huh.
+			switch keyMsg.String() {
+			case "enter", " ":
+				return m.trySubmitSendForm()
+			case "tab":
+				m.sendFormButtonFocused = false
+				return m, focusHuhField(m.sendForm, m.sendFormFields, 0)
+			case "shift+tab":
+				m.sendFormButtonFocused = false
+				return m, focusHuhField(m.sendForm, m.sendFormFields, len(m.sendFormFields)-1)
+			}
+			return m, nil
+		}
+
+		// Tab on the last field would otherwise complete the form directly
+		// (huh treats Tab/Enter on the last field of the only group as
+		// submit); intercept it here so Tab stops on the Submit button first.
+		if keyMsg.String() == "tab" && m.sendForm.GetFocusedField() == lastField {
+			m.sendFormButtonFocused = true
+			return m, lastField.Blur()
+		}
 	}
 
 	form, cmd := m.sendForm.Update(msg)

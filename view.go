@@ -485,7 +485,7 @@ func (m *model) renderSendTxPopup() string {
 	formView := m.sendForm.View()
 
 	btnStyle := styles.ButtonNormal
-	if m.hoveredRegionID == "sendPopup.submit" {
+	if m.hoveredRegionID == "sendPopup.submit" || m.sendFormButtonFocused {
 		btnStyle = styles.ButtonActive
 	}
 	submitBtn := btnStyle.Render("Submit")

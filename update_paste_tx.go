@@ -31,20 +31,22 @@ var tempPasteSignedTxHex string
 func (m *model) createPasteSignedTxForm(initial string) tea.Cmd {
 	tempPasteSignedTxHex = initial
 
+	field := huh.NewText().
+		Title("Paste the signed transaction in the input below").
+		Value(&tempPasteSignedTxHex).
+		Lines(3).
+		Validate(func(s string) error {
+			if strings.TrimSpace(s) == "" {
+				return fmt.Errorf("paste a signed transaction")
+			}
+			_, err := rpc.DecodeSignedRawTx(s)
+			return err
+		})
+
+	m.pasteTxFormField = field
+	m.pasteTxButtonFocused = false
 	m.pasteTxForm = huh.NewForm(
-		huh.NewGroup(
-			huh.NewText().
-				Title("Paste the signed transaction in the input below").
-				Value(&tempPasteSignedTxHex).
-				Lines(3).
-				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("paste a signed transaction")
-					}
-					_, err := rpc.DecodeSignedRawTx(s)
-					return err
-				}),
-		),
+		huh.NewGroup(field),
 	).WithWidth(pasteSignedTxDialogWidth - 6).WithTheme(huh.ThemeCatppuccin())
 
 	return m.pasteTxForm.Init()
@@ -151,6 +153,7 @@ func (m *model) openPasteSignedTxDialogWithHex(initial string) (tea.Model, tea.C
 func (m *model) closePasteSignedTxDialog() (tea.Model, tea.Cmd) {
 	m.activeDialog = dialogNone
 	m.pasteTxForm = nil
+	m.pasteTxButtonFocused = false
 	m.pasteTxPhase = pasteTxPhaseForm
 	m.pasteTxHash = ""
 	m.pasteTxSendErr = ""
@@ -254,6 +257,21 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "esc" {
 			return m.closePasteSignedTxDialog()
 		}
+
+		if m.pasteTxButtonFocused {
+			// Focus is on the Submit button, not the textarea — handle the
+			// button's own keys here rather than forwarding to huh.
+			switch msg.String() {
+			case "enter", " ":
+				updated, cmd, _ := m.submitPasteTxIfValid()
+				return updated, cmd
+			case "tab", "shift+tab":
+				m.pasteTxButtonFocused = false
+				return m, m.pasteTxFormField.Focus()
+			}
+			return m, nil
+		}
+
 		if msg.String() == "ctrl+v" {
 			// Read the clipboard ourselves, synchronously — bypasses the
 			// textarea's async Paste cmd (clipboard.ReadAll in a goroutine,
@@ -273,6 +291,13 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			// Content not yet valid — fall through so huh can surface the
 			// validation error in the textarea UI.
+		}
+		// Tab would otherwise complete the form directly (huh treats Tab on
+		// the last/only field as submit); intercept it so Tab stops on the
+		// Submit button first instead.
+		if msg.String() == "tab" {
+			m.pasteTxButtonFocused = true
+			return m, m.pasteTxFormField.Blur()
 		}
 		if m.pasteTxForm == nil {
 			return m, nil
@@ -347,7 +372,7 @@ func (m *model) renderPasteTxFormPhase() string {
 	formView := m.pasteTxForm.View()
 
 	btnStyle := styles.ButtonNormal
-	if m.hoveredRegionID == "pasteTx.submit" {
+	if m.hoveredRegionID == "pasteTx.submit" || m.pasteTxButtonFocused {
 		btnStyle = styles.ButtonActive
 	}
 	submitBtn := btnStyle.Render("Submit")

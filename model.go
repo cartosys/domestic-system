@@ -174,8 +174,9 @@ type model struct {
 	sendFormFields     []huh.Field // for click-to-focus stepping, see focusHuhField
 
 	// send tx popup state
-	sendFormError   string
-	sendFormErrTime time.Time
+	sendFormError         string
+	sendFormErrTime       time.Time
+	sendFormButtonFocused bool // true once Tab has moved focus past the last field onto Submit
 
 	// transaction result panel state
 	txResultPackaging  bool
@@ -292,7 +293,9 @@ type model struct {
 	webcamLogScroll scrollbar.State
 
 	// Paste-signed-transaction dialog state (used by dialogPasteSignedTx)
-	pasteTxForm      *huh.Form
+	pasteTxForm          *huh.Form
+	pasteTxFormField      huh.Field // the form's single field, for direct Focus()/Blur() — see pasteTxButtonFocused
+	pasteTxButtonFocused bool       // true once Tab has moved focus past the field onto Submit
 	pasteTxPhase     pasteTxPhaseKind
 	pasteTxHash      string
 	pasteTxSendErr   string
