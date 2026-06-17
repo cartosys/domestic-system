@@ -13,7 +13,7 @@ import (
 )
 
 // Nav returns the navigation bar for details view
-func Nav(width int, nicknaming bool, indexerActive bool) string {
+func Nav(width int, indexerActive bool) string {
 	var iItem string
 	if indexerActive {
 		iKey := lipgloss.NewStyle().Foreground(styles.CAccent).Bold(true).Render("i")
@@ -23,26 +23,16 @@ func Nav(width int, nicknaming bool, indexerActive bool) string {
 		iItem = styles.Key("i") + " indexer"
 	}
 
-	var left string
-	if nicknaming {
-		left = strings.Join([]string{
-			styles.Key("l") + " logger",
-			iItem,
-			styles.Key("Esc") + " cancel",
-		}, "   ")
-	} else {
-		left = strings.Join([]string{
-			styles.Key("c") + " copy address",
-			styles.Key("n") + " nickname",
-			styles.Key("r") + " refresh",
-			styles.Key("w") + " wallets",
-			styles.Key("s") + " settings",
-			styles.Key("b") + " dApps",
-			styles.Key("l") + " logger",
-			iItem,
-			styles.Key("Esc") + " back",
-		}, "   ")
-	}
+	left := strings.Join([]string{
+		styles.Key("c") + " copy address",
+		styles.Key("r") + " refresh",
+		styles.Key("w") + " wallets",
+		styles.Key("s") + " settings",
+		styles.Key("b") + " dApps",
+		styles.Key("l") + " logger",
+		iItem,
+		styles.Key("Esc") + " back",
+	}, "   ")
 
 	return styles.NavStyle.Width(width).Render(left)
 }

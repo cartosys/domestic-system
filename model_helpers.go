@@ -46,7 +46,6 @@ func (m model) textInputActive() bool {
 	return m.activeDialog == dialogAddWallet ||
 		m.activeDialog == dialogEditWallet ||
 		(m.activeDialog == dialogSendTx && m.sendForm != nil) ||
-		(m.nicknaming && m.form != nil) ||
 		((m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil) ||
 		(m.activeDialog == dialogPasteSignedTx && m.pasteTxPhase == pasteTxPhaseForm && m.pasteTxForm != nil) ||
 		m.activeDialog == dialogTerraClaim

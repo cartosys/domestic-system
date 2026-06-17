@@ -660,13 +660,25 @@ func (m *model) renderRPCFormPopup() string {
 		Width(RPCFormPopupWidth - 8).
 		Render(titleText)
 
+	formView := m.form.View()
+
+	btnStyle := styles.ButtonNormal
+	if m.hoveredRegionID == "rpcForm.save" || m.formButtonFocused {
+		btnStyle = styles.ButtonActive
+	}
+	saveBtn := btnStyle.Render("Save")
+	btnRow := lipgloss.NewStyle().
+		Width(RPCFormPopupWidth - 8).
+		Align(lipgloss.Center).
+		Render(saveBtn)
+
 	hints := lipgloss.NewStyle().Foreground(styles.CMuted).Render(
 		styles.HotkeyStyle.Render("Tab") + " next   " +
 			styles.HotkeyStyle.Render("Enter") + " save   " +
 			styles.HotkeyStyle.Render("Esc") + " cancel",
 	)
 
-	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", m.form.View(), "", hints)
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", formView, "", btnRow, "", hints)
 	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
 
 	dialogW := lipgloss.Width(dialog)
@@ -676,6 +688,15 @@ func (m *model) renderRPCFormPopup() string {
 	contentLeft := dialogStartX + 3
 	fieldsTop := dialogStartY + 2 + lipgloss.Height(title) + 1
 	m.registerHuhFieldRegions("rpcForm", fieldsTop, contentLeft, m.form, m.formFields)
+
+	btnRowY := fieldsTop + lipgloss.Height(formView) + 1
+	rowWidth := RPCFormPopupWidth - 8
+	btnWidth := lipgloss.Width(saveBtn)
+	btnX1 := contentLeft + (rowWidth-btnWidth)/2
+	btnX2 := btnX1 + btnWidth
+	m.registerRegion("rpcForm.save", uiRegionButton, btnX1, btnRowY, btnX2, btnRowY+1, func(m *model) (tea.Model, tea.Cmd) {
+		return m.submitRPCForm()
+	})
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
@@ -725,7 +746,7 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 
 	case config.PageDetails:
 		c := details.Render(m.details, m.accounts, m.loading, m.copiedMsg, m.spin.View(), m.chainID())
-		return styles.PanelStyle.Width(m.contentW).Render(c), details.Nav(m.w-2, m.nicknaming, m.txIndexerActive)
+		return styles.PanelStyle.Width(m.contentW).Render(c), details.Nav(m.w-2, m.txIndexerActive)
 
 	case config.PageSettings:
 		c := settings.Render(m.rpcURLs, m.selectedRPCIdx)

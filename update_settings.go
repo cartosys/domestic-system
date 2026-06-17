@@ -13,6 +13,7 @@ import (
 func (m *model) createAddRPCForm() {
 	tempRPCFormName = ""
 	tempRPCFormURL = ""
+	m.formButtonFocused = false
 
 	nameField := huh.NewInput().
 		Title("RPC Name").
@@ -42,6 +43,7 @@ func (m *model) createEditRPCForm(idx int) {
 	rpc := m.rpcURLs[idx]
 	tempRPCFormName = rpc.Name
 	tempRPCFormURL = rpc.URL
+	m.formButtonFocused = false
 
 	nameField := huh.NewInput().
 		Title("RPC Name").
@@ -61,12 +63,66 @@ func (m *model) createEditRPCForm(idx int) {
 	m.form.Init()
 }
 
+// submitRPCForm saves the RPC name/URL fields currently in the add/edit form.
+// Shared by huh's own StateCompleted submission and the popup's
+// mouse-clickable / Tab-then-Enter Save button.
+func (m *model) submitRPCForm() (tea.Model, tea.Cmd) {
+	if m.settingsMode == "add" {
+		if tempRPCFormName != "" && tempRPCFormURL != "" {
+			newRPC := config.RPCUrl{Name: tempRPCFormName, URL: tempRPCFormURL, Active: false}
+			m.rpcURLs = append(m.rpcURLs, newRPC)
+			config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
+			m.logSuccess(fmt.Sprintf("Added RPC endpoint: `%s` (%s)", tempRPCFormName, tempRPCFormURL))
+		}
+	} else if m.settingsMode == "edit" {
+		if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
+			m.rpcURLs[m.selectedRPCIdx].Name = tempRPCFormName
+			m.rpcURLs[m.selectedRPCIdx].URL = tempRPCFormURL
+			config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
+			m.logSuccess(fmt.Sprintf("Updated RPC endpoint: `%s`", tempRPCFormName))
+		}
+	}
+	m.settingsMode = "list"
+	m.form = nil
+	m.formButtonFocused = false
+	return m, nil
+}
+
 func (m *model) handleSettingsFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Intercept ESC key to cancel form
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
-		m.settingsMode = "list"
-		m.form = nil
-		return m, nil
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		// Intercept ESC key to cancel form
+		if keyMsg.String() == "esc" {
+			m.settingsMode = "list"
+			m.form = nil
+			m.formButtonFocused = false
+			return m, nil
+		}
+
+		lastField := m.formFields[len(m.formFields)-1]
+
+		if m.formButtonFocused {
+			// Focus is on the Save button, not a text field — handle the
+			// button's own keys here rather than forwarding to huh.
+			switch keyMsg.String() {
+			case "enter", " ":
+				return m.submitRPCForm()
+			case "tab":
+				m.formButtonFocused = false
+				return m, focusHuhField(m.form, m.formFields, 0)
+			case "shift+tab":
+				m.formButtonFocused = false
+				return m, focusHuhField(m.form, m.formFields, len(m.formFields)-1)
+			}
+			return m, nil
+		}
+
+		// Tab on the last field would otherwise complete the form directly
+		// (huh treats Tab/Enter on the last field of the only group as
+		// submit); intercept it here so Tab stops on the Save button first.
+		if keyMsg.String() == "tab" && m.form.GetFocusedField() == lastField {
+			m.formButtonFocused = true
+			return m, lastField.Blur()
+		}
 	}
 
 	form, cmd := m.form.Update(msg)
@@ -75,31 +131,14 @@ func (m *model) handleSettingsFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check if form is completed
 		if m.form.State == huh.StateCompleted {
-			if m.settingsMode == "add" {
-				if tempRPCFormName != "" && tempRPCFormURL != "" {
-					newRPC := config.RPCUrl{Name: tempRPCFormName, URL: tempRPCFormURL, Active: false}
-					m.rpcURLs = append(m.rpcURLs, newRPC)
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-					m.logSuccess(fmt.Sprintf("Added RPC endpoint: `%s` (%s)", tempRPCFormName, tempRPCFormURL))
-				}
-			} else if m.settingsMode == "edit" {
-				if m.selectedRPCIdx >= 0 && m.selectedRPCIdx < len(m.rpcURLs) {
-					m.rpcURLs[m.selectedRPCIdx].Name = tempRPCFormName
-					m.rpcURLs[m.selectedRPCIdx].URL = tempRPCFormURL
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-					m.logSuccess(fmt.Sprintf("Updated RPC endpoint: `%s`", tempRPCFormName))
-				}
-			}
-			m.settingsMode = "list"
-			m.form = nil
-			// Return without the form's cmd to ensure we're back in list mode
-			return m, nil
+			return m.submitRPCForm()
 		}
 
 		// Check if form was aborted (ESC pressed)
 		if m.form.State == huh.StateAborted {
 			m.settingsMode = "list"
 			m.form = nil
+			m.formButtonFocused = false
 			return m, nil
 		}
 	}

@@ -19,11 +19,10 @@ import (
 // -------------------- TEMP FORM STORAGE --------------------
 // Package-level vars avoid pointer-to-copy bugs when binding huh form fields.
 var (
-	tempRPCFormName   string
-	tempRPCFormURL    string
-	tempNicknameField string
-	tempSendToAddr    string
-	tempSendAmount    string
+	tempRPCFormName string
+	tempRPCFormURL  string
+	tempSendToAddr  string
+	tempSendAmount  string
 )
 
 // -------------------- UPDATE --------------------
@@ -94,9 +93,6 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.activePage == config.PageHome {
 		return m, m.navigateTo(config.PageWallets)
-	}
-	if m.activePage == config.PageDetails && m.nicknaming && m.form != nil {
-		return m.handleNicknameFormMsg(msg)
 	}
 	if m.activePage == config.PageTerraNullius && m.activeDialog == dialogTerraClaim {
 		return m.handleTerraClaimPopupMsg(msg)

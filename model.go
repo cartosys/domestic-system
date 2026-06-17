@@ -114,6 +114,7 @@ type model struct {
 	selectedRPCIdx int
 	form           *huh.Form
 	formFields     []huh.Field // for click-to-focus stepping, see focusHuhField
+	formButtonFocused bool // true once Tab has moved focus past the last RPC form field onto Save
 	configPath     string
 
 	// dApp browser state
@@ -122,9 +123,6 @@ type model struct {
 
 	// home form
 	homeForm *huh.Form
-
-	// nickname editing
-	nicknaming bool
 
 	// currently highlighted address in wallet list
 	highlightedAddress string
