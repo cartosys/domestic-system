@@ -104,6 +104,29 @@ func (m *model) handleSettingsFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// confirmDeleteRPCYes deletes the RPC endpoint pending confirmation. Shared
+// by the keyboard Enter-on-Yes path and the dialog's mouse-clickable Yes button.
+func (m *model) confirmDeleteRPCYes() (tea.Model, tea.Cmd) {
+	idx := m.deleteRPCDialogIdx
+	deletedName := m.deleteRPCDialogName
+	if idx >= 0 && idx < len(m.rpcURLs) {
+		m.rpcURLs = append(m.rpcURLs[:idx], m.rpcURLs[idx+1:]...)
+		if m.selectedRPCIdx >= len(m.rpcURLs) && m.selectedRPCIdx > 0 {
+			m.selectedRPCIdx--
+		}
+		config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
+		m.logWarn(fmt.Sprintf("Deleted RPC endpoint `%s`", deletedName))
+	}
+	m.activeDialog = dialogNone
+	return m, nil
+}
+
+// confirmDeleteRPCNo cancels the pending RPC endpoint deletion.
+func (m *model) confirmDeleteRPCNo() (tea.Model, tea.Cmd) {
+	m.activeDialog = dialogNone
+	return m, nil
+}
+
 func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.activeDialog == dialogDeleteRPC {
 		switch msg.String() {
@@ -112,21 +135,9 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			if m.deleteRPCDialogYesSelected {
-				idx := m.deleteRPCDialogIdx
-				deletedName := m.deleteRPCDialogName
-				if idx >= 0 && idx < len(m.rpcURLs) {
-					m.rpcURLs = append(m.rpcURLs[:idx], m.rpcURLs[idx+1:]...)
-					if m.selectedRPCIdx >= len(m.rpcURLs) && m.selectedRPCIdx > 0 {
-						m.selectedRPCIdx--
-					}
-					config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-					m.logWarn(fmt.Sprintf("Deleted RPC endpoint `%s`", deletedName))
-				}
-				m.activeDialog = dialogNone
-				return m, nil
+				return m.confirmDeleteRPCYes()
 			}
-			m.activeDialog = dialogNone
-			return m, nil
+			return m.confirmDeleteRPCNo()
 		case "esc":
 			m.activeDialog = dialogNone
 			return m, nil

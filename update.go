@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
@@ -30,20 +29,16 @@ var (
 // -------------------- UPDATE --------------------
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Send-tx popup's Submit button: must be handled before the text-input
-	// mouse-drop guard below, since the send form makes textInputActive()
-	// true and would otherwise swallow this click before it's ever seen.
-	if mouseMsg, ok := msg.(tea.MouseMsg); ok && m.activeDialog == dialogSendTx {
-		inBounds := mouseMsg.Y == m.sendSubmitBtnY && mouseMsg.X >= m.sendSubmitBtnX1 && mouseMsg.X < m.sendSubmitBtnX2
-		switch mouseMsg.Type {
-		case tea.MouseLeft:
-			if inBounds {
-				return m.trySubmitSendForm()
-			}
-		case tea.MouseMotion:
-			m.sendSubmitBtnHovered = inBounds
+	// Generic clickable/hoverable region dispatch: must run before the
+	// text-input mouse-drop guard below, since several dialogs (e.g. the Send
+	// Transaction popup) make textInputActive() true and would otherwise
+	// swallow clicks on their own buttons before they're ever seen. A click
+	// landing on a registered region always wins regardless of focus state;
+	// anything that doesn't hit a region falls through unhandled.
+	if mouseMsg, ok := msg.(tea.MouseMsg); ok {
+		if updated, cmd, handled := m.dispatchRegionClick(mouseMsg); handled {
+			return updated, cmd
 		}
-		return m, nil
 	}
 
 	// Drop ALL mouse events when a text field is capturing input.
@@ -192,14 +187,6 @@ func (m *model) handleMouseMotion(mm tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.txQRScroll.Dragging {
 		m.txQRScroll.ApplyDrag(mm.Y, &m.txQRViewport)
-		return m, nil
-	}
-	wasHovered := m.sendButtonHovered
-	m.sendButtonHovered = m.activePage == config.PageWallets &&
-		m.detailsInWallets &&
-		m.activeDialog == dialogNone && m.sendBtnW > 0 &&
-		mm.Y == m.sendBtnY && mm.X >= m.sendBtnX && mm.X < m.sendBtnX+m.sendBtnW
-	if m.sendButtonHovered != wasHovered {
 		return m, nil
 	}
 	return m, nil
@@ -404,30 +391,10 @@ func (m *model) handleIndexerToggle() (tea.Model, tea.Cmd) {
 // -------------------- MOUSE HANDLER --------------------
 
 func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// Pool info popup captures all clicks.
+	// Pool info popup captures all other clicks while open (its OK button and
+	// ID-copy line are handled generically via dispatchRegionClick).
 	if m.activeDialog == dialogPoolInfo {
-		if msg.Type == tea.MouseLeft {
-			switch {
-			case msg.Y == m.poolInfoOKBtnY && msg.X >= m.poolInfoOKBtnX1 && msg.X < m.poolInfoOKBtnX2:
-				m.activeDialog = dialogNone
-				m.poolInfoData = nil
-				m.poolInfoErr = ""
-				m.poolInfoID = ""
-				m.poolInfoCopied = false
-				m.poolInfoKeyLoading = false
-				m.poolInfoKeyErr = ""
-			case msg.Y == m.poolInfoIDLineY && msg.X >= m.poolInfoIDLineX1 && msg.X < m.poolInfoIDLineX2:
-				return m, copyPoolIDToClipboard(m.poolInfoID)
-			}
-		}
 		return m, nil
-	}
-
-	// "Paste a signed transaction" button inside the scan-tx panel.
-	if m.activeDialog == dialogScanTx && msg.Type == tea.MouseLeft {
-		if msg.Y == m.pasteTxBtnY && msg.X >= m.pasteTxBtnX1 && msg.X < m.pasteTxBtnX2 {
-			return m.openPasteSignedTxDialog()
-		}
 	}
 
 	// Tx hash in the "Message Sent — Awaiting Confirmation" popup: double-click
@@ -567,19 +534,6 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 					return m.handleURLClick(url)
 				}
 			}
-		}
-	}
-
-	// Send button click.
-	if m.activePage == config.PageWallets && m.detailsInWallets &&
-		m.activeDialog == dialogNone && m.sendBtnW > 0 &&
-		msg.Y == m.sendBtnY && msg.X >= m.sendBtnX && msg.X < m.sendBtnX+m.sendBtnW {
-		if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
-			m.createSendForm()
-			m.activeDialog = dialogSendTx
-			m.sendButtonFocused = false
-			m.sendButtonHovered = false
-			return m, cmdEnableMouseCellMotion()
 		}
 	}
 

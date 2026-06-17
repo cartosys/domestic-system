@@ -19,6 +19,7 @@ import (
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -38,7 +39,7 @@ const (
 
 // -------------------- VIEW --------------------
 
-func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
+func (m *model) renderConfirmDialog(id, prompt string, yesSelected bool, onYes, onNo func(*model) (tea.Model, tea.Cmd)) string {
 	dialogBoxStyle := styles.DialogBox.Padding(1, 0)
 	buttonStyle := styles.ButtonNormal.MarginTop(1)
 	activeButtonStyle := styles.ButtonActive.MarginRight(2).MarginTop(1)
@@ -59,6 +60,32 @@ func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
 
 	dialog := dialogBoxStyle.Render(ui)
 
+	// dialogBoxStyle uses Padding(1, 0): border(1) + padding-top(1) = +2 rows,
+	// border(1) + padding-left(0) = +1 col (mirrors the +2/+3 convention used
+	// elsewhere for DialogBox's default Padding(1, 2), adjusted for this
+	// dialog's narrower horizontal padding).
+	dialogW := lipgloss.Width(dialog)
+	dialogH := lipgloss.Height(dialog)
+	startX := (m.w - dialogW) / 2
+	startY := (m.h - dialogH) / 2
+	contentLeft := startX + 1
+	buttonsRowY := startY + 2 + lipgloss.Height(question)
+
+	uiWidth := lipgloss.Width(question)
+	buttonsWidth := lipgloss.Width(buttons)
+	if buttonsWidth > uiWidth {
+		uiWidth = buttonsWidth
+	}
+	leftPad := (uiWidth - buttonsWidth) / 2
+
+	yesX1 := contentLeft + leftPad
+	yesX2 := yesX1 + lipgloss.Width(okButton)
+	noX1 := yesX2
+	noX2 := noX1 + lipgloss.Width(cancelButton)
+
+	m.registerRegion(id+".yes", uiRegionButton, yesX1, buttonsRowY, yesX2, buttonsRowY+1, func(m *model) (tea.Model, tea.Cmd) { return onYes(m) })
+	m.registerRegion(id+".no", uiRegionButton, noX1, buttonsRowY, noX2, buttonsRowY+1, func(m *model) (tea.Model, tea.Cmd) { return onNo(m) })
+
 	return lipgloss.Place(
 		m.w, m.h,
 		lipgloss.Center, lipgloss.Center,
@@ -66,14 +93,16 @@ func (m model) renderConfirmDialog(prompt string, yesSelected bool) string {
 	)
 }
 
-func (m model) renderDeleteDialog() string {
+func (m *model) renderDeleteDialog() string {
 	msg := helpers.FadeString("Are you sure you want to delete the account "+helpers.ShortenAddr(m.deleteDialogAddr)+"?", "#F25D94", "#EDFF82")
-	return m.renderConfirmDialog(msg, m.deleteDialogYesSelected)
+	return m.renderConfirmDialog("confirmDeleteWallet", msg, m.deleteDialogYesSelected,
+		(*model).confirmDeleteWalletYes, (*model).confirmDeleteWalletNo)
 }
 
-func (m model) renderRPCDeleteDialog() string {
+func (m *model) renderRPCDeleteDialog() string {
 	msg := helpers.FadeString("Are you sure you want to delete the RPC endpoint "+m.deleteRPCDialogName+"?", "#F25D94", "#EDFF82")
-	return m.renderConfirmDialog(msg, m.deleteRPCDialogYesSelected)
+	return m.renderConfirmDialog("confirmDeleteRPC", msg, m.deleteRPCDialogYesSelected,
+		(*model).confirmDeleteRPCYes, (*model).confirmDeleteRPCNo)
 }
 
 func (m *model) renderAccountListPopup() string {
@@ -339,7 +368,11 @@ func (m *model) renderPoolInfoPopup() string {
 
 	// "OK" button centred in 68 cols. ButtonPrimary has Padding(0,3) → 8 cols wide.
 	// Centre offset: (68-8)/2 = 30.
-	okButton := styles.ButtonPrimary.MarginTop(1).Render("OK")
+	okBtnStyle := styles.ButtonPrimary
+	if m.hoveredRegionID == "poolInfo.ok" {
+		okBtnStyle = styles.ButtonActive
+	}
+	okButton := okBtnStyle.MarginTop(1).Render("OK")
 	btnRowCentered := lipgloss.NewStyle().Align(lipgloss.Center).Width(68).Render(okButton)
 
 	// "Pool ID Copied" confirmation shown above OK button when copy succeeds.
@@ -371,13 +404,26 @@ func (m *model) renderPoolInfoPopup() string {
 	dialogStartX := (m.w - dialogW) / 2
 	dialogStartY := (m.h - dialogH) / 2
 	contentLeft := dialogStartX + 3
-	m.poolInfoIDLineY = dialogStartY + 3
-	m.poolInfoIDLineX1 = contentLeft
-	m.poolInfoIDLineX2 = contentLeft + 68
+	idLineY := dialogStartY + 3
+	idLineX1 := contentLeft
+	idLineX2 := contentLeft + 68
 	btnRowY := dialogStartY + dialogH - 3 // one row above bottom padding+border
-	m.poolInfoOKBtnY = btnRowY
-	m.poolInfoOKBtnX1 = contentLeft + 30
-	m.poolInfoOKBtnX2 = contentLeft + 30 + 8
+	btnX1 := contentLeft + 30
+	btnX2 := contentLeft + 30 + 8
+
+	m.registerRegion("poolInfo.idLine", uiRegionButton, idLineX1, idLineY, idLineX2, idLineY+1, func(m *model) (tea.Model, tea.Cmd) {
+		return m, copyPoolIDToClipboard(m.poolInfoID)
+	})
+	m.registerRegion("poolInfo.ok", uiRegionButton, btnX1, btnRowY, btnX2, btnRowY+1, func(m *model) (tea.Model, tea.Cmd) {
+		m.activeDialog = dialogNone
+		m.poolInfoData = nil
+		m.poolInfoErr = ""
+		m.poolInfoID = ""
+		m.poolInfoCopied = false
+		m.poolInfoKeyLoading = false
+		m.poolInfoKeyErr = ""
+		return m, nil
+	})
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
@@ -405,7 +451,10 @@ func (m *model) renderActiveOverlay() string {
 	case dialogPoolInfo:
 		return m.renderPoolInfoPopup()
 	case dialogTerraClaim:
-		return terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
+		popup, geo := terra.RenderClaimPopup(m.w, m.h, m.terraNullMsgInput.View(), m.terraNullMsgError, m.terraNullFormFocused)
+		m.registerRegion("terraClaim.submit", uiRegionButton, geo.ButtonX1, geo.ButtonY, geo.ButtonX2, geo.ButtonY+1,
+			func(m *model) (tea.Model, tea.Cmd) { return m.submitTerraClaim() })
+		return popup
 	case dialogEditWallet:
 		return m.renderEditWalletDialog()
 	case dialogAddWallet:
@@ -427,7 +476,7 @@ func (m *model) renderSendTxPopup() string {
 	formView := m.sendForm.View()
 
 	btnStyle := styles.ButtonNormal
-	if m.sendSubmitBtnHovered {
+	if m.hoveredRegionID == "sendPopup.submit" {
 		btnStyle = styles.ButtonActive
 	}
 	submitBtn := btnStyle.Render("Submit")
@@ -459,12 +508,15 @@ func (m *model) renderSendTxPopup() string {
 
 	// Rows above the button row inside ui: title(1) + blank(1) + form + blank(1).
 	btnRowOffset := lipgloss.Height(title) + 1 + lipgloss.Height(formView) + 1
-	m.sendSubmitBtnY = dialogStartY + 2 + btnRowOffset
+	btnRowY := dialogStartY + 2 + btnRowOffset
 
 	rowWidth := SendFormPopupWidth - 8
 	btnWidth := lipgloss.Width(submitBtn)
-	m.sendSubmitBtnX1 = contentLeft + (rowWidth-btnWidth)/2
-	m.sendSubmitBtnX2 = m.sendSubmitBtnX1 + btnWidth
+	btnX1 := contentLeft + (rowWidth-btnWidth)/2
+	btnX2 := btnX1 + btnWidth
+	m.registerRegion("sendPopup.submit", uiRegionButton, btnX1, btnRowY, btnX2, btnRowY+1, func(m *model) (tea.Model, tea.Cmd) {
+		return m.trySubmitSendForm()
+	})
 
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
@@ -564,6 +616,7 @@ func (m *model) renderRPCFormPopup() string {
 
 func (m *model) View() string {
 	m.clickableAreas = nil
+	m.uiRegions = nil
 	globalHdr := m.globalHeader()
 	headerPanel := styles.PanelStyle.Width(m.contentW).Render(globalHdr)
 
@@ -641,7 +694,7 @@ func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) 
 	if m.details.EthWei != nil && m.details.EthWei.Cmp(big.NewInt(0)) > 0 {
 		detailsBaseH = lipgloss.Height(detailsContent)
 		var btnStyle lipgloss.Style
-		if m.sendButtonFocused || m.sendButtonHovered {
+		if m.sendButtonFocused || m.hoveredRegionID == "wallets.sendButton" {
 			btnStyle = styles.ButtonActive.MarginTop(2)
 		} else {
 			btnStyle = styles.ButtonNormal.MarginTop(2)
@@ -652,8 +705,6 @@ func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) 
 			hint = "Press Enter to send"
 		}
 		detailsContent += "\n" + lipgloss.NewStyle().Foreground(styles.CSubtle).MarginTop(1).Render(hint)
-	} else {
-		m.sendBtnW = 0
 	}
 
 	listWidth := helpers.Max(0, (m.w*4)/10-2)
@@ -662,9 +713,15 @@ func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) 
 	leftPanelHeight := lipgloss.Height(leftPanel)
 
 	if detailsBaseH > 0 {
-		m.sendBtnX = listWidth + 5
-		m.sendBtnY = lipgloss.Height(headerPanel) + 2 + detailsBaseH + 3
-		m.sendBtnW = 10
+		sendBtnX := listWidth + 5
+		sendBtnY := lipgloss.Height(headerPanel) + 2 + detailsBaseH + 3
+		sendBtnW := 10
+		m.registerRegion("wallets.sendButton", uiRegionButton, sendBtnX, sendBtnY, sendBtnX+sendBtnW, sendBtnY+1, func(m *model) (tea.Model, tea.Cmd) {
+			m.createSendForm()
+			m.activeDialog = dialogSendTx
+			m.sendButtonFocused = false
+			return m, cmdEnableMouseCellMotion()
+		})
 	}
 
 	rightPanel := styles.PanelStyle.Width(detailsWidth+1).Height(leftPanelHeight-2).Render(detailsContent)

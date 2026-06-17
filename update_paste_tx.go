@@ -220,6 +220,23 @@ func (m *model) handlePasteSignedTxMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// submitPasteTxIfValid decodes and broadcasts the currently pasted hex if it
+// validates, returning ok=false (no state change) if it doesn't. Shared by
+// the textarea's single-Enter shortcut, huh's own StateCompleted submission,
+// and the popup's mouse-clickable Submit button.
+func (m *model) submitPasteTxIfValid() (tea.Model, tea.Cmd, bool) {
+	raw := strings.TrimSpace(tempPasteSignedTxHex)
+	decoded, err := rpc.DecodeSignedRawTx(raw)
+	if err != nil {
+		return m, nil, false
+	}
+	m.pasteTxChainID = decoded.ChainID
+	m.pasteTxForm = nil
+	m.pasteTxPhase = pasteTxPhaseSending
+	m.logInfo("Broadcasting pasted signed transaction…")
+	return m, broadcastSignedTx(m.ethClient, raw), true
+}
+
 // handlePasteSignedTxKey handles key presses for dialogPasteSignedTx,
 // branching by phase: form keys drive huh, the later phases mostly wait for
 // "any key" / ESC to dismiss.
@@ -243,13 +260,8 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// than completing the form. Intercept Enter here when the content
 		// already validates so the user only needs a single Enter to submit.
 		if msg.String() == "enter" {
-			raw := strings.TrimSpace(tempPasteSignedTxHex)
-			if decoded, err := rpc.DecodeSignedRawTx(raw); err == nil {
-				m.pasteTxChainID = decoded.ChainID
-				m.pasteTxForm = nil
-				m.pasteTxPhase = pasteTxPhaseSending
-				m.logInfo("Broadcasting pasted signed transaction…")
-				return m, broadcastSignedTx(m.ethClient, raw)
+			if updated, cmd, ok := m.submitPasteTxIfValid(); ok {
+				return updated, cmd
 			}
 			// Content not yet valid — fall through so huh can surface the
 			// validation error in the textarea UI.
@@ -262,14 +274,10 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pasteTxForm = f
 			switch m.pasteTxForm.State {
 			case huh.StateCompleted:
-				raw := tempPasteSignedTxHex
-				if decoded, err := rpc.DecodeSignedRawTx(raw); err == nil {
-					m.pasteTxChainID = decoded.ChainID
+				if updated, cmd, ok := m.submitPasteTxIfValid(); ok {
+					return updated, cmd
 				}
-				m.pasteTxForm = nil
-				m.pasteTxPhase = pasteTxPhaseSending
-				m.logInfo("Broadcasting pasted signed transaction…")
-				return m, broadcastSignedTx(m.ethClient, raw)
+				return m, nil
 			case huh.StateAborted:
 				return m.closePasteSignedTxDialog()
 			}
@@ -328,14 +336,47 @@ func (m *model) renderPasteTxFormPhase() string {
 	if m.pasteTxForm == nil {
 		return ""
 	}
+	formView := m.pasteTxForm.View()
+
+	btnStyle := styles.ButtonNormal
+	if m.hoveredRegionID == "pasteTx.submit" {
+		btnStyle = styles.ButtonActive
+	}
+	submitBtn := btnStyle.Render("Submit")
+	btnRow := lipgloss.NewStyle().
+		Width(pasteSignedTxDialogWidth - 4).
+		Align(lipgloss.Center).
+		Render(submitBtn)
+
+	title := m.pasteTxDialogTitle("◉ Paste Signed Transaction")
+	preview := formatSignedTxPreview(tempPasteSignedTxHex)
 	body := lipgloss.JoinVertical(lipgloss.Left,
-		m.pasteTxDialogTitle("◉ Paste Signed Transaction"),
+		title,
 		"",
-		formatSignedTxPreview(tempPasteSignedTxHex),
+		preview,
 		"",
-		m.pasteTxForm.View(),
+		formView,
+		"",
+		btnRow,
 	)
 	dialog := styles.DialogBox.Width(pasteSignedTxDialogWidth).Render(body)
+
+	dialogW := lipgloss.Width(dialog)
+	dialogH := lipgloss.Height(dialog)
+	startX := (m.w - dialogW) / 2
+	startY := (m.h - dialogH) / 2
+	contentLeft := startX + 3 // border(1) + padding-left(2), DialogBox default Padding(1,2)
+
+	btnRowOffset := lipgloss.Height(title) + 1 + lipgloss.Height(preview) + 1 + lipgloss.Height(formView) + 1
+	btnRowY := startY + 2 + btnRowOffset
+	rowWidth := pasteSignedTxDialogWidth - 4
+	btnX1 := contentLeft + (rowWidth-lipgloss.Width(submitBtn))/2
+	btnX2 := btnX1 + lipgloss.Width(submitBtn)
+	m.registerRegion("pasteTx.submit", uiRegionButton, btnX1, btnRowY, btnX2, btnRowY+1, func(m *model) (tea.Model, tea.Cmd) {
+		updated, cmd, _ := m.submitPasteTxIfValid()
+		return updated, cmd
+	})
+
 	return styles.AppStyle.Render(lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog))
 }
 

@@ -4,15 +4,22 @@ go 1.25.5
 
 require (
 	github.com/atotto/clipboard v0.1.4
+	github.com/blackjack/webcam v0.6.1
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/huh v0.7.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/log v0.4.2
+	github.com/charmbracelet/x/ansi v0.11.4
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/lucasb-eyer/go-colorful v1.3.0
+	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/muesli/gamut v0.3.1
+	github.com/pion/mediadevices v0.9.4
+	github.com/wealdtech/go-ens/v3 v3.6.0
+	golang.org/x/image v0.39.0
+	modernc.org/sqlite v1.47.0
 )
 
 require (
@@ -21,10 +28,8 @@ require (
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
-	github.com/blackjack/webcam v0.6.1 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
-	github.com/charmbracelet/x/ansi v0.11.4 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.14 // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20260119114936-fd556377ea59 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
@@ -50,7 +55,6 @@ require (
 	github.com/ipfs/go-cid v0.4.1 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
-	github.com/makiuchi-d/gozxing v0.1.1 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
@@ -74,7 +78,6 @@ require (
 	github.com/pion/interceptor v0.1.42 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.1.0 // indirect
-	github.com/pion/mediadevices v0.9.4 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.16 // indirect
 	github.com/pion/rtp v1.8.26 // indirect
@@ -94,14 +97,12 @@ require (
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	github.com/wealdtech/go-ens/v3 v3.6.0 // indirect
 	github.com/wealdtech/go-multicodec v1.4.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/image v0.39.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
@@ -113,6 +114,5 @@ require (
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.47.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )

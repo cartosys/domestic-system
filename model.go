@@ -133,6 +133,11 @@ type model struct {
 	// clickable areas for mouse support
 	clickableAreas []config.ClickableArea
 
+	// generic clickable/focusable region registry, rebuilt every View() call
+	uiRegions       []uiRegion
+	hoveredRegionID string
+	focusedRegionID string
+
 	// logger panel
 	logEnabled  bool
 	logger      *log.Logger
@@ -160,17 +165,11 @@ type model struct {
 
 	// send button state
 	sendButtonFocused  bool
-	sendButtonHovered  bool
-	sendBtnX, sendBtnY, sendBtnW int
 	sendForm           *huh.Form
 
-	// send tx popup submit button state
-	sendSubmitBtnHovered     bool
-	sendSubmitBtnY           int
-	sendSubmitBtnX1          int
-	sendSubmitBtnX2          int
-	sendFormError            string
-	sendFormErrTime          time.Time
+	// send tx popup state
+	sendFormError   string
+	sendFormErrTime time.Time
 
 	// transaction result panel state
 	txResultPackaging  bool
@@ -260,12 +259,6 @@ type model struct {
 	poolInfoErr        string
 	poolInfoKeyLoading bool
 	poolInfoKeyErr     string
-	poolInfoOKBtnY   int // terminal row of the OK button
-	poolInfoOKBtnX1  int // left column (inclusive)
-	poolInfoOKBtnX2  int // right column (exclusive)
-	poolInfoIDLineY  int // terminal row of the clickable pool ID line
-	poolInfoIDLineX1 int
-	poolInfoIDLineX2 int
 	poolInfoCopied   bool // true briefly after a successful copy
 
 	logScroll   scrollbar.State // scrollbar state for the log panel
@@ -291,11 +284,6 @@ type model struct {
 	webcamErrStr    string
 	webcamLogVP     viewport.Model
 	webcamLogScroll scrollbar.State
-
-	// "Paste a signed transaction" button hit-test (rendered inside dialogScanTx)
-	pasteTxBtnY  int
-	pasteTxBtnX1 int
-	pasteTxBtnX2 int
 
 	// Paste-signed-transaction dialog state (used by dialogPasteSignedTx)
 	pasteTxForm      *huh.Form

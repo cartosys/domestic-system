@@ -10,6 +10,28 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// submitTerraClaim validates and packages the Terra Nullius claim message.
+// Shared by the keyboard Enter-on-button path and the popup's mouse-clickable
+// "Send Claim" button.
+func (m *model) submitTerraClaim() (tea.Model, tea.Cmd) {
+	msgVal := strings.TrimSpace(m.terraNullMsgInput.Value())
+	if msgVal == "" {
+		m.terraNullMsgError = "must not be blank"
+		m.terraNullFormFocused = 0
+		return m, m.terraNullMsgInput.Focus()
+	}
+	m.terraNullMsgError = ""
+	m.activeDialog = dialogNone
+	m.terraNullMsgInput.Blur()
+	m.logInfo(fmt.Sprintf("Terra Nullius: packaging claim → \"%s\"", msgVal))
+	m.activeDialog = dialogTxResult
+	m.txResultPackaging = true
+	m.txResultHex = ""
+	m.txResultError = ""
+	m.txResultFormat = "EIP-4527"
+	return m, packageTerraClaimTx(m.activeAddress, msgVal, m.rpcURL)
+}
+
 func (m *model) handleTerraClaimPopupMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch keyMsg.String() {
@@ -42,23 +64,7 @@ func (m *model) handleTerraClaimPopupMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.terraNullFormFocused = 1
 				m.terraNullMsgInput.Blur()
 			} else {
-				// Submit
-				msgVal := strings.TrimSpace(m.terraNullMsgInput.Value())
-				if msgVal == "" {
-					m.terraNullMsgError = "must not be blank"
-					m.terraNullFormFocused = 0
-					return m, m.terraNullMsgInput.Focus()
-				}
-				m.terraNullMsgError = ""
-				m.activeDialog = dialogNone
-				m.terraNullMsgInput.Blur()
-				m.logInfo(fmt.Sprintf("Terra Nullius: packaging claim → \"%s\"", msgVal))
-				m.activeDialog = dialogTxResult
-				m.txResultPackaging = true
-				m.txResultHex = ""
-				m.txResultError = ""
-				m.txResultFormat = "EIP-4527"
-				return m, packageTerraClaimTx(m.activeAddress, msgVal, m.rpcURL)
+				return m.submitTerraClaim()
 			}
 			return m, nil
 		}

@@ -111,14 +111,6 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.webcamRendered = render.ImageToHalfBlocks(msg.img, videoW, videoH*2)
 		}
 		if msg.qrText != "" {
-			// Signer mode: auto-decode and sign EIP-4527 QR codes, then close webcam
-			if m.signerScanMode && strings.HasPrefix(strings.ToLower(msg.qrText), "ur:eth-sign-request/") {
-				m.signerScanMode = false
-				urText := msg.qrText
-				keys := m.signerKeys
-				newModel, closeCmd := m.closeScanTxDialog()
-				return newModel, tea.Batch(closeCmd, signEIP4527(urText, keys)), true
-			}
 			entry := formatQREntry(msg.qrText)
 			m.webcamScanLog = append([]string{entry}, m.webcamScanLog...)
 			if len(m.webcamScanLog) > 50 {
@@ -140,7 +132,7 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			// No camera / camera error during the "scan signed tx response"
 			// flow: fall straight through to the paste-a-signed-tx form,
 			// focused and ready — there's nothing useful to show otherwise.
-			if m.activeDialog == dialogScanTx && !m.signerScanMode {
+			if m.activeDialog == dialogScanTx {
 				newModel, cmd := m.openPasteSignedTxDialog()
 				return newModel, cmd, true
 			}
@@ -228,7 +220,11 @@ func (m *model) renderScanTxPanel() string {
 
 	// "Paste a signed transaction" button — alternate input path to scanning,
 	// always available; auto-triggered instead when the camera errors out.
-	pasteBtn := styles.ButtonNormal.Render("Paste a signed transaction")
+	pasteBtnStyle := styles.ButtonNormal
+	if m.hoveredRegionID == "scanTx.pasteButton" {
+		pasteBtnStyle = styles.ButtonActive
+	}
+	pasteBtn := pasteBtnStyle.Render("Paste a signed transaction")
 
 	// Compute scroll/button hit-test coordinates.
 	// Panel is centered: left edge = (m.w - panelW) / 2, top = (m.h - panelOuterH) / 2.
@@ -247,9 +243,11 @@ func (m *model) renderScanTxPanel() string {
 
 	// Button row = panelTop + 1(border) + 1(padding) + 1(title) + 1(blank) + videoH
 	//            + 1(blank) + 1(divider) + 1(logTitle) + logH + 1(blank)
-	m.pasteTxBtnY = panelTopY + 8 + videoH + logH
-	m.pasteTxBtnX1 = panelLeftX + 1 + 2
-	m.pasteTxBtnX2 = m.pasteTxBtnX1 + lipgloss.Width(pasteBtn)
+	pasteTxBtnY := panelTopY + 8 + videoH + logH
+	pasteTxBtnX1 := panelLeftX + 1 + 2
+	pasteTxBtnX2 := pasteTxBtnX1 + lipgloss.Width(pasteBtn)
+	m.registerRegion("scanTx.pasteButton", uiRegionButton, pasteTxBtnX1, pasteTxBtnY, pasteTxBtnX2, pasteTxBtnY+1,
+		func(m *model) (tea.Model, tea.Cmd) { return m.openPasteSignedTxDialog() })
 
 	hint := muteStyle.Render("↑/↓ scroll log   p paste signed tx   ESC to close")
 

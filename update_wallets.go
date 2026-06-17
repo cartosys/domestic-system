@@ -157,6 +157,40 @@ func (m *model) trySubmitSendForm() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(packageTransaction(m.activeAddress, addr, tempSendAmount, m.rpcURL), cmdEnableMouseAllMotion())
 }
 
+// confirmDeleteWalletYes deletes the wallet pending confirmation. Shared by
+// the keyboard Enter-on-Yes path and the dialog's mouse-clickable Yes button.
+func (m *model) confirmDeleteWalletYes() (tea.Model, tea.Cmd) {
+	idx := m.deleteDialogIdx
+	deletedAddr := m.deleteDialogAddr
+	m.accounts = append(m.accounts[:idx], m.accounts[idx+1:]...)
+	if m.selectedWallet >= len(m.accounts) && m.selectedWallet > 0 {
+		m.selectedWallet--
+	}
+	if len(m.accounts) > 0 {
+		m.highlightedAddress = m.accounts[m.selectedWallet].Address
+		m.activeAddress = ""
+		for _, w := range m.accounts {
+			if w.Active {
+				m.activeAddress = w.Address
+				break
+			}
+		}
+	} else {
+		m.highlightedAddress = ""
+		m.activeAddress = ""
+	}
+	config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
+	m.logWarn(fmt.Sprintf("Deleted wallet `%s`", helpers.ShortenAddr(deletedAddr)))
+	m.activeDialog = dialogNone
+	return m, m.loadSelectedWalletDetails()
+}
+
+// confirmDeleteWalletNo cancels the pending wallet deletion.
+func (m *model) confirmDeleteWalletNo() (tea.Model, tea.Cmd) {
+	m.activeDialog = dialogNone
+	return m, nil
+}
+
 func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle delete confirmation dialog
 	if m.activeDialog == dialogDeleteWallet {
@@ -168,39 +202,9 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			// Execute based on selected button
 			if m.deleteDialogYesSelected {
-				// Confirm deletion (Yes button)
-				idx := m.deleteDialogIdx
-				deletedAddr := m.deleteDialogAddr
-				m.accounts = append(m.accounts[:idx], m.accounts[idx+1:]...)
-				// Update selected index
-				if m.selectedWallet >= len(m.accounts) && m.selectedWallet > 0 {
-					m.selectedWallet--
-				}
-				// Update highlighted address and check if active was deleted
-				if len(m.accounts) > 0 {
-					m.highlightedAddress = m.accounts[m.selectedWallet].Address
-					// Update active address if needed
-					m.activeAddress = ""
-					for _, w := range m.accounts {
-						if w.Active {
-							m.activeAddress = w.Address
-							break
-						}
-					}
-				} else {
-					m.highlightedAddress = ""
-					m.activeAddress = ""
-				}
-				// Save wallets to config
-				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-				m.logWarn(fmt.Sprintf("Deleted wallet `%s`", helpers.ShortenAddr(deletedAddr)))
-				m.activeDialog = dialogNone
-				// Load details for the newly selected wallet if split view is enabled
-				return m, m.loadSelectedWalletDetails()
+				return m.confirmDeleteWalletYes()
 			}
-			// Cancel deletion (No button)
-			m.activeDialog = dialogNone
-			return m, nil
+			return m.confirmDeleteWalletNo()
 		case "esc":
 			// Cancel deletion
 			m.activeDialog = dialogNone

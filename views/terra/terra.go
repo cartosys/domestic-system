@@ -191,9 +191,20 @@ func Render(
 		Render(content)
 }
 
+// ClaimPopupGeometry reports screen-space hit-test rectangles for the
+// clickable elements of RenderClaimPopup, computed from the same
+// JoinVertical(Center, ...) layout actually rendered — measured directly
+// rather than re-derived from style internals, so it stays correct if the
+// styles change.
+type ClaimPopupGeometry struct {
+	InputY, InputX1, InputX2   int
+	ButtonY, ButtonX1, ButtonX2 int
+}
+
 // RenderClaimPopup renders the claim form as a centered full-screen overlay.
-// inputView is the already-rendered textinput.Model view string.
-func RenderClaimPopup(width, height int, inputView, inputErr string, formFocused int) string {
+// inputView is the already-rendered textinput.Model view string. Returns the
+// rendered popup plus hit-test geometry for the input box and Send Claim button.
+func RenderClaimPopup(width, height int, inputView, inputErr string, formFocused int) (string, ClaimPopupGeometry) {
 	const popupWidth = 58
 
 	titleStyle := lipgloss.NewStyle().
@@ -255,11 +266,13 @@ func RenderClaimPopup(width, height int, inputView, inputErr string, formFocused
 	uiParts = append(uiParts, promptStyle.Render("Make a statement on the blockchain forever:"))
 	uiParts = append(uiParts, "")
 	uiParts = append(uiParts, inputLabelStyle.Render("Message"))
+	inputBoxIdx := len(uiParts)
 	uiParts = append(uiParts, inputBox)
 	if errDisplay != "" {
 		uiParts = append(uiParts, errDisplay)
 	}
 	uiParts = append(uiParts, "")
+	submitBtnIdx := len(uiParts)
 	uiParts = append(uiParts, submitBtn)
 	uiParts = append(uiParts, "")
 	uiParts = append(uiParts, helpText)
@@ -267,9 +280,45 @@ func RenderClaimPopup(width, height int, inputView, inputErr string, formFocused
 	ui := lipgloss.JoinVertical(lipgloss.Center, uiParts...)
 	box := boxStyle.Render(ui)
 
+	// Replicate JoinVertical(Center, ...)'s own centering math (pad every line
+	// to the widest part, then center each within that) to compute screen-space
+	// hit-test rectangles, rather than re-deriving offsets from style internals.
+	maxW := 0
+	for _, p := range uiParts {
+		if w := lipgloss.Width(p); w > maxW {
+			maxW = w
+		}
+	}
+	rowY := func(idx int) int {
+		y := 0
+		for i := 0; i < idx; i++ {
+			y += lipgloss.Height(uiParts[i])
+		}
+		return y
+	}
+	colX := func(s string) int {
+		return (maxW - lipgloss.Width(s)) / 2
+	}
+
+	boxW := lipgloss.Width(box)
+	boxH := lipgloss.Height(box)
+	startX := (width - boxW) / 2
+	startY := (height - boxH) / 2
+	contentLeft := startX + 1 + 4 // border(1) + padding-left(4)
+	contentTop := startY + 1 + 1  // border(1) + padding-top(1)
+
+	geo := ClaimPopupGeometry{
+		InputY:  contentTop + rowY(inputBoxIdx),
+		InputX1: contentLeft + colX(inputBox),
+		InputX2: contentLeft + colX(inputBox) + lipgloss.Width(inputBox),
+		ButtonY: contentTop + rowY(submitBtnIdx),
+		ButtonX1: contentLeft + colX(submitBtn),
+		ButtonX2: contentLeft + colX(submitBtn) + lipgloss.Width(submitBtn),
+	}
+
 	return lipgloss.Place(
 		width, height,
 		lipgloss.Center, lipgloss.Center,
 		box,
-	)
+	), geo
 }

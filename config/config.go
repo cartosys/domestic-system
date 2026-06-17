@@ -48,7 +48,6 @@ const (
 	PageDappBrowser
 	PageUniswap
 	PageTerraNullius
-	PageSigner
 )
 
 // ClickableArea represents a clickable region on screen for addresses
@@ -87,14 +86,14 @@ func DefaultConfig() Config {
 	return Config{
 		RPCURLs: []RPCUrl{
 			{
-				Name:   "Public Mainnet",
-				URL:    "https://ethereum-rpc.publicnode.com",
+				Name:   "Sepolia Testnet",
+				URL:    "https://ethereum-sepolia-rpc.publicnode.com",
 				Active: true,
 			},
 		},
 		Wallets: []WalletEntry{
 			{
-				Name:    "vitalik.eth",
+				Name:    "Demo Wallet",
 				Address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
 				Active:  true,
 			},
