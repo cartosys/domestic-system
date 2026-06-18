@@ -49,6 +49,7 @@ func (m model) scanPanelDims() (panelW, innerW, videoH, logH int) {
 // openScanTxDialog starts the webcam and transitions to dialogScanTx.
 func (m *model) openScanTxDialog() (tea.Model, tea.Cmd) {
 	m.activeDialog = dialogScanTx
+	m.urReassembler = nil
 	m.webcamActive = true
 	m.webcamRendered = ""
 	m.webcamScanLog = nil
@@ -64,6 +65,7 @@ func (m *model) openScanTxDialog() (tea.Model, tea.Cmd) {
 func (m *model) closeScanTxDialog() (tea.Model, tea.Cmd) {
 	m.activeDialog = dialogNone
 	m.webcamActive = false
+	m.urReassembler = nil
 	if m.webcamCam != nil {
 		cam := m.webcamCam
 		m.webcamCam = nil
@@ -75,6 +77,70 @@ func (m *model) closeScanTxDialog() (tea.Model, tea.Cmd) {
 	}
 	m.webcamFrameCh = nil
 	return m, nil
+}
+
+// handleScannedURFrame processes one scanned QR frame that starts with
+// "ur:" — almost certainly an EIP-4527 eth-signature reply from an offline
+// signer. It accumulates multi-part frames via m.urReassembler, and once a
+// full message is assembled, matches it against the tx the wallet is
+// currently displaying (m.txResultHex, the active send/swap step's packaged
+// JSON) by request-id. On a match it recombines the signature with that
+// tx's fields into a final signed transaction and routes into the same
+// paste-tx review dialog used for plain signed-tx hex, with Submit
+// pre-focused. Anything that doesn't match just logs a warning and keeps
+// scanning — there's no destructive action to undo here.
+func (m *model) handleScannedURFrame(urString string) (tea.Model, tea.Cmd) {
+	frame, err := rpc.DecodeURFrame(urString)
+	if err != nil {
+		m.logWarn("Malformed UR QR: " + err.Error())
+		return m, waitForWebcamFrame(m.webcamFrameCh)
+	}
+
+	if m.urReassembler == nil || !m.urReassembler.Matches(frame) {
+		m.urReassembler = rpc.NewURReassembler(frame)
+	}
+	cborData, complete, err := m.urReassembler.AddFrame(frame)
+	if err != nil {
+		m.logWarn("UR reassembly failed: " + err.Error())
+		m.urReassembler = nil
+		return m, waitForWebcamFrame(m.webcamFrameCh)
+	}
+	if !complete {
+		m.logInfo(fmt.Sprintf("Received UR part %d/%d for %s", frame.PartIndex, frame.PartTotal, frame.Type))
+		return m, waitForWebcamFrame(m.webcamFrameCh)
+	}
+	m.urReassembler = nil
+
+	if frame.Type != "eth-signature" {
+		m.logWarn("Ignoring unsupported UR type: " + frame.Type)
+		return m, waitForWebcamFrame(m.webcamFrameCh)
+	}
+
+	reqID, signature, err := rpc.DecodeEthSignature(cborData)
+	if err != nil {
+		m.logWarn("Could not parse eth-signature: " + err.Error())
+		return m, waitForWebcamFrame(m.webcamFrameCh)
+	}
+
+	to, value, nonce, tip, maxFee, gasLimit, chainID, data, pendingReqID, err := rpc.ParsePackagedTxJSON(m.txResultHex)
+	if err != nil || pendingReqID != reqID {
+		m.logWarn("Scanned signature does not match the displayed transaction request")
+		return m, waitForWebcamFrame(m.webcamFrameCh)
+	}
+
+	rawHex, err := rpc.AssembleSignedTx(chainID, nonce, tip, maxFee, gasLimit, to, value, data, signature)
+	if err != nil {
+		m.logWarn("Failed to assemble signed transaction: " + err.Error())
+		return m, waitForWebcamFrame(m.webcamFrameCh)
+	}
+
+	updated, formCmd := m.openPasteSignedTxDialogWithHex(rawHex)
+	um, ok := updated.(*model)
+	if !ok {
+		return updated, formCmd
+	}
+	um.pasteTxButtonFocused = true
+	return um, tea.Batch(formCmd, um.pasteTxFormField.Blur())
 }
 
 func (m *model) handleScanTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -128,7 +194,22 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			// rather than the scan staying stuck on the camera feed.
 			trimmed := strings.TrimSpace(msg.qrText)
 			if _, err := rpc.DecodeSignedRawTx(trimmed); err == nil {
-				updated, cmd := m.openPasteSignedTxDialogWithHex(trimmed)
+				updated, formCmd := m.openPasteSignedTxDialogWithHex(trimmed)
+				um, ok := updated.(*model)
+				if !ok {
+					return updated, formCmd, true
+				}
+				um.pasteTxButtonFocused = true
+				return um, tea.Batch(formCmd, um.pasteTxFormField.Blur()), true
+			}
+
+			// Otherwise, check whether this is an EIP-4527 ur:eth-signature
+			// reply from an offline signer (a UR-wrapped CBOR signature, not
+			// plain hex). Recombine it with the tx fields the wallet itself
+			// packaged (held in m.txResultHex, the currently-displayed
+			// step's JSON) to produce the final signed transaction.
+			if strings.HasPrefix(trimmed, "ur:") {
+				updated, cmd := m.handleScannedURFrame(trimmed)
 				return updated, cmd, true
 			}
 		} else {

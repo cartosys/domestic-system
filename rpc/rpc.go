@@ -450,6 +450,7 @@ func BuildUnsignedTxEIP4527(from, to common.Address, value *big.Int, gasLimit ui
 		"gasLimit":             fmt.Sprintf("0x%x", gasLimit),
 		"chainId":              fmt.Sprintf("0x%x", chainID),
 		"type":                 "0x2",
+		"requestId":            hex.EncodeToString(requestID[:]),
 	}
 	if len(data) > 0 {
 		txFields["data"] = "0x" + hex.EncodeToString(data)
@@ -879,4 +880,391 @@ func GenerateAnimatedQRFrames(urString string, maxChunkBytes int) ([]string, err
 		frames[i] = generateQRCodeCompact(frameUR)
 	}
 	return frames, nil
+}
+
+// -------------------- EIP-4527 inbound signature decoding --------------------
+//
+// The functions below are the read-side counterpart to the UR/bytewords/CBOR
+// encoders above. They let the wallet recognize a real EIP-4527 offline
+// signer's reply (ur:eth-signature, a CBOR map carrying only a 65-byte
+// signature and the request-id it answers) and recombine it with the tx
+// fields the wallet itself already packaged, to produce a broadcastable
+// signed transaction. No private key ever touches this code path — only a
+// signature the user's own external signer already produced.
+
+// cborTag wraps a CBOR tagged value (major type 6), e.g. tag(37) for a UUID.
+type cborTag struct {
+	tag   uint64
+	value interface{}
+}
+
+// decodeCBORItem decodes a single CBOR data item from the front of data,
+// returning the decoded value and the remaining unconsumed bytes. It covers
+// just enough of the spec (major types 0,2,3,4,5,6 with short/8/16/32-bit
+// length encodings) to parse the small, flat maps EIP-4527 messages use —
+// it is not a general-purpose CBOR decoder.
+func decodeCBORItem(data []byte) (interface{}, []byte, error) {
+	if len(data) == 0 {
+		return nil, nil, fmt.Errorf("unexpected end of CBOR data")
+	}
+	major := data[0] >> 5
+	arg := data[0] & 0x1F
+	rest := data[1:]
+
+	readLength := func() (uint64, []byte, error) {
+		switch {
+		case arg <= 23:
+			return uint64(arg), rest, nil
+		case arg == 24:
+			if len(rest) < 1 {
+				return 0, nil, fmt.Errorf("truncated 1-byte length")
+			}
+			return uint64(rest[0]), rest[1:], nil
+		case arg == 25:
+			if len(rest) < 2 {
+				return 0, nil, fmt.Errorf("truncated 2-byte length")
+			}
+			return uint64(rest[0])<<8 | uint64(rest[1]), rest[2:], nil
+		case arg == 26:
+			if len(rest) < 4 {
+				return 0, nil, fmt.Errorf("truncated 4-byte length")
+			}
+			return uint64(rest[0])<<24 | uint64(rest[1])<<16 | uint64(rest[2])<<8 | uint64(rest[3]), rest[4:], nil
+		default:
+			return 0, nil, fmt.Errorf("unsupported CBOR length encoding (arg=%d)", arg)
+		}
+	}
+
+	switch major {
+	case 0: // unsigned int
+		v, r, err := readLength()
+		return v, r, err
+	case 2: // byte string
+		n, r, err := readLength()
+		if err != nil {
+			return nil, nil, err
+		}
+		if uint64(len(r)) < n {
+			return nil, nil, fmt.Errorf("truncated byte string: want %d, have %d", n, len(r))
+		}
+		return append([]byte{}, r[:n]...), r[n:], nil
+	case 3: // text string
+		n, r, err := readLength()
+		if err != nil {
+			return nil, nil, err
+		}
+		if uint64(len(r)) < n {
+			return nil, nil, fmt.Errorf("truncated text string: want %d, have %d", n, len(r))
+		}
+		return string(r[:n]), r[n:], nil
+	case 4: // array
+		n, r, err := readLength()
+		if err != nil {
+			return nil, nil, err
+		}
+		items := make([]interface{}, 0, n)
+		for i := uint64(0); i < n; i++ {
+			var item interface{}
+			item, r, err = decodeCBORItem(r)
+			if err != nil {
+				return nil, nil, err
+			}
+			items = append(items, item)
+		}
+		return items, r, nil
+	case 5: // map
+		n, r, err := readLength()
+		if err != nil {
+			return nil, nil, err
+		}
+		m := make(map[uint64]interface{}, n)
+		for i := uint64(0); i < n; i++ {
+			var keyVal, val interface{}
+			keyVal, r, err = decodeCBORItem(r)
+			if err != nil {
+				return nil, nil, err
+			}
+			key, ok := keyVal.(uint64)
+			if !ok {
+				return nil, nil, fmt.Errorf("unsupported non-uint CBOR map key")
+			}
+			val, r, err = decodeCBORItem(r)
+			if err != nil {
+				return nil, nil, err
+			}
+			m[key] = val
+		}
+		return m, r, nil
+	case 6: // tag
+		tag, r, err := readLength()
+		if err != nil {
+			return nil, nil, err
+		}
+		inner, r, err := decodeCBORItem(r)
+		if err != nil {
+			return nil, nil, err
+		}
+		return cborTag{tag: tag, value: inner}, r, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported CBOR major type %d", major)
+	}
+}
+
+// URFrame is one decoded "ur:TYPE/BYTEWORDS" or "ur:TYPE/i-of-m/BYTEWORDS" QR
+// frame. PartIndex/PartTotal are 1/1 for a single-part UR.
+type URFrame struct {
+	Type      string
+	PartIndex int
+	PartTotal int
+	MsgCRC    uint32
+	Fragment  []byte
+}
+
+// DecodeURFrame parses one scanned QR's text as a UR frame, verifying its
+// CRC32 checksum. It is the inverse of the encoding GenerateAnimatedQRFrames
+// (and the single-part path in BuildUnsignedTxEIP4527) performs.
+func DecodeURFrame(urString string) (URFrame, error) {
+	if !strings.HasPrefix(urString, "ur:") {
+		return URFrame{}, fmt.Errorf("not a UR string")
+	}
+	rest := urString[3:]
+	segments := strings.Split(rest, "/")
+
+	var urType, bwStr string
+	partIndex, partTotal := 1, 1
+	switch len(segments) {
+	case 2:
+		urType, bwStr = segments[0], segments[1]
+	case 3:
+		urType, bwStr = segments[0], segments[2]
+		var n, total int
+		if _, err := fmt.Sscanf(segments[1], "%d-%d", &n, &total); err != nil {
+			return URFrame{}, fmt.Errorf("invalid sequence component %q: %w", segments[1], err)
+		}
+		partIndex, partTotal = n, total
+	default:
+		return URFrame{}, fmt.Errorf("malformed UR string")
+	}
+
+	payload, err := decodeBytewordsMinimal(strings.ToLower(bwStr))
+	if err != nil {
+		return URFrame{}, fmt.Errorf("bytewords decode: %w", err)
+	}
+	if len(payload) < 5 {
+		return URFrame{}, fmt.Errorf("UR payload too short")
+	}
+	body := payload[:len(payload)-4]
+	storedCRC := uint32(payload[len(payload)-4])<<24 |
+		uint32(payload[len(payload)-3])<<16 |
+		uint32(payload[len(payload)-2])<<8 |
+		uint32(payload[len(payload)-1])
+	if crc32.ChecksumIEEE(body) != storedCRC {
+		return URFrame{}, fmt.Errorf("CRC32 mismatch in UR frame")
+	}
+
+	if partTotal == 1 {
+		return URFrame{Type: urType, PartIndex: 1, PartTotal: 1, MsgCRC: crc32.ChecksumIEEE(body), Fragment: body}, nil
+	}
+
+	// Multi-part: body is CBOR array(5)[seqNum, seqLen, msgLen, msgCRC, fragment].
+	item, _, err := decodeCBORItem(body)
+	if err != nil {
+		return URFrame{}, fmt.Errorf("multi-part body decode: %w", err)
+	}
+	arr, ok := item.([]interface{})
+	if !ok || len(arr) != 5 {
+		return URFrame{}, fmt.Errorf("multi-part body is not a 5-element array")
+	}
+	msgCRC64, ok := arr[3].(uint64)
+	if !ok {
+		return URFrame{}, fmt.Errorf("multi-part msgCRC field is not a uint")
+	}
+	fragment, ok := arr[4].([]byte)
+	if !ok {
+		return URFrame{}, fmt.Errorf("multi-part fragment field is not bytes")
+	}
+	return URFrame{Type: urType, PartIndex: partIndex, PartTotal: partTotal, MsgCRC: uint32(msgCRC64), Fragment: fragment}, nil
+}
+
+// URReassembler accumulates sequential (non-fountain) UR frames belonging to
+// one multi-part message until all parts have arrived. A single-part frame
+// completes immediately on the first AddFrame call.
+type URReassembler struct {
+	urType string
+	msgCRC uint32
+	total  int
+	parts  map[int][]byte
+}
+
+// NewURReassembler starts a reassembly session for the message that first
+// produced f.
+func NewURReassembler(f URFrame) *URReassembler {
+	r := &URReassembler{urType: f.Type, msgCRC: f.MsgCRC, total: f.PartTotal, parts: make(map[int][]byte)}
+	return r
+}
+
+// Matches reports whether f belongs to the message this reassembler is
+// already collecting parts for.
+func (r *URReassembler) Matches(f URFrame) bool {
+	return r != nil && r.urType == f.Type && r.msgCRC == f.MsgCRC
+}
+
+// AddFrame records f's fragment and, once every part 1..total has arrived,
+// returns the fully reassembled message bytes with complete=true.
+func (r *URReassembler) AddFrame(f URFrame) ([]byte, bool, error) {
+	if f.PartTotal == 1 {
+		return f.Fragment, true, nil
+	}
+	r.parts[f.PartIndex] = f.Fragment
+	if len(r.parts) < r.total {
+		return nil, false, nil
+	}
+	var assembled []byte
+	for i := 1; i <= r.total; i++ {
+		frag, ok := r.parts[i]
+		if !ok {
+			return nil, false, nil
+		}
+		assembled = append(assembled, frag...)
+	}
+	if crc32.ChecksumIEEE(assembled) != r.msgCRC {
+		return nil, false, fmt.Errorf("reassembled message CRC32 mismatch")
+	}
+	return assembled, true, nil
+}
+
+// DecodeEthSignature parses an EIP-4527 eth-signature CBOR map: key 1 is the
+// tag(37) 16-byte request-id, key 2 is the 65-byte raw signature (r||s||v).
+func DecodeEthSignature(cborData []byte) (requestID [16]byte, signature [65]byte, err error) {
+	item, _, err := decodeCBORItem(cborData)
+	if err != nil {
+		return requestID, signature, fmt.Errorf("eth-signature decode: %w", err)
+	}
+	m, ok := item.(map[uint64]interface{})
+	if !ok {
+		return requestID, signature, fmt.Errorf("eth-signature payload is not a CBOR map")
+	}
+
+	reqTag, ok := m[1].(cborTag)
+	if !ok || reqTag.tag != 37 {
+		return requestID, signature, fmt.Errorf("eth-signature missing tag(37) request-id")
+	}
+	reqBytes, ok := reqTag.value.([]byte)
+	if !ok || len(reqBytes) != 16 {
+		return requestID, signature, fmt.Errorf("eth-signature request-id is not 16 bytes")
+	}
+	copy(requestID[:], reqBytes)
+
+	sigBytes, ok := m[2].([]byte)
+	if !ok || len(sigBytes) != 65 {
+		return requestID, signature, fmt.Errorf("eth-signature signature field is not 65 bytes")
+	}
+	copy(signature[:], sigBytes)
+
+	return requestID, signature, nil
+}
+
+// ParsePackagedTxJSON parses the JSON produced by BuildUnsignedTxEIP4527 (the
+// text held in the model's txResultHex/txApproveJSON/txSwapJSON fields) back
+// into typed fields, so a scanned-back eth-signature can be recombined with
+// the transaction the wallet originally packaged.
+func ParsePackagedTxJSON(jsonStr string) (to common.Address, value *big.Int, nonce uint64, tip, maxFee *big.Int, gasLimit uint64, chainID *big.Int, data []byte, requestID [16]byte, err error) {
+	var fields map[string]string
+	if err = json.Unmarshal([]byte(jsonStr), &fields); err != nil {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, fmt.Errorf("parse packaged tx JSON: %w", err)
+	}
+
+	parseHexBig := func(key string) (*big.Int, error) {
+		s, ok := fields[key]
+		if !ok {
+			return nil, fmt.Errorf("missing field %q", key)
+		}
+		v, ok := new(big.Int).SetString(strings.TrimPrefix(s, "0x"), 16)
+		if !ok {
+			return nil, fmt.Errorf("invalid hex value for %q: %q", key, s)
+		}
+		return v, nil
+	}
+
+	toStr, ok := fields["to"]
+	if !ok {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, fmt.Errorf("missing field %q", "to")
+	}
+	to = common.HexToAddress(toStr)
+
+	if value, err = parseHexBig("value"); err != nil {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, err
+	}
+	nonceBig, err := parseHexBig("nonce")
+	if err != nil {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, err
+	}
+	nonce = nonceBig.Uint64()
+	if tip, err = parseHexBig("maxPriorityFeePerGas"); err != nil {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, err
+	}
+	if maxFee, err = parseHexBig("maxFeePerGas"); err != nil {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, err
+	}
+	gasLimitBig, err := parseHexBig("gasLimit")
+	if err != nil {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, err
+	}
+	gasLimit = gasLimitBig.Uint64()
+	if chainID, err = parseHexBig("chainId"); err != nil {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, err
+	}
+	if dataStr, ok := fields["data"]; ok {
+		if data, err = hex.DecodeString(strings.TrimPrefix(dataStr, "0x")); err != nil {
+			return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, fmt.Errorf("invalid hex value for %q: %w", "data", err)
+		}
+	}
+	reqIDStr, ok := fields["requestId"]
+	if !ok {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, fmt.Errorf("missing field %q", "requestId")
+	}
+	reqIDBytes, err := hex.DecodeString(reqIDStr)
+	if err != nil || len(reqIDBytes) != 16 {
+		return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, fmt.Errorf("invalid requestId %q", reqIDStr)
+	}
+	copy(requestID[:], reqIDBytes)
+
+	return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, nil
+}
+
+// AssembleSignedTx recombines a 65-byte EIP-4527 eth-signature (r||s||v)
+// with the EIP-1559 transaction fields the wallet originally packaged, and
+// returns the final signed transaction as 0x-prefixed raw hex, ready to feed
+// through the same review/broadcast path as a pasted signed transaction. No
+// signing happens here — the signature was already produced by the user's
+// own offline signer; this only assembles the bytes.
+func AssembleSignedTx(chainID *big.Int, nonce uint64, tip, maxFee *big.Int, gasLimit uint64, to common.Address, value *big.Int, data []byte, signature [65]byte) (string, error) {
+	tx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     nonce,
+		GasTipCap: tip,
+		GasFeeCap: maxFee,
+		Gas:       gasLimit,
+		To:        &to,
+		Value:     value,
+		Data:      data,
+	})
+
+	sig := make([]byte, 65)
+	copy(sig, signature[:])
+	if sig[64] >= 27 {
+		sig[64] -= 27
+	}
+
+	signer := types.LatestSignerForChainID(chainID)
+	signedTx, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		return "", fmt.Errorf("apply signature: %w", err)
+	}
+
+	rawBytes, err := signedTx.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("encode signed tx: %w", err)
+	}
+	return "0x" + hex.EncodeToString(rawBytes), nil
 }

@@ -289,6 +289,7 @@ type model struct {
 	webcamErrStr    string
 	webcamLogVP     viewport.Model
 	webcamLogScroll scrollbar.State
+	urReassembler   *rpc.URReassembler // in-progress multi-part UR scan, if any
 
 	// Paste-signed-transaction dialog state (used by dialogPasteSignedTx)
 	pasteTxForm          *huh.Form

@@ -37,8 +37,18 @@ func waitForWebcamFrame(ch <-chan image.Image) tea.Cmd {
 }
 
 // decodeQR attempts to extract a QR code string from img. Returns "" on failure.
+// Tries normal polarity (dark modules on light background) first, then retries
+// with the luminance source inverted to catch light-on-dark QR codes.
 func decodeQR(img image.Image) string {
-	bmp, err := gozxing.NewBinaryBitmapFromImage(img)
+	src := gozxing.NewLuminanceSourceFromImage(img)
+	if text := decodeQRFromSource(src); text != "" {
+		return text
+	}
+	return decodeQRFromSource(src.Invert())
+}
+
+func decodeQRFromSource(src gozxing.LuminanceSource) string {
+	bmp, err := gozxing.NewBinaryBitmap(gozxing.NewHybridBinarizer(src))
 	if err != nil {
 		return ""
 	}
