@@ -242,45 +242,7 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.uniswapSelectorIdx = m.uniswapToTokenIdx
 			return m, nil
 		} else if m.uniswapFocusedField == 2 {
-			// Execute swap - package transaction and show QR code
-			if m.uniswapFromAmount == "" || m.uniswapToAmount == "" {
-				m.logError("Please enter an amount and get a quote first")
-				return m, nil
-			}
-			if m.uniswapQuote == nil {
-				m.logError("Please get a swap quote first")
-				return m, nil
-			}
-
-			tokens := m.buildTokenList()
-			if m.uniswapFromTokenIdx < 0 || m.uniswapFromTokenIdx >= len(tokens) {
-				return m, nil
-			}
-			if m.uniswapToTokenIdx < 0 || m.uniswapToTokenIdx >= len(tokens) {
-				return m, nil
-			}
-
-			fromToken := tokens[m.uniswapFromTokenIdx]
-			toToken := tokens[m.uniswapToTokenIdx]
-
-			// Apply 0.5% slippage tolerance: amountOutMin = amountOut * 995 / 1000
-			amountOutMin := new(big.Int).Mul(m.uniswapQuote.AmountOut, big.NewInt(995))
-			amountOutMin.Div(amountOutMin, big.NewInt(1000))
-
-			tokens2 := m.buildTokenList()
-			toTok := tokens2[m.uniswapToTokenIdx]
-			divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toTok.Decimals)), nil))
-			minHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), divisor).Text('f', 6)
-			m.logInfo(fmt.Sprintf("Packaging swap: %s %s → %s %s (min out: %s, 0.5%% slippage)", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol, minHuman))
-			m.activeDialog = dialogTxResult
-			m.txResultPackaging = true
-			m.txResultHex = ""
-			m.txResultError = ""
-			m.txResultFormat = "EIP-4527"
-			if m.uniswapQuote.IsV3 {
-				return m, packageSwapTransactionV3(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
-			}
-			return m, packageSwapTransaction(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
+			return m.executeUniswapSwap()
 		}
 		return m, nil
 
@@ -393,4 +355,74 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// focusUniswapField moves focus to target (0=From, 1=To, 2=Swap), firing the
+// same "leaving field" quote refresh the up/down/tab keyboard handlers
+// trigger when the field being left still has an uncommitted typed amount.
+// Used by the From/To box mouse-click regions so clicking behaves
+// identically to tabbing there.
+func (m *model) focusUniswapField(target int) tea.Cmd {
+	if m.uniswapFocusedField == 0 && target != 0 && m.uniswapEditingFrom && m.uniswapFromAmount != "" && m.uniswapFromAmount != "0" {
+		m.uniswapFocusedField = target
+		if target == 1 {
+			m.uniswapEditingTo = false
+		}
+		return m.maybeRequestUniswapQuote()
+	}
+	if m.uniswapFocusedField == 1 && target != 1 && m.uniswapEditingTo && m.uniswapToAmount != "" && m.uniswapToAmount != "0" {
+		m.uniswapFocusedField = target
+		m.uniswapEditingTo = false
+		return m.maybeRequestReverseUniswapQuote()
+	}
+	m.uniswapFocusedField = target
+	if target == 0 {
+		m.uniswapEditingFrom = false
+	} else if target == 1 {
+		m.uniswapEditingTo = false
+	}
+	return nil
+}
+
+// executeUniswapSwap packages and displays the swap transaction QR — the
+// same action the keyboard Enter key performs when focused on the Swap
+// button (field 2). Shared with the Swap button's mouse-click region.
+func (m *model) executeUniswapSwap() (tea.Model, tea.Cmd) {
+	if m.uniswapFromAmount == "" || m.uniswapToAmount == "" {
+		m.logError("Please enter an amount and get a quote first")
+		return m, nil
+	}
+	if m.uniswapQuote == nil {
+		m.logError("Please get a swap quote first")
+		return m, nil
+	}
+
+	tokens := m.buildTokenList()
+	if m.uniswapFromTokenIdx < 0 || m.uniswapFromTokenIdx >= len(tokens) {
+		return m, nil
+	}
+	if m.uniswapToTokenIdx < 0 || m.uniswapToTokenIdx >= len(tokens) {
+		return m, nil
+	}
+
+	fromToken := tokens[m.uniswapFromTokenIdx]
+	toToken := tokens[m.uniswapToTokenIdx]
+
+	// Apply 0.5% slippage tolerance: amountOutMin = amountOut * 995 / 1000
+	amountOutMin := new(big.Int).Mul(m.uniswapQuote.AmountOut, big.NewInt(995))
+	amountOutMin.Div(amountOutMin, big.NewInt(1000))
+
+	toTok := tokens[m.uniswapToTokenIdx]
+	divisor := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toTok.Decimals)), nil))
+	minHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), divisor).Text('f', 6)
+	m.logInfo(fmt.Sprintf("Packaging swap: %s %s → %s %s (min out: %s, 0.5%% slippage)", m.uniswapFromAmount, fromToken.Symbol, m.uniswapToAmount, toToken.Symbol, minHuman))
+	m.activeDialog = dialogTxResult
+	m.txResultPackaging = true
+	m.txResultHex = ""
+	m.txResultError = ""
+	m.txResultFormat = "EIP-4527"
+	if m.uniswapQuote.IsV3 {
+		return m, packageSwapTransactionV3(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
+	}
+	return m, packageSwapTransaction(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
 }

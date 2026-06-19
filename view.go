@@ -756,7 +756,7 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 		return m.renderUniswapPage(headerPanel)
 
 	case config.PageTerraNullius:
-		return m.renderTerraPage()
+		return m.renderTerraPage(headerPanel)
 	}
 	return "", ""
 }
@@ -840,14 +840,35 @@ func (m *model) renderUniswapPage(headerPanel string) (pageContent, nav string) 
 		m.v4Scroll.TrackCol = m.v4EventsViewport.Width + 3
 		return c, navStr
 	}
-	c := uniswap.Render(m.w-2, m.h-8, tokens,
+	c, geo := uniswap.Render(m.w-2, m.h-8, tokens,
 		m.uniswapFromTokenIdx, m.uniswapToTokenIdx,
 		m.uniswapFromAmount, m.uniswapToAmount,
 		m.uniswapFocusedField, m.uniswapEstimating, m.uniswapPriceImpactWarn)
+
+	// Content top-left within pageContent = PanelStyle's border(1)+padding(1,2).
+	contentLeft := 3
+	contentTop := lipgloss.Height(headerPanel) + 2
+
+	m.registerRegion("uniswap.fromBox", uiRegionInput,
+		contentLeft+geo.FromX1, contentTop+geo.FromY,
+		contentLeft+geo.FromX2, contentTop+geo.FromY+geo.FromH,
+		func(m *model) (tea.Model, tea.Cmd) { return m, m.focusUniswapField(0) })
+	m.registerRegion("uniswap.toBox", uiRegionInput,
+		contentLeft+geo.ToX1, contentTop+geo.ToY,
+		contentLeft+geo.ToX2, contentTop+geo.ToY+geo.ToH,
+		func(m *model) (tea.Model, tea.Cmd) { return m, m.focusUniswapField(1) })
+	m.registerRegion("uniswap.swapButton", uiRegionButton,
+		contentLeft+geo.SwapX1, contentTop+geo.SwapY,
+		contentLeft+geo.SwapX2, contentTop+geo.SwapY+geo.SwapH,
+		func(m *model) (tea.Model, tea.Cmd) {
+			m.uniswapFocusedField = 2
+			return m.executeUniswapSwap()
+		})
+
 	return styles.PanelStyle.Width(m.contentW).Render(c), navStr
 }
 
-func (m *model) renderTerraPage() (pageContent, nav string) {
+func (m *model) renderTerraPage(headerPanel string) (pageContent, nav string) {
 	var terraNullDesc string
 	for _, d := range m.dapps {
 		if d.Name == "Terra Nullius" {
@@ -855,10 +876,29 @@ func (m *model) renderTerraPage() (pageContent, nav string) {
 			break
 		}
 	}
-	c := terra.Render(m.w-2, m.h-8, m.terraNullFocusedField, terraNullDesc,
+	c, geo := terra.Render(m.w-2, m.h-8, m.terraNullFocusedField, terraNullDesc,
 		m.terraNullClaimsCount, m.terraNullClaimsLoading,
 		m.terraNullClaimInput, m.terraNullClaimQuerying,
 		m.terraNullLastQueriedIdx, m.terraNullClaimResult, m.terraNullClaimResultErr)
+
+	contentLeft := 3
+	contentTop := lipgloss.Height(headerPanel) + 2
+
+	m.registerRegion("terra.claimsBox", uiRegionInput,
+		contentLeft+geo.ClaimsX1, contentTop+geo.ClaimsY,
+		contentLeft+geo.ClaimsX2, contentTop+geo.ClaimsY+geo.ClaimsH,
+		func(m *model) (tea.Model, tea.Cmd) {
+			m.terraNullFocusedField = 1
+			return m, nil
+		})
+	m.registerRegion("terra.claimBox", uiRegionButton,
+		contentLeft+geo.ClaimX1, contentTop+geo.ClaimY,
+		contentLeft+geo.ClaimX2, contentTop+geo.ClaimY+geo.ClaimH,
+		func(m *model) (tea.Model, tea.Cmd) {
+			m.terraNullFocusedField = 2
+			return m.openTerraClaimPopup()
+		})
+
 	return styles.PanelStyle.Width(m.contentW).Render(c), terra.Nav(m.w-2, m.txIndexerActive)
 }
 

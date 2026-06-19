@@ -32,6 +32,17 @@ func (m *model) submitTerraClaim() (tea.Model, tea.Cmd) {
 	return m, packageTerraClaimTx(m.activeAddress, msgVal, m.rpcURL)
 }
 
+// openTerraClaimPopup opens the claim-message popup, focused and ready for
+// input. Shared by the keyboard Enter-on-Claim-box path and the main page's
+// mouse-clickable Claim box.
+func (m *model) openTerraClaimPopup() (tea.Model, tea.Cmd) {
+	m.activeDialog = dialogTerraClaim
+	m.terraNullFormFocused = 0
+	m.terraNullMsgInput.SetValue("")
+	m.terraNullMsgError = ""
+	return m, m.terraNullMsgInput.Focus()
+}
+
 func (m *model) handleTerraClaimPopupMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch keyMsg.String() {
@@ -159,12 +170,7 @@ func (m *model) handleTerraKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.terraNullClaimInput = new(big.Int).Add(idx, big.NewInt(1)).String()
 			return m, fetchTerraClaim(m.ethClient, idx)
 		} else if m.terraNullFocusedField == 2 {
-			// Open claim popup
-			m.activeDialog = dialogTerraClaim
-			m.terraNullFormFocused = 0
-			m.terraNullMsgInput.SetValue("")
-			m.terraNullMsgError = ""
-			return m, m.terraNullMsgInput.Focus()
+			return m.openTerraClaimPopup()
 		}
 		return m, nil
 

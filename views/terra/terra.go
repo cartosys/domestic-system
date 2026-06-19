@@ -32,6 +32,16 @@ func Nav(width int, indexerActive bool) string {
 	return styles.NavStyle.Width(width).Render(left)
 }
 
+// MainGeometry reports hit-test rectangles for the clickable elements of the
+// main Terra Nullius page (the claims-query box and the Claim box), relative
+// to Render's own returned string (row/col 0 = its top-left corner). The
+// Number of Claims box is display-only and has no entry here. Measured the
+// same way as ClaimPopupGeometry below.
+type MainGeometry struct {
+	ClaimsY, ClaimsX1, ClaimsX2, ClaimsH int
+	ClaimY, ClaimX1, ClaimX2, ClaimH     int
+}
+
 // Render renders the Terra Nullius interface with three elements
 func Render(
 	width, height int,
@@ -41,7 +51,7 @@ func Render(
 	claimInput string, claimQuerying bool,
 	queriedIdx string,
 	claimResult *helpers.TerraClaimResult, claimResultErr string,
-) string {
+) (string, MainGeometry) {
 	containerWidth := helpers.Min(80, width-4)
 
 	titleStyle := lipgloss.NewStyle().
@@ -182,13 +192,47 @@ func Render(
 	}
 	headerParts = append(headerParts, "")
 
-	contentParts := append(headerParts, countBox, "", claimsBox, "", claimBox, "", infoText)
+	contentParts := append(headerParts, countBox, "")
+	claimsBoxIdx := len(contentParts)
+	contentParts = append(contentParts, claimsBox, "")
+	claimBoxIdx := len(contentParts)
+	contentParts = append(contentParts, claimBox, "", infoText)
+
 	content := lipgloss.JoinVertical(lipgloss.Center, contentParts...)
 
-	return lipgloss.NewStyle().
+	rendered := lipgloss.NewStyle().
 		Width(width).
 		Align(lipgloss.Center).
 		Render(content)
+
+	// Replicate JoinVertical(Center, ...)'s own centering math plus the
+	// outer Width/Align(Center) call's centering of that uniform-width block
+	// within the full `width` — same technique as RenderClaimPopup's geometry
+	// below, measured directly so it stays correct if the styles change.
+	maxW := 0
+	for _, p := range contentParts {
+		if w := lipgloss.Width(p); w > maxW {
+			maxW = w
+		}
+	}
+	rowY := func(idx int) int {
+		y := 0
+		for i := 0; i < idx; i++ {
+			y += lipgloss.Height(contentParts[i])
+		}
+		return y
+	}
+	colX := func(s string) int { return (maxW - lipgloss.Width(s)) / 2 }
+	outerPad := helpers.Max(0, (width-maxW)/2)
+
+	geo := MainGeometry{
+		ClaimsY: rowY(claimsBoxIdx), ClaimsX1: outerPad + colX(claimsBox), ClaimsH: lipgloss.Height(claimsBox),
+		ClaimY: rowY(claimBoxIdx), ClaimX1: outerPad + colX(claimBox), ClaimH: lipgloss.Height(claimBox),
+	}
+	geo.ClaimsX2 = geo.ClaimsX1 + lipgloss.Width(claimsBox)
+	geo.ClaimX2 = geo.ClaimX1 + lipgloss.Width(claimBox)
+
+	return rendered, geo
 }
 
 // ClaimPopupGeometry reports screen-space hit-test rectangles for the

@@ -69,8 +69,19 @@ func Nav(width int, poolMonitorActive, liquidityActive, blockScanActive bool) st
 	return styles.NavStyle.Width(width).Render(left)
 }
 
+// SwapGeometry reports hit-test rectangles for the From/To token boxes and
+// the Swap button, relative to Render's own returned string (row/col 0 = its
+// top-left corner). Measured from the same JoinVertical(Center, ...) plus
+// outer Width/Align(Center) layout Render actually performs, mirroring the
+// approach in terra.RenderClaimPopup's ClaimPopupGeometry.
+type SwapGeometry struct {
+	FromY, FromX1, FromX2, FromH int
+	ToY, ToX1, ToX2, ToH         int
+	SwapY, SwapX1, SwapX2, SwapH int
+}
+
 // Render renders the Uniswap swap interface
-func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating bool, priceImpactWarn string) string {
+func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating bool, priceImpactWarn string) (string, SwapGeometry) {
 	// Create the main swap container
 	containerWidth := helpers.Min(80, width-4)
 	
@@ -237,27 +248,66 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Align(lipgloss.Center).
 		Render("↑/↓ navigate • Tab switch • Enter select")
 	
-	// Combine all elements with minimal spacing
+	// Combine all elements with minimal spacing, tracking each clickable
+	// element's index in contentParts so geometry can be measured below.
 	var contentParts []string
-	contentParts = append(contentParts, title, "", fromBox, swapArrow, toBox)
-	
+	contentParts = append(contentParts, title, "")
+	fromBoxIdx := len(contentParts)
+	contentParts = append(contentParts, fromBox, swapArrow)
+	toBoxIdx := len(contentParts)
+	contentParts = append(contentParts, toBox)
+
 	// Add warning if present
 	if warningDisplay != "" {
 		contentParts = append(contentParts, "", warningDisplay)
 	}
-	
-	contentParts = append(contentParts, "", swapButton, "", infoText)
-	
+
+	contentParts = append(contentParts, "")
+	swapButtonIdx := len(contentParts)
+	contentParts = append(contentParts, swapButton, "", infoText)
+
 	content := lipgloss.JoinVertical(
 		lipgloss.Center,
 		contentParts...,
 	)
-	
+
 	// Center horizontally only, let panel handle vertical spacing
-	return lipgloss.NewStyle().
+	rendered := lipgloss.NewStyle().
 		Width(width).
 		Align(lipgloss.Center).
 		Render(content)
+
+	// Replicate JoinVertical(Center, ...)'s own centering math (pad every
+	// part to the widest part, then center each within that), plus the outer
+	// Width/Align(Center) call's centering of that uniform-width block within
+	// the full `width` — measured directly rather than re-derived from style
+	// internals, so it stays correct if the styles change.
+	maxW := 0
+	for _, p := range contentParts {
+		if w := lipgloss.Width(p); w > maxW {
+			maxW = w
+		}
+	}
+	rowY := func(idx int) int {
+		y := 0
+		for i := 0; i < idx; i++ {
+			y += lipgloss.Height(contentParts[i])
+		}
+		return y
+	}
+	colX := func(s string) int { return (maxW - lipgloss.Width(s)) / 2 }
+	outerPad := helpers.Max(0, (width-maxW)/2)
+
+	geo := SwapGeometry{
+		FromY: rowY(fromBoxIdx), FromX1: outerPad + colX(fromBox), FromH: lipgloss.Height(fromBox),
+		ToY: rowY(toBoxIdx), ToX1: outerPad + colX(toBox), ToH: lipgloss.Height(toBox),
+		SwapY: rowY(swapButtonIdx), SwapX1: outerPad + colX(swapButton), SwapH: lipgloss.Height(swapButton),
+	}
+	geo.FromX2 = geo.FromX1 + lipgloss.Width(fromBox)
+	geo.ToX2 = geo.ToX1 + lipgloss.Width(toBox)
+	geo.SwapX2 = geo.SwapX1 + lipgloss.Width(swapButton)
+
+	return rendered, geo
 }
 
 // RenderTokenSelector renders a token selection popup
