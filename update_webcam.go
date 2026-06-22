@@ -61,9 +61,10 @@ func (m *model) openScanTxDialog() (tea.Model, tea.Cmd) {
 	return m, tea.Cmd(openWebcamCmd)
 }
 
-// closeScanTxDialog stops the webcam and returns to dialogNone.
+// closeScanTxDialog stops the webcam and returns to dialogTxResult, the
+// QR-display screen that dialogScanTx is always entered from.
 func (m *model) closeScanTxDialog() (tea.Model, tea.Cmd) {
-	m.activeDialog = dialogNone
+	m.activeDialog = dialogTxResult
 	m.webcamActive = false
 	m.urReassembler = nil
 	if m.webcamCam != nil {

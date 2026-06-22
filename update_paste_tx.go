@@ -504,6 +504,11 @@ func (m *model) renderPasteTxResultPhase() string {
 		m.pasteTxDialogTitle("Transaction Confirmed"),
 		"",
 		row("Status", info.Status, lipgloss.NewStyle().Foreground(statusColor).Bold(true)),
+	}
+	if info.Status == "Failed" && info.RevertReason != "" {
+		rows = append(rows, lipgloss.NewStyle().Foreground(styles.CError).Width(pasteSignedTxDialogWidth-4).Render("Reason: "+info.RevertReason))
+	}
+	rows = append(rows,
 		row("Hash", info.Hash, valueStyle),
 		row("Block", fmt.Sprintf("%d  (%s)", info.BlockNumber, info.BlockHash), valueStyle),
 		row("Confirmations", fmt.Sprintf("%d", info.Confirmations), valueStyle),
@@ -515,8 +520,8 @@ func (m *model) renderPasteTxResultPhase() string {
 		row("Effective Gas Price", info.EffectiveGasPrice, valueStyle),
 		row("Tx Index", fmt.Sprintf("%d", info.TransactionIndex), valueStyle),
 		"",
-		lipgloss.NewStyle().Foreground(styles.CSubtle).Align(lipgloss.Center).Width(pasteSignedTxDialogWidth - 4).Render("Press any key to return"),
-	}
+		lipgloss.NewStyle().Foreground(styles.CSubtle).Align(lipgloss.Center).Width(pasteSignedTxDialogWidth-4).Render("Press any key to return"),
+	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	dialog := styles.DialogBox.Width(pasteSignedTxDialogWidth).Render(content)

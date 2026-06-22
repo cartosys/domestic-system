@@ -43,7 +43,7 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(
 			common.HexToAddress(fromAddr),
 			common.HexToAddress(toAddr),
-			amountWei, 21000, nil, rpcURL,
+			amountWei, 0, nil, rpcURL,
 		)
 		if err != nil {
 			return packageTransactionMsg{err: err}

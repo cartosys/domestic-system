@@ -15,9 +15,12 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	gethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/rlp"
 	qrterminal "github.com/mdp/qrterminal/v3"
 )
@@ -556,7 +559,7 @@ type TransactionPackageEIP4527 struct {
 // PackageTransactionEIP4527 creates an EIP-4527 compliant unsigned ETH transfer package.
 // The transaction is RLP-encoded, CBOR-wrapped, and UR-encoded for air-gapped signing.
 func PackageTransactionEIP4527(fromAddress common.Address, toAddress common.Address, amount *big.Int, rpcURL string) (TransactionPackageEIP4527, error) {
-	urStr, _, err := PackUnsignedTxEIP4527(fromAddress, toAddress, amount, 21000, nil, rpcURL)
+	urStr, _, err := PackUnsignedTxEIP4527(fromAddress, toAddress, amount, 0, nil, rpcURL)
 	if err != nil {
 		return TransactionPackageEIP4527{}, err
 	}
@@ -697,6 +700,45 @@ type TxOnChainInfo struct {
 	EffectiveGasPrice string
 	TransactionIndex  uint
 	Confirmations     uint64
+	RevertReason      string // best-effort explanation when Status == "Failed"
+}
+
+// revertReason re-simulates a failed transaction via eth_call at its parent
+// block to recover the revert reason the receipt itself doesn't carry.
+// Best-effort: returns "" if the sender can't be recovered or the call
+// doesn't yield a usable error.
+func revertReason(ctx context.Context, client *Client, tx *types.Transaction, blockNumber *big.Int) string {
+	from, err := types.Sender(types.LatestSignerForChainID(tx.ChainId()), tx)
+	if err != nil {
+		return ""
+	}
+
+	msg := ethereum.CallMsg{
+		From:      from,
+		To:        tx.To(),
+		Gas:       tx.Gas(),
+		GasPrice:  tx.GasPrice(),
+		GasFeeCap: tx.GasFeeCap(),
+		GasTipCap: tx.GasTipCap(),
+		Value:     tx.Value(),
+		Data:      tx.Data(),
+	}
+
+	_, callErr := client.CallContract(ctx, msg, new(big.Int).Sub(blockNumber, big.NewInt(1)))
+	if callErr == nil {
+		return ""
+	}
+
+	if dataErr, ok := callErr.(gethrpc.DataError); ok {
+		if hexStr, ok := dataErr.ErrorData().(string); ok {
+			if data, decErr := hexutil.Decode(hexStr); decErr == nil {
+				if reason, rErr := abi.UnpackRevert(data); rErr == nil && reason != "" {
+					return reason
+				}
+			}
+		}
+	}
+	return callErr.Error()
 }
 
 // GetTransactionOnChain looks up a broadcast transaction by hash and returns
@@ -742,6 +784,11 @@ func GetTransactionOnChain(client *Client, txHash common.Hash) (*TxOnChainInfo, 
 		confirmations = head - receipt.BlockNumber.Uint64() + 1
 	}
 
+	reason := ""
+	if status == "Failed" {
+		reason = revertReason(ctx, client, tx, receipt.BlockNumber)
+	}
+
 	return &TxOnChainInfo{
 		Hash:              receipt.TxHash.Hex(),
 		Status:            status,
@@ -755,6 +802,7 @@ func GetTransactionOnChain(client *Client, txHash common.Hash) (*TxOnChainInfo, 
 		EffectiveGasPrice: weiToGweiStr(receipt.EffectiveGasPrice),
 		TransactionIndex:  receipt.TransactionIndex,
 		Confirmations:     confirmations,
+		RevertReason:      reason,
 	}, true, nil
 }
 
