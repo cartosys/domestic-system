@@ -86,6 +86,20 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmdEnableMouseAllMotion()
 		}
 
+		// Read the clipboard ourselves, synchronously, and feed it in as
+		// typed runes rather than letting huh's async Paste cmd run: in a
+		// multi-field group, huh.Group.Update (v0.7.0) calls the focused
+		// field's Update twice for any non-KeyMsg message — once via its
+		// broadcast-to-all-fields branch, once via its focused-field branch
+		// — which double-inserts the pasted text.
+		if keyMsg.String() == "ctrl+v" && !m.sendFormButtonFocused {
+			if text, err := clipboard.ReadAll(); err == nil && text != "" {
+				msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)}
+			} else {
+				return m, nil
+			}
+		}
+
 		lastField := m.sendFormFields[len(m.sendFormFields)-1]
 
 		if m.sendFormButtonFocused {
