@@ -94,8 +94,13 @@ func DefaultConfig() Config {
 		Wallets: []WalletEntry{
 			{
 				Name:    "Demo Wallet",
-				Address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+				Address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
 				Active:  true,
+			},
+			{
+				Name:    "vitalik.eth",
+				Address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+				Active:  false,
 			},
 		},
 		Logger: true,
