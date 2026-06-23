@@ -231,6 +231,10 @@ type model struct {
 	lastQuoteToTokenIdx   int    // last to token index used for quote
 	uniswapLastFee        uint32 // V3 fee tier of the last resolved pair; 0 means V2
 
+	// On-chain pair/pool resolution (replaces the old hardcoded pair table)
+	pairCache            map[string]pairCacheEntry
+	uniswapResolvingPair bool // true while an on-chain factory lookup is in flight
+
 	// Liquidity positions view (within Uniswap page)
 	uniswapShowingLiquidity bool
 	liquidityPositions      []helpers.LiquidityPosition
@@ -483,6 +487,7 @@ func newModel() model {
 		logBuffer:          &strings.Builder{},
 		logSpinner:         logSpin,
 		detailsCache:       make(map[string]rpc.WalletDetails),
+		pairCache:          make(map[string]pairCacheEntry),
 		dapps:           config.DefaultDapps(),
 		selectedDappIdx: 0,
 		detailsInWallets:   true, // Enable split panel view by default

@@ -941,7 +941,7 @@ func (m *model) renderUniswapPage(headerPanel string) (pageContent, nav string) 
 	c, geo := uniswap.Render(m.w-2, m.h-8, tokens,
 		m.uniswapFromTokenIdx, m.uniswapToTokenIdx,
 		m.uniswapFromAmount, m.uniswapToAmount,
-		m.uniswapFocusedField, m.uniswapEstimating, m.uniswapPriceImpactWarn)
+		m.uniswapFocusedField, m.uniswapEstimating, m.uniswapResolvingPair, m.uniswapPriceImpactWarn)
 
 	// Content top-left within pageContent = PanelStyle's border(1)+padding(1,2).
 	contentLeft := 3

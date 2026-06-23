@@ -50,6 +50,16 @@ type uniswapQuoteMsg struct {
 	err   error
 }
 
+// pairLookupResultMsg carries the result of an on-chain Uniswap V2/V3
+// factory lookup for a token pair (see resolvePairOnChain in model_uniswap.go).
+type pairLookupResultMsg struct {
+	cacheKey       string
+	fromIdx, toIdx int  // token indices active when the lookup was dispatched
+	reverse        bool // which quote direction triggered this lookup
+	resolution     pairResolution
+	ok             bool
+}
+
 // logInitMsg signals that log viewport should be initialized
 type logInitMsg struct{}
 

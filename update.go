@@ -176,6 +176,8 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, clearClipboardMsg()
 	case uniswapQuoteMsg:
 		return m.handleUniswapQuote(msg)
+	case pairLookupResultMsg:
+		return m.handlePairLookupResult(msg)
 	case liquidityPositionsMsg:
 		return m.handleLiquidityPositions(msg)
 	case ensLookupResultMsg:

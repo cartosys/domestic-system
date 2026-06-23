@@ -35,6 +35,7 @@ func (m *model) handleRPCConnected(msg rpcConnectedMsg) (tea.Model, tea.Cmd) {
 	} else {
 		m.ethClient = msg.client
 		m.rpcConnected = true
+		m.pairCache = make(map[string]pairCacheEntry) // chain may have changed
 		m.logSuccess(fmt.Sprintf("RPC connected to `%s`", msg.client.URL))
 		if m.activePage == config.PageWallets && m.detailsInWallets && len(m.accounts) > 0 {
 			return m, m.loadSelectedWalletDetails()

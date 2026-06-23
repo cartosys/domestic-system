@@ -65,22 +65,16 @@ type UniswapNetworkAddresses struct {
 	Router  common.Address
 	Factory common.Address
 
-	WETH  common.Address
-	USDC  common.Address
-	USDT  common.Address
-	DAI   common.Address
+	WETH   common.Address
+	USDC   common.Address
+	USDT   common.Address
+	DAI    common.Address
 	SPCXon common.Address // SpaceX (Ondo Tokenized) — mainnet only
 
-	USDCWETHPair   common.Address
-	DAIWETHPair    common.Address
-	USDTWETHPair   common.Address
-	SPCXonUSDCPair common.Address // USDC/SPCXon V2 pair — mainnet only
-
 	// Uniswap V3
-	QuoterV2        common.Address // QuoterV2 for off-chain quote simulation
-	SwapRouterV3    common.Address // SwapRouter02
-	SPCXonUSDCPoolV3 common.Address // SPCXon/USDC 1% V3 pool — mainnet only
-	SPCXonUSDTPoolV3 common.Address // SPCXon/USDT 0.3% V3 pool — mainnet only
+	FactoryV3    common.Address // V3 factory, for on-chain getPool() lookups
+	QuoterV2     common.Address // QuoterV2 for off-chain quote simulation
+	SwapRouterV3 common.Address // SwapRouter02
 }
 
 // mainnetUniswapAddresses mirrors the package-level mainnet vars above so the
@@ -97,14 +91,9 @@ var mainnetUniswapAddresses = UniswapNetworkAddresses{
 	DAI:    DAIAddress,
 	SPCXon: common.HexToAddress("0xc9eef266834730340A55B6CC24621B31BAF55581"),
 
-	USDCWETHPair:   USDCWETHPairAddress,
-	DAIWETHPair:    DAIWETHPairAddress,
-	SPCXonUSDCPair: common.HexToAddress("0x3fc51ce94bc6dd3cdfe599f1f99c05a5cc90e059"),
-
-	QuoterV2:         common.HexToAddress("0x61fFE014bA17989E743c5F6cB21bF9697530B21e"),
-	SwapRouterV3:     common.HexToAddress("0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"),
-	SPCXonUSDCPoolV3: common.HexToAddress("0x0461c60ad5fc24cb1fc075b7f202095819de6944"),
-	SPCXonUSDTPoolV3: common.HexToAddress("0xe88f804369cf4274207eb26fc801b6f2df10ec4b"),
+	FactoryV3:    common.HexToAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"),
+	QuoterV2:     common.HexToAddress("0x61fFE014bA17989E743c5F6cB21bF9697530B21e"),
+	SwapRouterV3: common.HexToAddress("0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"),
 }
 
 // sepoliaUniswapAddresses holds the Uniswap V2 deployment and token addresses
@@ -121,9 +110,7 @@ var sepoliaUniswapAddresses = UniswapNetworkAddresses{
 	USDT: common.HexToAddress("0xaa8E23Fb1079EA71e0a56F48a2aa51851D8433D0"),
 	DAI:  common.HexToAddress("0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D"),
 
-	USDCWETHPair: common.HexToAddress("0x06D1080CDcbf8aD77a65a40F4484E93eA6180269"),
-	DAIWETHPair:  common.HexToAddress("0x04ef46A6FAFc277dE43AAd0eF17d14Fb967e64B3"),
-	USDTWETHPair: common.HexToAddress("0xcbDB9cb0669906c8B12211824B4F069D183155fF"),
+	FactoryV3: common.HexToAddress("0x0227628f3F023bb0B980b67D528571c95c6DaC1c"),
 }
 
 // UniswapAddressesForChain returns the Uniswap V2 router/factory/token/pair
@@ -304,6 +291,112 @@ func GetReverseSwapQuote(client *ethclient.Client, pairAddress, tokenIn common.A
 		PriceImpact:    computePriceImpact(reserveIn, reserveOut, effectivePrice),
 		EffectivePrice: effectivePrice,
 	}, nil
+}
+
+// V3 function selectors used by ResolvePairOnChain.
+var (
+	// getPair(address,address) returns (address)
+	v2GetPairSelector = []byte{0xe6, 0xa4, 0x39, 0x05}
+	// getPool(address,address,uint24) returns (address)
+	v3GetPoolSelector = []byte{0x16, 0x98, 0xee, 0x82}
+	// liquidity() returns (uint128)
+	v3LiquiditySelector = []byte{0x1a, 0x68, 0x65, 0x02}
+)
+
+// v3FeeTiers are the standard Uniswap V3 fee tiers, in the order
+// ResolvePairOnChain probes them (most-commonly-used first).
+var v3FeeTiers = []uint32{3000, 500, 10000, 100}
+
+// v2FactoryGetPair calls the V2 factory's getPair(tokenA, tokenB) and returns
+// the pair address, or the zero address if no pair exists.
+func v2FactoryGetPair(ctx context.Context, client *ethclient.Client, factory, tokenA, tokenB common.Address) (common.Address, error) {
+	data := append(append([]byte{}, v2GetPairSelector...), common.LeftPadBytes(tokenA.Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(tokenB.Bytes(), 32)...)
+	out, err := client.CallContract(ctx, ethereum.CallMsg{To: &factory, Data: data}, nil)
+	if err != nil {
+		return common.Address{}, err
+	}
+	if len(out) < 32 {
+		return common.Address{}, nil
+	}
+	return common.BytesToAddress(out[12:32]), nil
+}
+
+// v3FactoryGetPool calls the V3 factory's getPool(tokenA, tokenB, fee) and
+// returns the pool address, or the zero address if no pool exists at that fee tier.
+func v3FactoryGetPool(ctx context.Context, client *ethclient.Client, factoryV3, tokenA, tokenB common.Address, fee uint32) (common.Address, error) {
+	data := append(append([]byte{}, v3GetPoolSelector...), common.LeftPadBytes(tokenA.Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(tokenB.Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(fee)).Bytes(), 32)...)
+	out, err := client.CallContract(ctx, ethereum.CallMsg{To: &factoryV3, Data: data}, nil)
+	if err != nil {
+		return common.Address{}, err
+	}
+	if len(out) < 32 {
+		return common.Address{}, nil
+	}
+	return common.BytesToAddress(out[12:32]), nil
+}
+
+// v3PoolLiquidity calls a V3 pool's liquidity() and returns the raw value.
+func v3PoolLiquidity(ctx context.Context, client *ethclient.Client, pool common.Address) (*big.Int, error) {
+	out, err := client.CallContract(ctx, ethereum.CallMsg{To: &pool, Data: v3LiquiditySelector}, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) < 32 {
+		return big.NewInt(0), nil
+	}
+	return new(big.Int).SetBytes(out), nil
+}
+
+// ResolvePairOnChain finds the best Uniswap pool for tokenA/tokenB by
+// querying the V2 and V3 factories directly, instead of relying on a
+// hardcoded pair-address table. It only considers a candidate "real" if it
+// has actual liquidity — a pool can exist on-chain but be empty (just
+// deployed, never seeded), and naively taking the first non-zero address
+// risks picking a dead pool over the one that's actually tradable.
+//
+// V3 is preferred over V2 when both have liquidity (matching this app's
+// prior hand-picked behavior for SPCXon, whose deepest liquidity is on V3).
+// Among V3 fee tiers, the one with the highest liquidity() wins.
+func ResolvePairOnChain(ctx context.Context, client *ethclient.Client, addrs UniswapNetworkAddresses, tokenA, tokenB common.Address) (poolAddr common.Address, isV3 bool, fee uint32, err error) {
+	var bestV3Addr common.Address
+	var bestV3Fee uint32
+	var bestV3Liquidity *big.Int
+
+	if addrs.FactoryV3 != (common.Address{}) {
+		for _, f := range v3FeeTiers {
+			pool, perr := v3FactoryGetPool(ctx, client, addrs.FactoryV3, tokenA, tokenB, f)
+			if perr != nil || pool == (common.Address{}) {
+				continue
+			}
+			liq, lerr := v3PoolLiquidity(ctx, client, pool)
+			if lerr != nil || liq.Sign() <= 0 {
+				continue
+			}
+			if bestV3Liquidity == nil || liq.Cmp(bestV3Liquidity) > 0 {
+				bestV3Addr = pool
+				bestV3Fee = f
+				bestV3Liquidity = liq
+			}
+		}
+	}
+	if bestV3Liquidity != nil {
+		return bestV3Addr, true, bestV3Fee, nil
+	}
+
+	if addrs.Factory != (common.Address{}) {
+		pair, perr := v2FactoryGetPair(ctx, client, addrs.Factory, tokenA, tokenB)
+		if perr == nil && pair != (common.Address{}) {
+			r0, r1, rerr := fetchReserves(ctx, client, pair)
+			if rerr == nil && r0.Sign() > 0 && r1.Sign() > 0 {
+				return pair, false, 0, nil
+			}
+		}
+	}
+
+	return common.Address{}, false, 0, fmt.Errorf("no Uniswap V2 or V3 pool found")
 }
 
 // FormatSwapQuote returns a human-readable string for a swap quote

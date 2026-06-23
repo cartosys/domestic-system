@@ -81,7 +81,7 @@ type SwapGeometry struct {
 }
 
 // Render renders the Uniswap swap interface
-func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating bool, priceImpactWarn string) (string, SwapGeometry) {
+func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating, resolvingPair bool, priceImpactWarn string) (string, SwapGeometry) {
 	// Create the main swap container
 	containerWidth := helpers.Min(80, width-4)
 	
@@ -183,9 +183,11 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 		Width(containerWidth - 8).
 		Render(toAmount)
 	
-	if toAmount == "" || estimating {
+	if toAmount == "" || estimating || resolvingPair {
 		displayText := "0.0"
-		if estimating {
+		if resolvingPair {
+			displayText = "Finding pool..."
+		} else if estimating {
 			displayText = "Estimating..."
 		}
 		toAmountDisplay = lipgloss.NewStyle().

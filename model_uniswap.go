@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/big"
+	"strings"
+	"time"
 
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
@@ -65,50 +68,104 @@ type pairResolution struct {
 	v3TokenOut common.Address // explicit tokenOut needed by QuoterV2
 }
 
-// resolvePair returns routing metadata for the given token pair.
-// Returns ok=false and logs a warning for unsupported pairs.
-func (m *model) resolvePair(from, to uniswap.TokenOption) (pairResolution, bool) {
+// pairCacheEntry caches the result of an on-chain factory lookup for a token
+// pair (direction-agnostic — tokenIn/v3TokenOut are filled in fresh by
+// resolvePairCached for whichever direction is currently selected).
+type pairCacheEntry struct {
+	resolution pairResolution
+	ok         bool
+}
+
+// tokenAddrForLookup returns the ERC-20 address to use when querying
+// factories/pools for opt — native ETH has no contract, so WETH stands in,
+// matching how the router/quoter calls already treat ETH elsewhere.
+func tokenAddrForLookup(opt uniswap.TokenOption, weth common.Address) common.Address {
+	if opt.IsETH {
+		return weth
+	}
+	return opt.Address
+}
+
+// pairCacheKey normalizes two token addresses into an order-independent key,
+// since a pool is the same regardless of swap direction.
+func pairCacheKey(a, b common.Address) string {
+	ah, bh := strings.ToLower(a.Hex()), strings.ToLower(b.Hex())
+	if ah > bh {
+		ah, bh = bh, ah
+	}
+	return ah + "_" + bh
+}
+
+// resolvePairCached returns a cached pair resolution without any on-chain
+// I/O. found=false means this pair has never been looked up this session
+// (the caller should dispatch resolvePairOnChain). found=true with ok=false
+// means it was already looked up and definitively has no tradable pool.
+func (m *model) resolvePairCached(from, to uniswap.TokenOption) (res pairResolution, ok bool, found bool) {
 	addrs := helpers.UniswapAddressesForChain(m.chainID())
+	tokenInAddr := tokenAddrForLookup(from, addrs.WETH)
+	tokenOutAddr := tokenAddrForLookup(to, addrs.WETH)
 
-	if (from.Symbol == "USDC" && to.Symbol == "ETH") || (from.Symbol == "ETH" && to.Symbol == "USDC") {
-		tokenIn := addrs.WETH
-		if from.Symbol == "USDC" {
-			tokenIn = addrs.USDC
-		}
-		return pairResolution{pairAddr: addrs.USDCWETHPair, tokenIn: tokenIn}, true
+	entry, found := m.pairCache[pairCacheKey(tokenInAddr, tokenOutAddr)]
+	if !found {
+		return pairResolution{}, false, false
 	}
-
-	if (from.Symbol == "SPCXon" && to.Symbol == "USDC") || (from.Symbol == "USDC" && to.Symbol == "SPCXon") {
-		tokenIn := addrs.SPCXon
-		tokenOut := addrs.USDC
-		if from.Symbol == "USDC" {
-			tokenIn, tokenOut = addrs.USDC, addrs.SPCXon
-		}
-		if addrs.SPCXonUSDCPoolV3 != (common.Address{}) {
-			return pairResolution{
-				pairAddr: addrs.SPCXonUSDCPoolV3, tokenIn: tokenIn,
-				isV3: true, v3Fee: 10000, v3TokenOut: tokenOut,
-			}, true
-		}
-		return pairResolution{pairAddr: addrs.SPCXonUSDCPair, tokenIn: tokenIn}, true
+	if !entry.ok {
+		return pairResolution{}, false, true
 	}
+	res = entry.resolution
+	res.tokenIn = tokenInAddr
+	if res.isV3 {
+		res.v3TokenOut = tokenOutAddr
+	}
+	return res, true, true
+}
 
-	if (from.Symbol == "SPCXon" && to.Symbol == "USDT") || (from.Symbol == "USDT" && to.Symbol == "SPCXon") {
-		tokenIn := addrs.SPCXon
-		tokenOut := addrs.USDT
-		if from.Symbol == "USDT" {
-			tokenIn, tokenOut = addrs.USDT, addrs.SPCXon
+// resolvePairOnChain dispatches an on-chain Uniswap V2/V3 factory lookup for
+// tokenA/tokenB. fromIdx/toIdx capture the dropdown selection active when the
+// lookup was dispatched, so handlePairLookupResult can detect a stale result
+// if the user changes the selection before the lookup returns.
+func resolvePairOnChain(client *rpc.Client, addrs helpers.UniswapNetworkAddresses, tokenA, tokenB common.Address, fromIdx, toIdx int, reverse bool) tea.Cmd {
+	return func() tea.Msg {
+		key := pairCacheKey(tokenA, tokenB)
+		if client == nil || client.Client == nil {
+			return pairLookupResultMsg{cacheKey: key, fromIdx: fromIdx, toIdx: toIdx, reverse: reverse, ok: false}
 		}
-		if addrs.SPCXonUSDTPoolV3 != (common.Address{}) {
-			return pairResolution{
-				pairAddr: addrs.SPCXonUSDTPoolV3, tokenIn: tokenIn,
-				isV3: true, v3Fee: 3000, v3TokenOut: tokenOut,
-			}, true
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		poolAddr, isV3, fee, err := helpers.ResolvePairOnChain(ctx, client.Client, addrs, tokenA, tokenB)
+		if err != nil {
+			return pairLookupResultMsg{cacheKey: key, fromIdx: fromIdx, toIdx: toIdx, reverse: reverse, ok: false}
+		}
+		return pairLookupResultMsg{
+			cacheKey: key, fromIdx: fromIdx, toIdx: toIdx, reverse: reverse, ok: true,
+			resolution: pairResolution{pairAddr: poolAddr, isV3: isV3, v3Fee: fee},
 		}
 	}
+}
 
-	m.logWarn(fmt.Sprintf("Swap pair %s/%s not supported yet", from.Symbol, to.Symbol))
-	return pairResolution{}, false
+// handlePairLookupResult applies the result of an on-chain factory lookup
+// dispatched by resolvePairOnChain: caches it, then resumes whichever quote
+// direction triggered the lookup. If the from/to selection has changed since
+// the lookup was dispatched, the result is still cached (not wasted) but no
+// quote is resumed for it.
+func (m *model) handlePairLookupResult(msg pairLookupResultMsg) (tea.Model, tea.Cmd) {
+	m.uniswapResolvingPair = false
+	m.pairCache[msg.cacheKey] = pairCacheEntry{resolution: msg.resolution, ok: msg.ok}
+
+	if msg.fromIdx != m.uniswapFromTokenIdx || msg.toIdx != m.uniswapToTokenIdx {
+		return m, nil
+	}
+	if !msg.ok {
+		if fromToken, toToken, ok := m.resolveSwapTokens(); ok {
+			m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
+			m.logWarn(m.uniswapQuoteError)
+		}
+		return m, nil
+	}
+	if msg.reverse {
+		return m, m.maybeRequestReverseUniswapQuote()
+	}
+	return m, m.maybeRequestUniswapQuote()
 }
 
 // resolveSwapTokens returns the from/to TokenOptions and whether the pair is valid.
@@ -164,8 +221,17 @@ func (m *model) maybeRequestUniswapQuote() tea.Cmd {
 		return nil
 	}
 
-	pr, ok := m.resolvePair(fromToken, toToken)
+	pr, ok, found := m.resolvePairCached(fromToken, toToken)
+	if !found {
+		addrs := helpers.UniswapAddressesForChain(m.chainID())
+		tokenA := tokenAddrForLookup(fromToken, addrs.WETH)
+		tokenB := tokenAddrForLookup(toToken, addrs.WETH)
+		m.uniswapResolvingPair = true
+		m.clearQuoteState()
+		return resolvePairOnChain(m.ethClient, addrs, tokenA, tokenB, m.uniswapFromTokenIdx, m.uniswapToTokenIdx, false)
+	}
 	if !ok {
+		m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
 		return nil
 	}
 
@@ -215,8 +281,17 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 		return nil
 	}
 
-	pr, ok := m.resolvePair(fromToken, toToken)
+	pr, ok, found := m.resolvePairCached(fromToken, toToken)
+	if !found {
+		addrs := helpers.UniswapAddressesForChain(m.chainID())
+		tokenA := tokenAddrForLookup(fromToken, addrs.WETH)
+		tokenB := tokenAddrForLookup(toToken, addrs.WETH)
+		m.uniswapResolvingPair = true
+		m.clearQuoteState()
+		return resolvePairOnChain(m.ethClient, addrs, tokenA, tokenB, m.uniswapFromTokenIdx, m.uniswapToTokenIdx, true)
+	}
 	if !ok {
+		m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
 		return nil
 	}
 
