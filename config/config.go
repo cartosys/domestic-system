@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"math/big"
 	"os"
 )
 
@@ -15,9 +16,11 @@ type Config struct {
 
 // WatchedToken represents a persisted ERC-20 token entry in the watchlist.
 type WatchedToken struct {
-	Symbol   string `json:"symbol"`
-	Decimals uint8  `json:"decimals"`
-	Address  string `json:"address"`
+	Symbol      string   `json:"symbol"`
+	Name        string   `json:"name,omitempty"`
+	Decimals    uint8    `json:"decimals"`
+	Address     string   `json:"address"`
+	TotalSupply *big.Int `json:"total_supply,omitempty"`
 }
 
 // RPCUrl represents an RPC endpoint

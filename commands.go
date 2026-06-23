@@ -31,8 +31,8 @@ func initLogViewport() tea.Cmd {
 	return func() tea.Msg { return logInitMsg{} }
 }
 
-// fetchTokenMetadata looks up an ERC-20 contract's symbol/decimals for the
-// Watched Tokens add/edit form.
+// fetchTokenMetadata looks up an ERC-20 contract's symbol/name/decimals/
+// totalSupply for the Watched Tokens add/edit form.
 func fetchTokenMetadata(client *rpc.Client, addr common.Address) tea.Cmd {
 	return func() tea.Msg {
 		if client == nil || client.Client == nil {
@@ -40,8 +40,8 @@ func fetchTokenMetadata(client *rpc.Client, addr common.Address) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
-		symbol, decimals, err := rpc.FetchERC20Metadata(ctx, client.Client, addr)
-		return tokenMetadataMsg{address: addr, symbol: symbol, decimals: decimals, err: err}
+		symbol, name, decimals, totalSupply, err := rpc.FetchERC20Metadata(ctx, client.Client, addr)
+		return tokenMetadataMsg{address: addr, symbol: symbol, name: name, decimals: decimals, totalSupply: totalSupply, err: err}
 	}
 }
 

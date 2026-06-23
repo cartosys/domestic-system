@@ -34,7 +34,7 @@ func buildTokenWatchlist(addrs helpers.UniswapNetworkAddresses) []rpc.WatchedTok
 func tokenWatchToConfigList(watch []rpc.WatchedToken) []config.WatchedToken {
 	out := make([]config.WatchedToken, len(watch))
 	for i, t := range watch {
-		out[i] = config.WatchedToken{Symbol: t.Symbol, Decimals: t.Decimals, Address: t.Address.Hex()}
+		out[i] = config.WatchedToken{Symbol: t.Symbol, Name: t.Name, Decimals: t.Decimals, Address: t.Address.Hex(), TotalSupply: t.TotalSupply}
 	}
 	return out
 }
@@ -43,7 +43,7 @@ func tokenWatchToConfigList(watch []rpc.WatchedToken) []config.WatchedToken {
 func configListToTokenWatch(entries []config.WatchedToken) []rpc.WatchedToken {
 	out := make([]rpc.WatchedToken, len(entries))
 	for i, e := range entries {
-		out[i] = rpc.WatchedToken{Symbol: e.Symbol, Decimals: e.Decimals, Address: common.HexToAddress(e.Address)}
+		out[i] = rpc.WatchedToken{Symbol: e.Symbol, Name: e.Name, Decimals: e.Decimals, Address: common.HexToAddress(e.Address), TotalSupply: e.TotalSupply}
 	}
 	return out
 }

@@ -56,8 +56,8 @@ func (m *model) createEditTokenForm(idx int) {
 }
 
 // submitTokenForm validates the pasted address and kicks off an on-chain
-// symbol()/decimals() lookup; the form stays open (with a spinner) until
-// handleTokenMetadataMsg resolves it.
+// symbol()/name()/decimals()/totalSupply() lookup; the form stays open
+// (with a spinner) until handleTokenMetadataMsg resolves it.
 func (m *model) submitTokenForm() (tea.Model, tea.Cmd) {
 	addr := strings.TrimSpace(tempTokenFormAddr)
 	if !common.IsHexAddress(addr) {
@@ -69,8 +69,8 @@ func (m *model) submitTokenForm() (tea.Model, tea.Cmd) {
 	return m, fetchTokenMetadata(m.ethClient, common.HexToAddress(addr))
 }
 
-// handleTokenMetadataMsg applies the result of an in-flight symbol()/decimals()
-// lookup triggered by submitTokenForm.
+// handleTokenMetadataMsg applies the result of an in-flight
+// symbol()/name()/decimals()/totalSupply() lookup triggered by submitTokenForm.
 func (m *model) handleTokenMetadataMsg(msg tokenMetadataMsg) (tea.Model, tea.Cmd) {
 	m.tokenLookupActive = false
 	if msg.err != nil {
@@ -78,7 +78,7 @@ func (m *model) handleTokenMetadataMsg(msg tokenMetadataMsg) (tea.Model, tea.Cmd
 		return m, nil
 	}
 
-	newToken := rpc.WatchedToken{Symbol: msg.symbol, Decimals: msg.decimals, Address: msg.address}
+	newToken := rpc.WatchedToken{Symbol: msg.symbol, Name: msg.name, Decimals: msg.decimals, Address: msg.address, TotalSupply: msg.totalSupply}
 	if m.tokenFormMode == "add" {
 		m.tokenWatch = append(m.tokenWatch, newToken)
 		m.logSuccess(fmt.Sprintf("Added watched token: `%s` (%s)", msg.symbol, msg.address.Hex()))

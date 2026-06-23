@@ -80,9 +80,11 @@ type TokenBalance struct {
 
 // WatchedToken represents a token to query
 type WatchedToken struct {
-	Symbol   string
-	Decimals uint8
-	Address  common.Address
+	Symbol      string
+	Name        string
+	Decimals    uint8
+	Address     common.Address
+	TotalSupply *big.Int // not currently displayed; stored for future use
 }
 
 // WalletDetails contains all balance information for a wallet
@@ -221,49 +223,81 @@ func ERC20Allowance(ctx context.Context, client *Client, token, owner, spender c
 // decode the dynamic-string return value via abi.Unpack.
 const erc20SymbolABI = `[{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"}]`
 
+// erc20NameABI describes the standard ERC-20 name() view function.
+const erc20NameABI = `[{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"}]`
+
 // decimalsSelector methodID = keccak256("decimals()")[:4]
 var decimalsSelector = []byte{0x31, 0x3c, 0xe5, 0x67}
 
-// FetchERC20Metadata looks up a token contract's symbol() and decimals() via eth_call.
-// Most tokens return symbol() as a dynamic string; a few legacy tokens (e.g. MKR) return
-// a fixed bytes32 instead, so that format is tried as a fallback before giving up.
-func FetchERC20Metadata(ctx context.Context, client *ethclient.Client, addr common.Address) (symbol string, decimals uint8, err error) {
+// totalSupplySelector methodID = keccak256("totalSupply()")[:4]
+var totalSupplySelector = []byte{0x18, 0x16, 0x0d, 0xdd}
+
+// decodeABIStringOrBytes32 decodes an eth_call response as a dynamic ABI
+// string via parsed.Unpack(method, raw); if that fails, it falls back to
+// treating raw as a fixed bytes32 (a few legacy tokens, e.g. MKR, use that
+// format for both symbol() and name() instead of a dynamic string).
+func decodeABIStringOrBytes32(parsed abi.ABI, method string, raw []byte) string {
+	if vals, err := parsed.Unpack(method, raw); err == nil && len(vals) > 0 {
+		if s, ok := vals[0].(string); ok {
+			return s
+		}
+	}
+	if len(raw) == 32 {
+		return strings.TrimRight(string(raw), "\x00")
+	}
+	return ""
+}
+
+// FetchERC20Metadata looks up a token contract's name(), symbol(),
+// decimals() and totalSupply() via eth_call. name() and totalSupply() are
+// purely cosmetic/informational (not used in balance math or quoting), so
+// failures there are non-fatal — they come back empty/nil rather than
+// failing the whole lookup. symbol() and decimals() are required for balance
+// math and quoting, so those failures do return an error.
+func FetchERC20Metadata(ctx context.Context, client *ethclient.Client, addr common.Address) (symbol, name string, decimals uint8, totalSupply *big.Int, err error) {
 	if client == nil {
-		return "", 0, fmt.Errorf("no RPC client")
+		return "", "", 0, nil, fmt.Errorf("no RPC client")
 	}
 
-	parsed, err := abi.JSON(strings.NewReader(erc20SymbolABI))
+	symParsed, err := abi.JSON(strings.NewReader(erc20SymbolABI))
 	if err != nil {
-		return "", 0, err
+		return "", "", 0, nil, err
 	}
-	symData, err := parsed.Pack("symbol")
+	symData, err := symParsed.Pack("symbol")
 	if err != nil {
-		return "", 0, err
+		return "", "", 0, nil, err
 	}
 	symRaw, err := client.CallContract(ctx, ethereum.CallMsg{To: &addr, Data: symData}, nil)
 	if err != nil {
-		return "", 0, fmt.Errorf("symbol() call failed: %w", err)
+		return "", "", 0, nil, fmt.Errorf("symbol() call failed: %w", err)
 	}
-	if vals, uerr := parsed.Unpack("symbol", symRaw); uerr == nil && len(vals) > 0 {
-		symbol, _ = vals[0].(string)
-	} else if len(symRaw) == 32 {
-		// bytes32 fallback (e.g. MKR)
-		symbol = strings.TrimRight(string(symRaw), "\x00")
-	}
+	symbol = decodeABIStringOrBytes32(symParsed, "symbol", symRaw)
 	if symbol == "" {
-		return "", 0, fmt.Errorf("could not decode symbol() response — is this an ERC-20 contract?")
+		return "", "", 0, nil, fmt.Errorf("could not decode symbol() response — is this an ERC-20 contract?")
+	}
+
+	if nameParsed, perr := abi.JSON(strings.NewReader(erc20NameABI)); perr == nil {
+		if nameData, perr := nameParsed.Pack("name"); perr == nil {
+			if nameRaw, cerr := client.CallContract(ctx, ethereum.CallMsg{To: &addr, Data: nameData}, nil); cerr == nil {
+				name = decodeABIStringOrBytes32(nameParsed, "name", nameRaw)
+			}
+		}
 	}
 
 	decRaw, err := client.CallContract(ctx, ethereum.CallMsg{To: &addr, Data: decimalsSelector}, nil)
 	if err != nil {
-		return "", 0, fmt.Errorf("decimals() call failed: %w", err)
+		return "", "", 0, nil, fmt.Errorf("decimals() call failed: %w", err)
 	}
 	if len(decRaw) < 32 {
-		return "", 0, fmt.Errorf("unexpected decimals() response")
+		return "", "", 0, nil, fmt.Errorf("unexpected decimals() response")
 	}
 	decimals = decRaw[31]
 
-	return symbol, decimals, nil
+	if supplyRaw, serr := client.CallContract(ctx, ethereum.CallMsg{To: &addr, Data: totalSupplySelector}, nil); serr == nil && len(supplyRaw) >= 32 {
+		totalSupply = new(big.Int).SetBytes(supplyRaw)
+	}
+
+	return symbol, name, decimals, totalSupply, nil
 }
 
 // TransactionPackage contains both raw hex and EIP-681 formatted transaction data

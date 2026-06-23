@@ -87,7 +87,12 @@ func Render(tokens []rpc.WatchedToken, details rpc.WalletDetails, selectedIdx in
 				}
 			}
 
-			line := marker + nameStyle.Render(t.Symbol) + "  " + addrStyle.Render(balanceText)
+			label := t.Symbol
+			if t.Name != "" {
+				label = t.Symbol + " - " + t.Name
+			}
+
+			line := marker + nameStyle.Render(label) + "  " + addrStyle.Render(balanceText)
 			lines = append(lines, line)
 			lines = append(lines, "  "+addrStyle.Render(helpers.ShortenAddr(t.Address.Hex())))
 			lines = append(lines, "")

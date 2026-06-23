@@ -212,11 +212,13 @@ type signedTxPollResultMsg struct {
 // Ns" countdown while polling for on-chain confirmation.
 type signedTxCountdownTickMsg struct{}
 
-// tokenMetadataMsg carries the result of an ERC-20 symbol()/decimals() lookup
-// triggered by the Watched Tokens add/edit form.
+// tokenMetadataMsg carries the result of an ERC-20 name()/symbol()/decimals()/
+// totalSupply() lookup triggered by the Watched Tokens add/edit form.
 type tokenMetadataMsg struct {
-	address  common.Address
-	symbol   string
-	decimals uint8
-	err      error
+	address     common.Address
+	symbol      string
+	name        string
+	decimals    uint8
+	totalSupply *big.Int
+	err         error
 }
