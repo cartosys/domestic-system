@@ -41,18 +41,19 @@ const (
 type dialogKind uint8
 
 const (
-	dialogNone        dialogKind = iota
-	dialogDeleteWallet            // wallet delete confirmation
-	dialogDeleteRPC               // RPC endpoint delete confirmation
-	dialogTxResult                // transaction result / QR panel
-	dialogPoolInfo                // Uniswap pool info popup
-	dialogAccountList             // account selector popup
-	dialogTerraClaim              // Terra Nullius claim form
-	dialogScanTx                  // webcam scan for signed transaction
-	dialogPasteSignedTx           // paste + broadcast a signed transaction
-	dialogEditWallet              // edit address + nickname for an existing wallet
-	dialogAddWallet               // add a new wallet (same popup as edit)
-	dialogSendTx                  // send transaction form
+	dialogNone          dialogKind = iota
+	dialogDeleteWallet             // wallet delete confirmation
+	dialogDeleteRPC                // RPC endpoint delete confirmation
+	dialogTxResult                 // transaction result / QR panel
+	dialogPoolInfo                 // Uniswap pool info popup
+	dialogAccountList              // account selector popup
+	dialogTerraClaim               // Terra Nullius claim form
+	dialogScanTx                   // webcam scan for signed transaction
+	dialogPasteSignedTx            // paste + broadcast a signed transaction
+	dialogEditWallet               // edit address + nickname for an existing wallet
+	dialogAddWallet                // add a new wallet (same popup as edit)
+	dialogSendTx                   // send transaction form
+	dialogDeleteToken              // watched token delete confirmation
 )
 
 // pasteTxPhaseKind identifies which step of the paste-signed-transaction
@@ -96,8 +97,24 @@ type model struct {
 	rpcConnected  bool // true if RPC is successfully connected
 	rpcConnecting bool // true if connection attempt is in progress
 
-	// token watchlist (simple starter set)
+	// token watchlist (persisted to config)
 	tokenWatch []rpc.WatchedToken
+
+	// Watched Tokens page state
+	selectedTokenIdx             int
+	tokenFormMode                string // "list", "add", "edit"
+	tokenForm                    *huh.Form
+	tokenFormFields              []huh.Field
+	tokenFormButtonFocused       bool
+	tokenFormError               string
+	tokenFormErrTime             time.Time
+	tokenLookupActive            bool
+	editingTokenIdx              int
+	deleteTokenDialogIdx         int
+	deleteTokenDialogName        string
+	deleteTokenDialogYesSelected bool
+	tokenListViewport            viewport.Model
+	tokenListScroll              scrollbar.State
 
 	// clipboard feedback
 	copiedMsg     string
@@ -387,10 +404,19 @@ func newModel() model {
 		}
 	}
 
-	// starter token watchlist: USDC, USDT, DAI, WETH.
-	// Chain ID is unknown until the RPC connects, so this defaults to mainnet
-	// addresses; handleRPCConnected rebuilds it once the chain is known.
-	watch := buildTokenWatchlist(helpers.UniswapAddressesForChain(nil))
+	// Token watchlist: loaded from persisted config. On first run (no entries
+	// saved yet) it's seeded from the starter set (WETH/USDC/USDT/DAI, mainnet
+	// addresses since no RPC has connected yet) and saved immediately. From
+	// then on it's entirely user-editable via the Watched Tokens page and is
+	// not rebuilt on RPC reconnect (see handleRPCConnected).
+	var watch []rpc.WatchedToken
+	if len(cfg.WatchedTokens) == 0 {
+		watch = buildTokenWatchlist(helpers.UniswapAddressesForChain(nil))
+		cfg.WatchedTokens = tokenWatchToConfigList(watch)
+		config.Save(configPath, cfg)
+	} else {
+		watch = configListToTokenWatch(cfg.WatchedTokens)
+	}
 
 	// Terra Nullius message input (for claim popup)
 	terraNullInput := textinput.New()
@@ -410,6 +436,12 @@ func newModel() model {
 	// Initialize V4 events viewport
 	v4vp := viewport.New(0, 20) // Will be resized on first WindowSizeMsg
 	v4vp.Style = lipgloss.NewStyle().
+		Foreground(styles.CText).
+		Background(styles.CPanel)
+
+	// Initialize Watched Tokens list viewport
+	tokenListVP := viewport.New(0, 20) // Will be resized on first WindowSizeMsg
+	tokenListVP.Style = lipgloss.NewStyle().
 		Foreground(styles.CText).
 		Background(styles.CPanel)
 
@@ -438,6 +470,7 @@ func newModel() model {
 		spin:               sp,
 		rpcURL:             activeRPC,
 		tokenWatch:         watch,
+		tokenFormMode:      "list",
 		settingsMode:       "list",
 		rpcURLs:            cfg.RPCURLs,
 		selectedRPCIdx:     0,
@@ -445,6 +478,7 @@ func newModel() model {
 		logEnabled:         cfg.Logger,
 		logViewport:        vp,
 		v4EventsViewport:   v4vp,
+		tokenListViewport:  tokenListVP,
 		txQRViewport:       txqrvp,
 		logBuffer:          &strings.Builder{},
 		logSpinner:         logSpin,

@@ -9,6 +9,8 @@ import (
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/webcam/capture"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // -------------------- TEA MESSAGES --------------------
@@ -199,3 +201,12 @@ type signedTxPollResultMsg struct {
 // signedTxCountdownTickMsg fires once a second to drive the "next check in
 // Ns" countdown while polling for on-chain confirmation.
 type signedTxCountdownTickMsg struct{}
+
+// tokenMetadataMsg carries the result of an ERC-20 symbol()/decimals() lookup
+// triggered by the Watched Tokens add/edit form.
+type tokenMetadataMsg struct {
+	address  common.Address
+	symbol   string
+	decimals uint8
+	err      error
+}

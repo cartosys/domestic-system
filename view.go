@@ -18,6 +18,7 @@ import (
 	"charm-wallet-tui/views/terra"
 	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/views/wallets"
+	"charm-wallet-tui/views/watchedtokens"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -104,6 +105,12 @@ func (m *model) renderRPCDeleteDialog() string {
 	msg := helpers.FadeString("Are you sure you want to delete the RPC endpoint "+m.deleteRPCDialogName+"?", "#F25D94", "#EDFF82")
 	return m.renderConfirmDialog("confirmDeleteRPC", msg, m.deleteRPCDialogYesSelected,
 		(*model).confirmDeleteRPCYes, (*model).confirmDeleteRPCNo)
+}
+
+func (m *model) renderTokenDeleteDialog() string {
+	msg := helpers.FadeString("Are you sure you want to remove the watched token "+m.deleteTokenDialogName+"?", "#F25D94", "#EDFF82")
+	return m.renderConfirmDialog("confirmDeleteToken", msg, m.deleteTokenDialogYesSelected,
+		(*model).confirmDeleteTokenYes, (*model).confirmDeleteTokenNo)
 }
 
 func (m *model) renderAccountListPopup() string {
@@ -435,6 +442,9 @@ func (m *model) renderActiveOverlay() string {
 	if m.activePage == config.PageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
 		return m.renderRPCFormPopup()
 	}
+	if m.activePage == config.PageWatchedTokens && (m.tokenFormMode == "add" || m.tokenFormMode == "edit") && m.tokenForm != nil {
+		return m.renderTokenFormPopup()
+	}
 
 	switch m.activeDialog {
 	case dialogTxResult:
@@ -447,6 +457,8 @@ func (m *model) renderActiveOverlay() string {
 		return m.renderDeleteDialog()
 	case dialogDeleteRPC:
 		return m.renderRPCDeleteDialog()
+	case dialogDeleteToken:
+		return m.renderTokenDeleteDialog()
 	case dialogAccountList:
 		return m.renderAccountListPopup()
 	case dialogPoolInfo:
@@ -701,6 +713,71 @@ func (m *model) renderRPCFormPopup() string {
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
+func (m *model) renderTokenFormPopup() string {
+	var titleText string
+	if m.tokenFormMode == "edit" {
+		titleText = "Edit Watched Token"
+	} else {
+		titleText = "Add Watched Token"
+	}
+
+	title := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(RPCFormPopupWidth - 8).
+		Render(titleText)
+
+	formView := m.tokenForm.View()
+	if m.tokenLookupActive {
+		formView += "\n\n" + m.spin.View() + " Looking up token on-chain…"
+	}
+
+	btnStyle := styles.ButtonNormal
+	if m.hoveredRegionID == "tokenForm.save" || m.tokenFormButtonFocused {
+		btnStyle = styles.ButtonActive
+	}
+	saveBtn := btnStyle.Render("Save")
+	btnRow := lipgloss.NewStyle().
+		Width(RPCFormPopupWidth - 8).
+		Align(lipgloss.Center).
+		Render(saveBtn)
+
+	hints := lipgloss.NewStyle().Foreground(styles.CMuted).Render(
+		styles.HotkeyStyle.Render("Tab") + " next   " +
+			styles.HotkeyStyle.Render("Enter") + " save   " +
+			styles.HotkeyStyle.Render("Esc") + " cancel",
+	)
+
+	var errLine string
+	if m.tokenFormError != "" {
+		errLine = "\n" + lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true).
+			Width(RPCFormPopupWidth - 8).Align(lipgloss.Center).Render(m.tokenFormError)
+	}
+
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", formView, "", btnRow, errLine, "", hints)
+	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
+
+	dialogW := lipgloss.Width(dialog)
+	dialogH := lipgloss.Height(dialog)
+	dialogStartX := (m.w - dialogW) / 2
+	dialogStartY := (m.h - dialogH) / 2
+	contentLeft := dialogStartX + 3
+	fieldsTop := dialogStartY + 2 + lipgloss.Height(title) + 1
+	m.registerHuhFieldRegions("tokenForm", fieldsTop, contentLeft, m.tokenForm, m.tokenFormFields)
+
+	btnRowY := fieldsTop + lipgloss.Height(formView) + 1
+	rowWidth := RPCFormPopupWidth - 8
+	btnWidth := lipgloss.Width(saveBtn)
+	btnX1 := contentLeft + (rowWidth-btnWidth)/2
+	btnX2 := btnX1 + btnWidth
+	m.registerRegion("tokenForm.save", uiRegionButton, btnX1, btnRowY, btnX2, btnRowY+1, func(m *model) (tea.Model, tea.Cmd) {
+		return m.submitTokenForm()
+	})
+
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
+}
+
 func (m *model) View() string {
 	m.clickableAreas = nil
 	m.uiRegions = nil
@@ -757,8 +834,29 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 
 	case config.PageTerraNullius:
 		return m.renderTerraPage(headerPanel)
+
+	case config.PageWatchedTokens:
+		return m.renderWatchedTokensPage(headerPanel)
 	}
 	return "", ""
+}
+
+func (m *model) renderWatchedTokensPage(headerPanel string) (pageContent, nav string) {
+	sorted := sortedWatchedTokens(m.tokenWatch, m.details)
+	content := watchedtokens.Render(sorted, m.details, m.selectedTokenIdx)
+	m.tokenListViewport.SetContent(content)
+
+	vpH := helpers.Max(1, m.h/2-4)
+	m.tokenListViewport.Height = vpH
+
+	track := scrollbar.Track(vpH, m.tokenListViewport.TotalLineCount(), m.tokenListViewport.YOffset)
+	vpContent := scrollbar.Decorate(m.tokenListViewport.View(), track)
+
+	c := styles.PanelStyle.Width(m.contentW).Render(vpContent)
+	m.tokenListScroll.PanelTop = lipgloss.Height(headerPanel) + 2
+	m.tokenListScroll.TrackCol = m.tokenListViewport.Width + 3
+
+	return c, watchedtokens.Nav(m.w-2, m.tokenFormMode, m.txIndexerActive)
 }
 
 func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) {

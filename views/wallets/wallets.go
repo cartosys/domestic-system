@@ -36,6 +36,7 @@ func Nav(width int, indexerActive bool) string {
 		styles.Key("del") + " delete",
 		styles.Key("s") + " settings",
 		styles.Key("b") + " dApps",
+		styles.Key("w") + " watched",
 		styles.Key("l") + " logger",
 		iItem,
 		styles.Key("Esc") + " quit",

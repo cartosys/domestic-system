@@ -7,9 +7,17 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	RPCURLs []RPCUrl      `json:"rpc_urls"`
-	Wallets []WalletEntry `json:"wallets"`
-	Logger  bool          `json:"logger"`
+	RPCURLs       []RPCUrl      `json:"rpc_urls"`
+	Wallets       []WalletEntry `json:"wallets"`
+	Logger        bool          `json:"logger"`
+	WatchedTokens []WatchedToken `json:"watched_tokens,omitempty"`
+}
+
+// WatchedToken represents a persisted ERC-20 token entry in the watchlist.
+type WatchedToken struct {
+	Symbol   string `json:"symbol"`
+	Decimals uint8  `json:"decimals"`
+	Address  string `json:"address"`
 }
 
 // RPCUrl represents an RPC endpoint
@@ -48,6 +56,7 @@ const (
 	PageDappBrowser
 	PageUniswap
 	PageTerraNullius
+	PageWatchedTokens
 )
 
 // ClickableArea represents a clickable region on screen for addresses

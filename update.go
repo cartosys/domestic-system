@@ -19,10 +19,11 @@ import (
 // -------------------- TEMP FORM STORAGE --------------------
 // Package-level vars avoid pointer-to-copy bugs when binding huh form fields.
 var (
-	tempRPCFormName string
-	tempRPCFormURL  string
-	tempSendToAddr  string
-	tempSendAmount  string
+	tempRPCFormName   string
+	tempRPCFormURL    string
+	tempSendToAddr    string
+	tempSendAmount    string
+	tempTokenFormAddr string
 )
 
 // -------------------- UPDATE --------------------
@@ -100,12 +101,17 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.activePage == config.PageSettings && (m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil {
 		return m.handleSettingsFormMsg(msg)
 	}
+	if m.activePage == config.PageWatchedTokens && (m.tokenFormMode == "add" || m.tokenFormMode == "edit") && m.tokenForm != nil && !m.tokenLookupActive {
+		return m.handleWatchedTokensFormMsg(msg)
+	}
 
 	switch msg := msg.(type) {
 	case logInitMsg:
 		return m.handleLogInit()
 	case rpcConnectedMsg:
 		return m.handleRPCConnected(msg)
+	case tokenMetadataMsg:
+		return m.handleTokenMetadataMsg(msg)
 	case tea.WindowSizeMsg:
 		return m.handleWindowSize(msg)
 	case spinner.TickMsg:
@@ -366,6 +372,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleUniswapKey(msg)
 	case config.PageTerraNullius:
 		return m.handleTerraKey(msg)
+	case config.PageWatchedTokens:
+		return m.handleWatchedTokensKey(msg)
 	}
 	return m, nil
 }
@@ -436,6 +444,11 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.txQRViewport, cmd = m.txQRViewport.Update(msg)
 			return m, cmd
 		}
+		if m.activePage == config.PageWatchedTokens {
+			var cmd tea.Cmd
+			m.tokenListViewport, cmd = m.tokenListViewport.Update(msg)
+			return m, cmd
+		}
 		v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
 		bothVisible := v4Visible && m.logEnabled && m.logReady
 		var cmd tea.Cmd
@@ -457,6 +470,7 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.v4Scroll.Dragging = false
 		m.txQRScroll.Dragging = false
 		m.webcamLogScroll.Dragging = false
+		m.tokenListScroll.Dragging = false
 		return m, nil
 	}
 
@@ -489,6 +503,13 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if m.txQRScroll.HitTest(msg.X, msg.Y, m.txQRScroll.PanelTop+m.txQRViewport.Height-1) {
 			m.txQRScroll.Dragging = true
 			m.txQRScroll.ApplyDrag(msg.Y, &m.txQRViewport)
+			return m, nil
+		}
+	}
+	if m.activePage == config.PageWatchedTokens && m.tokenListScroll.PanelTop > 0 {
+		if m.tokenListScroll.HitTest(msg.X, msg.Y, m.tokenListScroll.PanelTop+m.tokenListViewport.Height-1) {
+			m.tokenListScroll.Dragging = true
+			m.tokenListScroll.ApplyDrag(msg.Y, &m.tokenListViewport)
 			return m, nil
 		}
 	}
