@@ -333,7 +333,8 @@ func (m *model) handlePasteSignedTxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pasteTxPhaseResult:
-		return m.closePasteSignedTxDialog() // "press any key to return"
+		_, closeCmd := m.closePasteSignedTxDialog() // "press any key to return"
+		return m, tea.Batch(closeCmd, m.loadSelectedWalletDetailsFresh())
 	}
 	return m, nil
 }
