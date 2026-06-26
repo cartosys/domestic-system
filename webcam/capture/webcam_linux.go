@@ -82,6 +82,8 @@ func (c *Camera) Frames() <-chan image.Image {
 	return c.frames
 }
 
+func (c *Camera) Err() error { return nil }
+
 func (c *Camera) Close() {
 	select {
 	case <-c.done:

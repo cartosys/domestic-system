@@ -221,14 +221,12 @@ func (m *model) handleWebcamMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case webcamErrMsg:
 		if m.webcamActive {
 			m.webcamErrStr = msg.err.Error()
-			m.webcamActive = false
-			// No camera / camera error during the "scan signed tx response"
-			// flow: fall straight through to the paste-a-signed-tx form,
-			// focused and ready — there's nothing useful to show otherwise.
-			if m.activeDialog == dialogScanTx {
-				newModel, cmd := m.openPasteSignedTxDialog()
-				return newModel, cmd, true
+			if m.webcamCam != nil {
+				if camErr := m.webcamCam.Err(); camErr != nil {
+					m.webcamErrStr = camErr.Error()
+				}
 			}
+			m.webcamActive = false
 		}
 		return m, nil, true
 	}
