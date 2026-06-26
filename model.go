@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"image/color"
+
+	"charm-wallet-tui/anim"
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
@@ -17,7 +20,6 @@ import (
 	"charm-wallet-tui/views/scrollbar"
 	"charm-wallet-tui/webcam/capture"
 
-	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -88,7 +90,7 @@ type model struct {
 	ensLookupAddr   string          // address being looked up
 
 	// details state
-	spin          spinner.Model
+	spin          *anim.Anim
 	loading       bool
 	details       rpc.WalletDetails
 	detailsCache  map[string]rpc.WalletDetails // cache wallet details by address
@@ -164,7 +166,7 @@ type model struct {
 	logBuffer   *strings.Builder
 	logViewport viewport.Model
 	logReady    bool
-	logSpinner  spinner.Model
+	logSpinner  *anim.Anim
 
 	// split view flag for wallets page
 	detailsInWallets bool // when true, show details panel alongside wallet list
@@ -387,9 +389,11 @@ func newModel() model {
 	nicknameIn.Width = 48
 
 	// spinner
-	sp := spinner.New()
-	sp.Spinner = spinner.Line
-	sp.Style = lipgloss.NewStyle().Foreground(styles.CAccent2)
+	sp := anim.New(anim.Settings{
+		Size:       8,
+		GradColorA: color.RGBA{R: 0x87, G: 0x4B, B: 0xFD, A: 0xFF}, // CBorder #874BFD
+		GradColorB: color.RGBA{R: 0x7E, G: 0xE7, B: 0x87, A: 0xFF}, // CAccent #7EE787
+	})
 
 	// rpc URL from environment
 	rpcFromEnv := strings.TrimSpace(os.Getenv("ETH_RPC_URL"))
@@ -456,9 +460,11 @@ func newModel() model {
 		Background(styles.CPanel)
 
 	// Initialize log spinner
-	logSpin := spinner.New()
-	logSpin.Spinner = spinner.Dot
-	logSpin.Style = lipgloss.NewStyle().Foreground(styles.CAccent2)
+	logSpin := anim.New(anim.Settings{
+		Size:       4,
+		GradColorA: color.RGBA{R: 0x79, G: 0xC0, B: 0xFF, A: 0xFF}, // CAccent2 #79C0FF
+		GradColorB: color.RGBA{R: 0x7E, G: 0xE7, B: 0x87, A: 0xFF}, // CAccent #7EE787
+	})
 
 	m := model{
 		mouseAllMotionActive: true, // matches the cmdEnableMouseAllMotion() issued by Init()
@@ -503,9 +509,9 @@ func newModel() model {
 
 // Init implements tea.Model interface and returns initial commands
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spin.Tick, cmdEnableMouseAllMotion()}
+	cmds := []tea.Cmd{m.spin.Start(), cmdEnableMouseAllMotion()}
 	if m.logEnabled {
-		cmds = append(cmds, initLogViewport(), m.logSpinner.Tick)
+		cmds = append(cmds, initLogViewport(), m.logSpinner.Start())
 	}
 	// connect if rpc is set
 	if m.rpcURL != "" {

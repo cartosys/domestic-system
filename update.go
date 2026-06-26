@@ -11,7 +11,8 @@ import (
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/views/uniswap"
 
-	"github.com/charmbracelet/bubbles/spinner"
+	"charm-wallet-tui/anim"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -114,7 +115,7 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTokenMetadataMsg(msg)
 	case tea.WindowSizeMsg:
 		return m.handleWindowSize(msg)
-	case spinner.TickMsg:
+	case anim.StepMsg:
 		return m.handleSpinnerTick(msg)
 	case detailsLoadedMsg:
 		return m.handleDetailsLoaded(msg)
@@ -328,7 +329,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.logReady = false
 				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
-				return m, tea.Batch(initLogViewport(), m.logSpinner.Tick)
+				return m, tea.Batch(initLogViewport(), m.logSpinner.Start())
 			}
 			if m.logBuffer != nil {
 				m.logBuffer.Reset()

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm-wallet-tui/anim"
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
@@ -13,7 +14,6 @@ import (
 	"charm-wallet-tui/views/txqr"
 	"charm-wallet-tui/views/uniswap"
 
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -59,14 +59,11 @@ func (m *model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+func (m *model) handleSpinnerTick(msg anim.StepMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-	m.spin, cmd = m.spin.Update(msg)
-	cmds = append(cmds, cmd)
+	cmds = append(cmds, m.spin.Animate(msg))
 	if m.logEnabled && !m.logReady {
-		m.logSpinner, cmd = m.logSpinner.Update(msg)
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, m.logSpinner.Animate(msg))
 	}
 	return m, tea.Batch(cmds...)
 }
