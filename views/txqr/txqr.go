@@ -1,6 +1,8 @@
 package txqr
 
 import (
+	"strings"
+
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 
@@ -25,8 +27,36 @@ func RenderAnimated(urString string, maxChunkBytes int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Split each frame into lines and find the maximum dimensions so all
+	// frames can be padded to the same size before styling. Different BCUR
+	// chunk sizes can produce different QR versions (module counts), which
+	// shifts surrounding layout elements on every tick without this.
+	split := make([][]string, len(frames))
+	maxW, maxH := 0, 0
 	for i, f := range frames {
-		frames[i] = qrStyle.Render(f)
+		lines := strings.Split(f, "\n")
+		split[i] = lines
+		if len(lines) > maxH {
+			maxH = len(lines)
+		}
+		for _, l := range lines {
+			if w := lipgloss.Width(l); w > maxW {
+				maxW = w
+			}
+		}
+	}
+
+	for i, lines := range split {
+		for j, l := range lines {
+			if pad := maxW - lipgloss.Width(l); pad > 0 {
+				lines[j] = l + strings.Repeat(" ", pad)
+			}
+		}
+		for len(lines) < maxH {
+			lines = append(lines, strings.Repeat(" ", maxW))
+		}
+		frames[i] = qrStyle.Render(strings.Join(lines, "\n"))
 	}
 	return frames, nil
 }
