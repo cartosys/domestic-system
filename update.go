@@ -86,6 +86,13 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return updated, cmd
 	}
 
+	// Spinner ticks must be handled before any dialog-specific early return;
+	// those handlers don't forward anim.StepMsg to handleSpinnerTick, so the
+	// tick chain silently dies whenever a form or dialog is open.
+	if stepMsg, ok := msg.(anim.StepMsg); ok {
+		return m.handleSpinnerTick(stepMsg)
+	}
+
 	if m.activeDialog == dialogPasteSignedTx {
 		return m.handlePasteSignedTxMsg(msg)
 	}
@@ -115,8 +122,6 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTokenMetadataMsg(msg)
 	case tea.WindowSizeMsg:
 		return m.handleWindowSize(msg)
-	case anim.StepMsg:
-		return m.handleSpinnerTick(msg)
 	case detailsLoadedMsg:
 		return m.handleDetailsLoaded(msg)
 	case packageTransactionMsg:
