@@ -421,6 +421,9 @@ func (m *model) executeUniswapSwap() (tea.Model, tea.Cmd) {
 	m.txResultHex = ""
 	m.txResultError = ""
 	m.txResultFormat = "EIP-4527"
+	if m.uniswapQuote.IsV4 {
+		return m, packageSwapTransactionV4(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapLastV4Key, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
+	}
 	if m.uniswapQuote.IsV3 {
 		return m, packageSwapTransactionV3(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
 	}

@@ -429,11 +429,20 @@ func v4FetchPositionLiquidity(ctx context.Context, client *ethclient.Client, sta
 
 // ---- Price helpers ----
 
+// v4RawSpotPrice returns 1.0001^tick — the V4 tick-to-price formula in raw
+// (smallest-unit) terms, i.e. token1_raw per token0_raw, with no decimal
+// adjustment. Shared by v4TickToPrice (human-readable display) and the V4
+// quote code's price-impact calc (helpers/uniswap_v4_quote.go), which needs
+// the unadjusted raw ratio to stay consistent with how amountIn/amountOut
+// are already raw big.Int values throughout this codebase's V2/V3 quote math.
+func v4RawSpotPrice(tick int32) float64 {
+	return math.Pow(1.0001, float64(tick))
+}
+
 // v4TickToPrice converts a V4 tick to a human-readable price (token1 per token0).
 func v4TickToPrice(tick int32, decimals0, decimals1 uint8) float64 {
-	rawPrice := math.Pow(1.0001, float64(tick))
 	decimalAdjust := math.Pow(10, float64(int(decimals0)-int(decimals1)))
-	return rawPrice * decimalAdjust
+	return v4RawSpotPrice(tick) * decimalAdjust
 }
 
 // v4ERC20Decimals fetches the decimals() of an ERC-20 token, returning 18 on failure.

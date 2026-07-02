@@ -1,6 +1,7 @@
 package watchedtokens
 
 import (
+	"strconv"
 	"strings"
 
 	"charm-wallet-tui/helpers"
@@ -40,6 +41,7 @@ func Nav(width int, mode string, indexerActive bool) string {
 		left = strings.Join([]string{
 			styles.Key("↑/↓") + " select",
 			styles.Key("a") + " add",
+			styles.Key("o") + " Ondo",
 			styles.Key("e") + " edit",
 			styles.Key("del") + " delete",
 			styles.Key("l") + " logger",
@@ -97,6 +99,61 @@ func Render(tokens []rpc.WatchedToken, details rpc.WalletDetails, selectedIdx in
 			lines = append(lines, "  "+addrStyle.Render(helpers.ShortenAddr(t.Address.Hex())))
 			lines = append(lines, "")
 		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// OndoPickerMaxRows is the maximum number of filtered rows RenderOndoPicker
+// shows at once, above/below which the caller should keep selectedIdx
+// clamped elsewhere (the picker itself does no scrolling).
+const OndoPickerMaxRows = 12
+
+// RenderOndoPicker draws the Ondo Global Markets token picker: a filter
+// input followed by up to OndoPickerMaxRows matching entries. Selecting an
+// entry only autofills the add-token form's address — the on-chain
+// symbol()/decimals() lookup still runs, so nothing from this vendored list
+// is trusted directly.
+func RenderOndoPicker(tokens []helpers.OndoToken, filter string, selectedIdx int) string {
+	titleStyle := lipgloss.NewStyle().Foreground(styles.CAccent2).Bold(true)
+	mutedStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+	rowStyle := lipgloss.NewStyle().Foreground(styles.CText)
+	selStyle := lipgloss.NewStyle().Background(styles.CPanel).Foreground(styles.CAccent2).Bold(true)
+
+	var lines []string
+	lines = append(lines, titleStyle.Render("Add Ondo Global Markets Token"))
+	lines = append(lines, mutedStyle.Render("Type to filter by symbol/name • ↑/↓ select • Enter add • Esc cancel"))
+	lines = append(lines, "")
+
+	filterLine := "Filter: " + filter
+	if filter == "" {
+		filterLine = mutedStyle.Render("Filter: (type to search " + strconv.Itoa(len(tokens)) + " tokens)")
+	} else {
+		filterLine = rowStyle.Render(filterLine)
+	}
+	lines = append(lines, filterLine)
+	lines = append(lines, "")
+
+	if len(tokens) == 0 {
+		lines = append(lines, mutedStyle.Render("No matches"))
+		return strings.Join(lines, "\n")
+	}
+
+	end := len(tokens)
+	if end > OndoPickerMaxRows {
+		end = OndoPickerMaxRows
+	}
+	for i := 0; i < end; i++ {
+		t := tokens[i]
+		label := t.Symbol + " - " + t.Name
+		if i == selectedIdx {
+			lines = append(lines, selStyle.Render("▶ "+label))
+		} else {
+			lines = append(lines, rowStyle.Render("  "+label))
+		}
+	}
+	if len(tokens) > end {
+		lines = append(lines, mutedStyle.Render("  … "+strconv.Itoa(len(tokens)-end)+" more, keep typing to narrow"))
 	}
 
 	return strings.Join(lines, "\n")

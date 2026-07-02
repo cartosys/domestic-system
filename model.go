@@ -26,6 +26,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // -------------------- MODEL --------------------
@@ -56,6 +57,7 @@ const (
 	dialogAddWallet                // add a new wallet (same popup as edit)
 	dialogSendTx                   // send transaction form
 	dialogDeleteToken              // watched token delete confirmation
+	dialogOndoPicker               // Ondo Global Markets token picker (Watched Tokens page)
 )
 
 // pasteTxPhaseKind identifies which step of the paste-signed-transaction
@@ -117,6 +119,14 @@ type model struct {
 	deleteTokenDialogYesSelected bool
 	tokenListViewport            viewport.Model
 	tokenListScroll              scrollbar.State
+
+	// Ondo Global Markets token picker (dialogOndoPicker), opened from the
+	// Watched Tokens page. Selecting an entry only autofills the existing
+	// add-token form's address field — the on-chain symbol()/decimals()
+	// lookup in submitTokenForm still runs, so nothing here is trusted
+	// directly into the persisted watchlist.
+	ondoPickerFilter string
+	ondoPickerIdx    int
 
 	// clipboard feedback
 	copiedMsg     string
@@ -224,14 +234,18 @@ type model struct {
 	uniswapQuote           *helpers.SwapQuote // current swap quote
 	uniswapQuoteError      string             // error from quote fetch
 	uniswapPriceImpactWarn string             // warning message for high price impact
+	uniswapHookWarn        string             // warning shown when the resolved V4 pool has a non-zero hook address
 	uniswapEditingFrom     bool               // true if user has been editing From field
 	uniswapEditingTo       bool               // true if user has been editing To field
 	// Track last quote parameters to avoid unnecessary fetches
-	lastQuoteFromAmount   string // last amount used for forward quote
-	lastQuoteToAmount     string // last amount used for reverse quote
-	lastQuoteFromTokenIdx int    // last from token index used for quote
-	lastQuoteToTokenIdx   int    // last to token index used for quote
-	uniswapLastFee        uint32 // V3 fee tier of the last resolved pair; 0 means V2
+	lastQuoteFromAmount   string              // last amount used for forward quote
+	lastQuoteToAmount     string              // last amount used for reverse quote
+	lastQuoteFromTokenIdx int                 // last from token index used for quote
+	lastQuoteToTokenIdx   int                 // last to token index used for quote
+	uniswapLastVersion    helpers.PoolVersion // which Uniswap version the last resolved pair used
+	uniswapLastFee        uint32              // valid when uniswapLastVersion == PoolVersionV3
+	uniswapLastV4Key      helpers.V4PoolKey   // valid when uniswapLastVersion == PoolVersionV4
+	uniswapLastV4PoolID   common.Hash         // valid when uniswapLastVersion == PoolVersionV4
 
 	// On-chain pair/pool resolution (replaces the old hardcoded pair table)
 	pairCache            map[string]pairCacheEntry

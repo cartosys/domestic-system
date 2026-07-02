@@ -61,11 +61,13 @@ func (m *model) chainID() *big.Int {
 
 // pairResolution carries routing metadata for a resolved token pair.
 type pairResolution struct {
-	pairAddr   common.Address // V2 pair contract or V3 pool contract
+	pairAddr   common.Address // V2 pair contract or V3 pool contract; zero for V4
 	tokenIn    common.Address
-	isV3       bool
+	version    helpers.PoolVersion
 	v3Fee      uint32
 	v3TokenOut common.Address // explicit tokenOut needed by QuoterV2
+	v4Key      helpers.V4PoolKey
+	v4PoolID   common.Hash
 }
 
 // pairCacheEntry caches the result of an on-chain factory lookup for a token
@@ -114,7 +116,7 @@ func (m *model) resolvePairCached(from, to uniswap.TokenOption) (res pairResolut
 	}
 	res = entry.resolution
 	res.tokenIn = tokenInAddr
-	if res.isV3 {
+	if res.version == helpers.PoolVersionV3 {
 		res.v3TokenOut = tokenOutAddr
 	}
 	return res, true, true
@@ -130,15 +132,22 @@ func resolvePairOnChain(client *rpc.Client, addrs helpers.UniswapNetworkAddresse
 		if client == nil || client.Client == nil {
 			return pairLookupResultMsg{cacheKey: key, fromIdx: fromIdx, toIdx: toIdx, reverse: reverse, ok: false}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// 20s (not the 10s V2/V3 factory calls use) to give the V4 tier's
+		// bounded recent-block log scan (resolveV4Pool) the same budget
+		// FetchPoolKey already uses for an equivalent scan; this only
+		// affects lookups that fall through past V2/V3.
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		poolAddr, isV3, fee, err := helpers.ResolvePairOnChain(ctx, client.Client, addrs, tokenA, tokenB)
+		pool, err := helpers.ResolvePairOnChain(ctx, client.Client, addrs, tokenA, tokenB)
 		if err != nil {
 			return pairLookupResultMsg{cacheKey: key, fromIdx: fromIdx, toIdx: toIdx, reverse: reverse, ok: false}
 		}
 		return pairLookupResultMsg{
 			cacheKey: key, fromIdx: fromIdx, toIdx: toIdx, reverse: reverse, ok: true,
-			resolution: pairResolution{pairAddr: poolAddr, isV3: isV3, v3Fee: fee},
+			resolution: pairResolution{
+				pairAddr: pool.PairAddr, version: pool.Version, v3Fee: pool.V3Fee,
+				v4Key: pool.V4Key, v4PoolID: pool.V4PoolID,
+			},
 		}
 	}
 }
@@ -157,7 +166,7 @@ func (m *model) handlePairLookupResult(msg pairLookupResultMsg) (tea.Model, tea.
 	}
 	if !msg.ok {
 		if fromToken, toToken, ok := m.resolveSwapTokens(); ok {
-			m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
+			m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3/V4 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
 			m.logWarn(m.uniswapQuoteError)
 		}
 		return m, nil
@@ -188,6 +197,7 @@ func (m *model) clearQuoteState() {
 	m.uniswapQuote = nil
 	m.uniswapQuoteError = ""
 	m.uniswapPriceImpactWarn = ""
+	m.uniswapHookWarn = ""
 }
 
 // maybeRequestUniswapQuote triggers a forward swap quote fetch (input → output).
@@ -231,7 +241,7 @@ func (m *model) maybeRequestUniswapQuote() tea.Cmd {
 		return resolvePairOnChain(m.ethClient, addrs, tokenA, tokenB, m.uniswapFromTokenIdx, m.uniswapToTokenIdx, false)
 	}
 	if !ok {
-		m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
+		m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3/V4 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
 		return nil
 	}
 
@@ -242,13 +252,21 @@ func (m *model) maybeRequestUniswapQuote() tea.Cmd {
 	m.clearQuoteState()
 	m.uniswapEstimating = true
 
-	if pr.isV3 {
+	m.uniswapLastVersion = pr.version
+	switch pr.version {
+	case helpers.PoolVersionV3:
 		m.uniswapLastFee = pr.v3Fee
 		addrs := helpers.UniswapAddressesForChain(m.chainID())
 		return fetchV3SwapQuote(m.ethClient, addrs.QuoterV2, pr.pairAddr, pr.tokenIn, pr.v3TokenOut, pr.v3Fee, amountIn)
+	case helpers.PoolVersionV4:
+		m.uniswapLastV4Key = pr.v4Key
+		m.uniswapLastV4PoolID = pr.v4PoolID
+		addrs := helpers.UniswapAddressesForChain(m.chainID())
+		return fetchV4SwapQuote(m.ethClient, addrs, pr.v4Key, pr.v4PoolID, pr.tokenIn, amountIn)
+	default:
+		m.uniswapLastFee = 0
+		return fetchUniswapQuote(m.ethClient, pr.pairAddr, pr.tokenIn, amountIn)
 	}
-	m.uniswapLastFee = 0
-	return fetchUniswapQuote(m.ethClient, pr.pairAddr, pr.tokenIn, amountIn)
 }
 
 // maybeRequestReverseUniswapQuote triggers a reverse swap quote fetch (output → required input).
@@ -291,7 +309,7 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 		return resolvePairOnChain(m.ethClient, addrs, tokenA, tokenB, m.uniswapFromTokenIdx, m.uniswapToTokenIdx, true)
 	}
 	if !ok {
-		m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
+		m.uniswapQuoteError = fmt.Sprintf("No Uniswap V2/V3/V4 pool found for %s/%s", fromToken.Symbol, toToken.Symbol)
 		return nil
 	}
 
@@ -303,13 +321,21 @@ func (m *model) maybeRequestReverseUniswapQuote() tea.Cmd {
 	m.uniswapEstimating = true
 	m.logInfo(fmt.Sprintf("Calculating required input for %s %s", m.uniswapToAmount, toToken.Symbol))
 
-	if pr.isV3 {
+	m.uniswapLastVersion = pr.version
+	switch pr.version {
+	case helpers.PoolVersionV3:
 		m.uniswapLastFee = pr.v3Fee
 		addrs := helpers.UniswapAddressesForChain(m.chainID())
 		return fetchV3ReverseSwapQuote(m.ethClient, addrs.QuoterV2, pr.pairAddr, pr.tokenIn, pr.v3TokenOut, pr.v3Fee, amountOut)
+	case helpers.PoolVersionV4:
+		m.uniswapLastV4Key = pr.v4Key
+		m.uniswapLastV4PoolID = pr.v4PoolID
+		addrs := helpers.UniswapAddressesForChain(m.chainID())
+		return fetchV4ReverseSwapQuote(m.ethClient, addrs, pr.v4Key, pr.v4PoolID, pr.tokenIn, amountOut)
+	default:
+		m.uniswapLastFee = 0
+		return fetchReverseUniswapQuote(m.ethClient, pr.pairAddr, pr.tokenIn, amountOut, fromToken.Decimals)
 	}
-	m.uniswapLastFee = 0
-	return fetchReverseUniswapQuote(m.ethClient, pr.pairAddr, pr.tokenIn, amountOut, fromToken.Decimals)
 }
 
 // fetchUniswapQuote fetches a forward swap quote from Uniswap V2.
@@ -352,6 +378,28 @@ func fetchV3ReverseSwapQuote(client *rpc.Client, quoterV2, poolAddr, tokenIn, to
 			return uniswapQuoteMsg{nil, fmt.Errorf("no RPC client")}
 		}
 		quote, err := helpers.GetV3ReverseSwapQuote(client.Client, quoterV2, poolAddr, tokenIn, tokenOut, fee, amountOut)
+		return uniswapQuoteMsg{quote, err}
+	}
+}
+
+// fetchV4SwapQuote fetches an exact-input quote from the Uniswap V4Quoter.
+func fetchV4SwapQuote(client *rpc.Client, addrs helpers.UniswapNetworkAddresses, key helpers.V4PoolKey, poolID common.Hash, tokenIn common.Address, amountIn *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil || client.Client == nil {
+			return uniswapQuoteMsg{nil, fmt.Errorf("no RPC client")}
+		}
+		quote, err := helpers.GetV4SwapQuote(client.Client, addrs, key, poolID, tokenIn, amountIn)
+		return uniswapQuoteMsg{quote, err}
+	}
+}
+
+// fetchV4ReverseSwapQuote fetches an exact-output quote from the Uniswap V4Quoter.
+func fetchV4ReverseSwapQuote(client *rpc.Client, addrs helpers.UniswapNetworkAddresses, key helpers.V4PoolKey, poolID common.Hash, tokenIn common.Address, amountOut *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil || client.Client == nil {
+			return uniswapQuoteMsg{nil, fmt.Errorf("no RPC client")}
+		}
+		quote, err := helpers.GetV4ReverseSwapQuote(client.Client, addrs, key, poolID, tokenIn, amountOut)
 		return uniswapQuoteMsg{quote, err}
 	}
 }

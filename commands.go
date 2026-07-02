@@ -15,6 +15,7 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -333,6 +334,306 @@ func buildV3SwapCalldata(fromToken, toToken uniswap.TokenOption, to common.Addre
 	d = append(d, abiEncodeUint256(amountOutMin)...)
 	d = append(d, abiEncodeUint256(big.NewInt(0))...) // sqrtPriceLimitX96 = 0 (no limit)
 	return d
+}
+
+// -------------------- UNISWAP V4 SWAP PACKAGING --------------------
+//
+// [VERIFY] Everything in this section encodes calldata against Uniswap's
+// Universal Router V4_SWAP path. The action-ID bytes (0x06/0x0c/0x0f) and the
+// V4_SWAP command byte (0x10) are cross-checked against Uniswap's official
+// GitHub source (Commands.sol, Actions.sol) as of this writing. The
+// ExactInputSingleParams struct shape (including a minHopPriceX36 field) is
+// taken from the same source's current main branch — since Solidity ABI
+// encoding is offset-sensitive, if the specific deployed bytecode at
+// helpers.UniswapNetworkAddresses.UniversalRouter predates that field, this
+// encoding will not match what the contract expects and the resulting
+// unsigned tx will fail on execution (it is never auto-broadcast — the user
+// reviews/signs it — so this is a functional-correctness risk, not a
+// fund-loss one, but it must be confirmed against the deployed contract's
+// verified source on Etherscan before being trusted as correct).
+
+const v4SwapEncodingABI = `[
+  {
+    "inputs": [{
+      "name": "params", "type": "tuple",
+      "components": [
+        {"name": "poolKey", "type": "tuple", "components": [
+          {"name": "currency0", "type": "address"},
+          {"name": "currency1", "type": "address"},
+          {"name": "fee", "type": "uint24"},
+          {"name": "tickSpacing", "type": "int24"},
+          {"name": "hooks", "type": "address"}
+        ]},
+        {"name": "zeroForOne", "type": "bool"},
+        {"name": "amountIn", "type": "uint128"},
+        {"name": "amountOutMinimum", "type": "uint128"},
+        {"name": "minHopPriceX36", "type": "uint256"},
+        {"name": "hookData", "type": "bytes"}
+      ]
+    }],
+    "name": "encodeExactInputSingle",
+    "outputs": [], "stateMutability": "pure", "type": "function"
+  },
+  {
+    "inputs": [
+      {"name": "currency", "type": "address"},
+      {"name": "amount", "type": "uint256"}
+    ],
+    "name": "encodeCurrencyAmount",
+    "outputs": [], "stateMutability": "pure", "type": "function"
+  },
+  {
+    "inputs": [
+      {"name": "actions", "type": "bytes"},
+      {"name": "params", "type": "bytes[]"}
+    ],
+    "name": "encodeActionsParams",
+    "outputs": [], "stateMutability": "pure", "type": "function"
+  },
+  {
+    "inputs": [
+      {"name": "commands", "type": "bytes"},
+      {"name": "inputs", "type": "bytes[]"},
+      {"name": "deadline", "type": "uint256"}
+    ],
+    "name": "execute",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  }
+]`
+
+// v4ActionSwapExactInSingle, v4ActionSettleAll, v4ActionTakeAll are Actions.sol
+// action IDs (Uniswap/v4-periphery). v4CommandV4Swap is Commands.sol's V4_SWAP
+// command ID (Uniswap/universal-router).
+const (
+	v4ActionSwapExactInSingle = 0x06
+	v4ActionSettleAll         = 0x0c
+	v4ActionTakeAll           = 0x0f
+	v4CommandV4Swap           = 0x10
+)
+
+// v4CurrencyForToken returns the V4 Currency (an address, zero for native ETH)
+// for a swap token, matching the zero-address-means-native convention already
+// used throughout this codebase's V4 code (helpers/uniswap_v4_listener.go).
+func v4CurrencyForToken(t uniswap.TokenOption) common.Address {
+	if t.IsETH {
+		return common.Address{}
+	}
+	return t.Address
+}
+
+// packStripSelector packs args against method in parsedABI and strips the
+// leading 4-byte method selector, yielding the raw abi.encode(...) bytes a
+// Solidity contract's abi.encode(struct) / abi.encode(a, b) would produce —
+// there is no method selector for those (only real external function calls
+// have one), so v4SwapEncodingABI's helper "functions" exist purely to reuse
+// go-ethereum's struct/dynamic-array ABI packing instead of hand-deriving
+// offsets, matching the same approach already used for V4Quoter's calldata
+// (helpers/uniswap_v4_quote.go) where a nested dynamic bytes field made
+// manual packing error-prone.
+func packStripSelector(parsedABI *abi.ABI, method string, args ...interface{}) ([]byte, error) {
+	packed, err := parsedABI.Pack(method, args...)
+	if err != nil {
+		return nil, err
+	}
+	return packed[4:], nil
+}
+
+// buildV4SwapCalldata ABI-encodes a Universal Router execute() call carrying
+// a single V4_SWAP command: SWAP_EXACT_IN_SINGLE, then SETTLE_ALL (pay the
+// input) and TAKE_ALL (receive the output) — the standard V4 single-hop
+// exact-input swap pattern.
+func buildV4SwapCalldata(fromToken, toToken uniswap.TokenOption, key helpers.V4PoolKey, amountIn, amountOutMin *big.Int, deadline int64) ([]byte, error) {
+	parsedABI, err := abi.JSON(strings.NewReader(v4SwapEncodingABI))
+	if err != nil {
+		return nil, fmt.Errorf("parse V4 swap encoding ABI: %w", err)
+	}
+
+	tokenIn := v4CurrencyForToken(fromToken)
+	tokenOut := v4CurrencyForToken(toToken)
+	zeroForOne := tokenIn == key.Currency0
+
+	swapParams, err := packStripSelector(&parsedABI, "encodeExactInputSingle", struct {
+		PoolKey struct {
+			Currency0   common.Address
+			Currency1   common.Address
+			Fee         *big.Int
+			TickSpacing *big.Int
+			Hooks       common.Address
+		}
+		ZeroForOne       bool
+		AmountIn         *big.Int
+		AmountOutMinimum *big.Int
+		MinHopPriceX36   *big.Int
+		HookData         []byte
+	}{
+		PoolKey: struct {
+			Currency0   common.Address
+			Currency1   common.Address
+			Fee         *big.Int
+			TickSpacing *big.Int
+			Hooks       common.Address
+		}{
+			Currency0:   key.Currency0,
+			Currency1:   key.Currency1,
+			Fee:         new(big.Int).SetUint64(uint64(key.Fee)),
+			TickSpacing: big.NewInt(int64(key.TickSpacing)),
+			Hooks:       key.Hooks,
+		},
+		ZeroForOne:       zeroForOne,
+		AmountIn:         amountIn,
+		AmountOutMinimum: amountOutMin,
+		MinHopPriceX36:   big.NewInt(0), // no additional per-hop price floor beyond amountOutMinimum
+		HookData:         []byte{},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode ExactInputSingleParams: %w", err)
+	}
+
+	settleParams, err := packStripSelector(&parsedABI, "encodeCurrencyAmount", tokenIn, amountIn)
+	if err != nil {
+		return nil, fmt.Errorf("encode SETTLE_ALL params: %w", err)
+	}
+	takeParams, err := packStripSelector(&parsedABI, "encodeCurrencyAmount", tokenOut, amountOutMin)
+	if err != nil {
+		return nil, fmt.Errorf("encode TAKE_ALL params: %w", err)
+	}
+
+	actions := []byte{v4ActionSwapExactInSingle, v4ActionSettleAll, v4ActionTakeAll}
+	v4SwapInput, err := packStripSelector(&parsedABI, "encodeActionsParams", actions, [][]byte{swapParams, settleParams, takeParams})
+	if err != nil {
+		return nil, fmt.Errorf("encode actions/params: %w", err)
+	}
+
+	commands := []byte{v4CommandV4Swap}
+	calldata, err := parsedABI.Pack("execute", commands, [][]byte{v4SwapInput}, big.NewInt(deadline))
+	if err != nil {
+		return nil, fmt.Errorf("encode execute(): %w", err)
+	}
+	return calldata, nil
+}
+
+// packageSwapTransactionV4 packages a Uniswap V4 single-hop swap as an
+// EIP-4527 QR payload via the Universal Router. Unlike V2/V3 (direct
+// router approval), V4/Universal Router spends through Permit2, so a
+// non-ETH input token needs up to two approval steps ahead of the swap:
+// ERC20.approve(Permit2) if Permit2's own allowance from the token is
+// insufficient, then Permit2.approve(router, token, amount, expiry) if
+// Permit2's recorded allowance for the router is insufficient/expired.
+// Both are optional/independent — a wallet that already approved Permit2
+// unlimited, and has a live Permit2->router approval, needs neither.
+func packageSwapTransactionV4(client *rpc.Client, fromAddr string, fromToken, toToken uniswap.TokenOption, key helpers.V4PoolKey, amountIn string, amountOutMin *big.Int, rpcURL string, chainID *big.Int) tea.Cmd {
+	return func() tea.Msg {
+		addrs := helpers.UniswapAddressesForChain(chainID)
+		routerAddress := addrs.UniversalRouter
+		fromAddress := common.HexToAddress(fromAddr)
+
+		amountFloat := new(big.Float)
+		amountFloat.SetString(amountIn)
+		multiplier := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(fromToken.Decimals)), nil))
+		amountInBig, _ := new(big.Float).Mul(amountFloat, multiplier).Int(nil)
+
+		outDecimals := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(toToken.Decimals)), nil)
+		minOutHuman := new(big.Float).Quo(new(big.Float).SetInt(amountOutMin), new(big.Float).SetInt(outDecimals)).Text('f', 6)
+
+		deadline := int64(time.Now().Unix() + 1200)
+		calldata, err := buildV4SwapCalldata(fromToken, toToken, key, amountInBig, amountOutMin, deadline)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+		txValue := big.NewInt(0)
+		if fromToken.IsETH {
+			txValue = amountInBig
+		}
+
+		// Two independent, optional approval steps ahead of the swap (see
+		// doc comment above). Treat any RPC error as "allowance unknown"
+		// and include the step to be safe, matching V2/V3's existing
+		// needsApprove behavior.
+		needsERC20Approve := false
+		needsPermit2Approve := false
+		if !fromToken.IsETH && client != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			erc20Allowance, err := rpc.ERC20Allowance(ctx, client, fromToken.Address, fromAddress, rpc.Permit2Address)
+			cancel()
+			if err != nil || erc20Allowance.Cmp(amountInBig) < 0 {
+				needsERC20Approve = true
+			}
+
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+			permit2Amount, permit2Expiration, err := rpc.Permit2Allowance(ctx2, client, fromToken.Address, fromAddress, routerAddress)
+			cancel2()
+			nowUnix := uint64(time.Now().Unix())
+			if err != nil || permit2Amount.Cmp(amountInBig) < 0 || permit2Expiration <= nowUnix {
+				needsPermit2Approve = true
+			}
+		}
+
+		if needsERC20Approve && needsPermit2Approve {
+			// This app's QR flow (approveQRData/approveJSON) only carries one
+			// pre-swap approval step; V4/Universal Router's Permit2 model can
+			// need two independent ones (ERC20→Permit2, then Permit2→router).
+			// Silently packaging only one would produce a swap tx that fails
+			// on execution with no indication why — fail loud instead and
+			// tell the user how to get there in two passes.
+			return packageTransactionMsg{err: fmt.Errorf(
+				"%s needs two approvals before this V4 swap can run: first ERC20→Permit2, then Permit2→Universal Router. "+
+					"This app only packages one approve step per swap attempt — submit this swap once to sign the first approval, "+
+					"wait for it to confirm, then reopen the swap to get the second approval + swap",
+				fromToken.Symbol)}
+		}
+
+		p, err := rpc.FetchTxParams(rpcURL, fromAddress)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+
+		swapNonce := p.Nonce
+		var approveQRData, approveJSON string
+		if needsERC20Approve {
+			approveCalldata := buildApproveCalldata(rpc.Permit2Address, amountInBig)
+			approveQRData, approveJSON, err = rpc.BuildUnsignedTxEIP4527(fromAddress, fromToken.Address, big.NewInt(0), 60000, approveCalldata, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
+			if err != nil {
+				return packageTransactionMsg{err: err}
+			}
+			swapNonce = p.Nonce + 1
+		} else if needsPermit2Approve {
+			permit2ExpiryU48 := uint64(time.Now().Unix() + 60*60*24*30) // 30 days
+			permit2Calldata, perr := buildPermit2ApproveCalldata(fromToken.Address, routerAddress, amountInBig, permit2ExpiryU48)
+			if perr != nil {
+				return packageTransactionMsg{err: perr}
+			}
+			approveQRData, approveJSON, err = rpc.BuildUnsignedTxEIP4527(fromAddress, rpc.Permit2Address, big.NewInt(0), 80000, permit2Calldata, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
+			if err != nil {
+				return packageTransactionMsg{err: err}
+			}
+			swapNonce = p.Nonce + 1
+		}
+
+		urStr, txJSON, err := rpc.BuildUnsignedTxEIP4527(fromAddress, routerAddress, txValue, 300000, calldata, swapNonce, p.Tip, p.MaxFee, p.ChainID)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+		feeLabel := fmt.Sprintf("%.2f%%", float64(key.Fee)/10000.0)
+		hookNote := ""
+		if key.Hooks != (common.Address{}) {
+			hookNote = fmt.Sprintf("\nHook: %s (pool may enforce KYC/allowlist checks)", key.Hooks.Hex())
+		}
+		summary := fmt.Sprintf("Uniswap V4 Swap (%s): %s %s → %s (min %s)\nUniversal Router: %s%s",
+			feeLabel, amountIn, fromToken.Symbol, toToken.Symbol, minOutHuman, routerAddress.Hex(), hookNote)
+		return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527", approveQRData: approveQRData, approveJSON: approveJSON}
+	}
+}
+
+// buildPermit2ApproveCalldata ABI-encodes Permit2's
+// approve(address token, address spender, uint160 amount, uint48 expiration).
+// [VERIFY] against Permit2's verified Etherscan source alongside rpc.Permit2Address.
+func buildPermit2ApproveCalldata(token, spender common.Address, amount *big.Int, expiration uint64) ([]byte, error) {
+	const permit2ApproveABI = `[{"inputs":[{"name":"token","type":"address"},{"name":"spender","type":"address"},{"name":"amount","type":"uint160"},{"name":"expiration","type":"uint48"}],"name":"approve","outputs":[],"stateMutability":"nonpayable","type":"function"}]`
+	parsedABI, err := abi.JSON(strings.NewReader(permit2ApproveABI))
+	if err != nil {
+		return nil, err
+	}
+	return parsedABI.Pack("approve", token, spender, amount, expiration)
 }
 
 // -------------------- CLIPBOARD --------------------

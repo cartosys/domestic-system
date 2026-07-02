@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm-wallet-tui/config"
+	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/views/watchedtokens"
 
@@ -179,7 +180,76 @@ func (m *model) confirmDeleteTokenNo() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// filteredOndoTokens returns helpers.OndoGMTokenList entries whose symbol or
+// name contains m.ondoPickerFilter (case-insensitive substring match).
+func (m *model) filteredOndoTokens() []helpers.OndoToken {
+	q := strings.ToLower(strings.TrimSpace(m.ondoPickerFilter))
+	if q == "" {
+		return helpers.OndoGMTokenList
+	}
+	var out []helpers.OndoToken
+	for _, t := range helpers.OndoGMTokenList {
+		if strings.Contains(strings.ToLower(t.Symbol), q) || strings.Contains(strings.ToLower(t.Name), q) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// handleOndoPickerKey drives the Ondo Global Markets token picker
+// (dialogOndoPicker). Selecting an entry autofills the existing add-token
+// form's address field and submits it — symbol/decimals are still verified
+// on-chain by submitTokenForm/fetchTokenMetadata, exactly like a manually
+// pasted address.
+func (m *model) handleOndoPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	filtered := m.filteredOndoTokens()
+	switch msg.String() {
+	case "esc":
+		m.activeDialog = dialogNone
+		m.ondoPickerFilter = ""
+		m.ondoPickerIdx = 0
+		return m, nil
+	case "up", "k":
+		if m.ondoPickerIdx > 0 {
+			m.ondoPickerIdx--
+		}
+		return m, nil
+	case "down", "j":
+		if m.ondoPickerIdx < len(filtered)-1 {
+			m.ondoPickerIdx++
+		}
+		return m, nil
+	case "backspace":
+		if len(m.ondoPickerFilter) > 0 {
+			m.ondoPickerFilter = m.ondoPickerFilter[:len(m.ondoPickerFilter)-1]
+			m.ondoPickerIdx = 0
+		}
+		return m, nil
+	case "enter":
+		if m.ondoPickerIdx < 0 || m.ondoPickerIdx >= len(filtered) {
+			return m, nil
+		}
+		selected := filtered[m.ondoPickerIdx]
+		m.activeDialog = dialogNone
+		m.ondoPickerFilter = ""
+		m.ondoPickerIdx = 0
+		m.tokenFormMode = "add"
+		m.createAddTokenForm()
+		tempTokenFormAddr = selected.Address.Hex()
+		return m.submitTokenForm()
+	}
+	if len(msg.Runes) > 0 {
+		m.ondoPickerFilter += string(msg.Runes)
+		m.ondoPickerIdx = 0
+	}
+	return m, nil
+}
+
 func (m *model) handleWatchedTokensKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.activeDialog == dialogOndoPicker {
+		return m.handleOndoPickerKey(msg)
+	}
+
 	if m.activeDialog == dialogDeleteToken {
 		switch msg.String() {
 		case "left", "right", "tab":
@@ -222,6 +292,12 @@ func (m *model) handleWatchedTokensKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "a", "A":
 			m.tokenFormMode = "add"
 			m.createAddTokenForm()
+			return m, nil
+
+		case "o", "O":
+			m.activeDialog = dialogOndoPicker
+			m.ondoPickerFilter = ""
+			m.ondoPickerIdx = 0
 			return m, nil
 
 		case "e", "E":

@@ -161,6 +161,12 @@ func (m *model) renderAccountListPopup() string {
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
+func (m *model) renderOndoPickerPopup() string {
+	dialogBoxStyle := styles.DialogBox.Background(styles.CPanel).Width(70)
+	content := watchedtokens.RenderOndoPicker(m.filteredOndoTokens(), m.ondoPickerFilter, m.ondoPickerIdx)
+	dialog := dialogBoxStyle.Render(content)
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
+}
 
 func (m *model) renderTxResultContent() string {
 	titleStr := "Transaction Ready To Sign (EIP-4527)"
@@ -459,6 +465,8 @@ func (m *model) renderActiveOverlay() string {
 		return m.renderRPCDeleteDialog()
 	case dialogDeleteToken:
 		return m.renderTokenDeleteDialog()
+	case dialogOndoPicker:
+		return m.renderOndoPickerPopup()
 	case dialogAccountList:
 		return m.renderAccountListPopup()
 	case dialogPoolInfo:
@@ -941,7 +949,8 @@ func (m *model) renderUniswapPage(headerPanel string) (pageContent, nav string) 
 	c, geo := uniswap.Render(m.w-2, m.h-8, tokens,
 		m.uniswapFromTokenIdx, m.uniswapToTokenIdx,
 		m.uniswapFromAmount, m.uniswapToAmount,
-		m.uniswapFocusedField, m.uniswapEstimating, m.uniswapResolvingPair, m.uniswapPriceImpactWarn)
+		m.uniswapFocusedField, m.uniswapEstimating, m.uniswapResolvingPair,
+		m.uniswapPriceImpactWarn, m.uniswapHookWarn)
 
 	// Content top-left within pageContent = PanelStyle's border(1)+padding(1,2).
 	contentLeft := 3

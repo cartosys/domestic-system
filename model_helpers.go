@@ -26,6 +26,15 @@ func buildTokenWatchlist(addrs helpers.UniswapNetworkAddresses) []rpc.WatchedTok
 	}
 	if addrs.SPCXon != (common.Address{}) {
 		tokens = append(tokens, rpc.WatchedToken{Symbol: "SPCXon", Decimals: 18, Address: addrs.SPCXon})
+		// helpers.OndoLiquidTokens (vendored by cmd/discoverondoliquidity) is
+		// mainnet-only, matching SPCXon above — gate on the same "is this
+		// mainnet" signal rather than adding a second network check.
+		for _, t := range helpers.OndoLiquidTokens {
+			if t.Address == addrs.SPCXon {
+				continue // already added above
+			}
+			tokens = append(tokens, rpc.WatchedToken{Symbol: t.Symbol, Name: t.Name, Decimals: t.Decimals, Address: t.Address})
+		}
 	}
 	return tokens
 }

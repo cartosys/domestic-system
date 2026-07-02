@@ -81,7 +81,7 @@ type SwapGeometry struct {
 }
 
 // Render renders the Uniswap swap interface
-func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating, resolvingPair bool, priceImpactWarn string) (string, SwapGeometry) {
+func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmount, toAmount string, focusedField int, estimating, resolvingPair bool, priceImpactWarn, hookWarn string) (string, SwapGeometry) {
 	// Create the main swap container
 	containerWidth := helpers.Min(80, width-4)
 	
@@ -216,6 +216,17 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 			Align(lipgloss.Center)
 		warningDisplay = warningStyle.Render(priceImpactWarn)
 	}
+
+	// Hook-gated pool warning (if any) — separate banner since it's an
+	// availability/compliance concern (KYC/geo allowlisting), not a pricing one.
+	var hookWarningDisplay string
+	if hookWarn != "" {
+		hookWarningStyle := lipgloss.NewStyle().
+			Foreground(styles.CWarn).
+			Width(containerWidth).
+			Align(lipgloss.Center)
+		hookWarningDisplay = hookWarningStyle.Render(hookWarn)
+	}
 	
 	// Swap button
 	swapButtonStyle := lipgloss.NewStyle().
@@ -259,9 +270,12 @@ func Render(width, height int, tokens []TokenOption, fromIdx, toIdx int, fromAmo
 	toBoxIdx := len(contentParts)
 	contentParts = append(contentParts, toBox)
 
-	// Add warning if present
+	// Add warnings if present
 	if warningDisplay != "" {
 		contentParts = append(contentParts, "", warningDisplay)
+	}
+	if hookWarningDisplay != "" {
+		contentParts = append(contentParts, "", hookWarningDisplay)
 	}
 
 	contentParts = append(contentParts, "")

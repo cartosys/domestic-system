@@ -39,6 +39,8 @@ cache/
 *.bin
 *.json
 *.sol.js
+# ...except vendored go:embed source data (helpers/ondo_tokens.go, helpers/ondo_v4_pools.go)
+!helpers/data/*.json
 
 # IDEs and editors
 .idea/

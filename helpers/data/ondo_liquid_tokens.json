@@ -1,0 +1,142 @@
+{
+  "fetched_at": "2026-07-02T16:24:41Z",
+  "tokens": [
+    {
+      "symbol": "AAPLon",
+      "name": "Apple (Ondo Tokenized)",
+      "address": "0x14c3abF95Cb9C93a8b82C1CdCB76D72Cb87b2d4c",
+      "decimals": 18
+    },
+    {
+      "symbol": "ARMon",
+      "name": "Arm Holdings plc (Ondo Tokenized)",
+      "address": "0x5Bf1b2A808598C0eF4Af1673a5457d86fE6d7B3d",
+      "decimals": 18
+    },
+    {
+      "symbol": "BABAon",
+      "name": "Alibaba (Ondo Tokenized)",
+      "address": "0x41765F0FCddC276309195166C7A62AE522FA09ef",
+      "decimals": 18
+    },
+    {
+      "symbol": "COPXon",
+      "name": "Global X Copper Miners ETF (Ondo Tokenized)",
+      "address": "0x423A63dfE8d82CD9C6568C92210AA537d8Ef6885",
+      "decimals": 18
+    },
+    {
+      "symbol": "CRCLon",
+      "name": "Circle Internet Group (Ondo Tokenized)",
+      "address": "0x3632DEa96A953C11dac2f00b4A05a32CD1063fAE",
+      "decimals": 18
+    },
+    {
+      "symbol": "DISon",
+      "name": "Disney (Ondo Tokenized)",
+      "address": "0xc3D93B45249E8E06cfeB01d25A96337E8893265d",
+      "decimals": 18
+    },
+    {
+      "symbol": "GOOGLon",
+      "name": "Alphabet Class A (Ondo Tokenized)",
+      "address": "0xbA47214eDd2bb43099611b208f75E4b42FDcfEDc",
+      "decimals": 18
+    },
+    {
+      "symbol": "HIMSon",
+      "name": "Hims \u0026 Hers Health (Ondo Tokenized)",
+      "address": "0xCa468554e5C0423Ee858fe3942c9568C51FcAa79",
+      "decimals": 18
+    },
+    {
+      "symbol": "HOODon",
+      "name": "Robinhood Markets (Ondo Tokenized)",
+      "address": "0x998f02A9E343EF6E3E6f28700d5A20F839fD74E6",
+      "decimals": 18
+    },
+    {
+      "symbol": "MRVLon",
+      "name": "Marvell Technology (Ondo Tokenized)",
+      "address": "0xF404E5f887dBd5508e16a1198fCDD5DE1A4296B8",
+      "decimals": 18
+    },
+    {
+      "symbol": "MSFTon",
+      "name": "Microsoft (Ondo Tokenized)",
+      "address": "0xB812837b81a3a6b81d7CD74CfB19A7f2784555E5",
+      "decimals": 18
+    },
+    {
+      "symbol": "MUon",
+      "name": "Micron Technology (Ondo Tokenized)",
+      "address": "0x050362Ab1072Cb2Ce74d74770E22A3203Ad04ee5",
+      "decimals": 18
+    },
+    {
+      "symbol": "NVDAon",
+      "name": "NVIDIA (Ondo Tokenized)",
+      "address": "0x2D1F7226Bd1F780AF6B9A49DCC0aE00E8Df4bDEE",
+      "decimals": 18
+    },
+    {
+      "symbol": "ORCLon",
+      "name": "Oracle (Ondo Tokenized)",
+      "address": "0x8a23C6BaadB88512b30475C83Df6A63881e33e1E",
+      "decimals": 18
+    },
+    {
+      "symbol": "QQQon",
+      "name": "Invesco QQQ (Ondo Tokenized)",
+      "address": "0x0e397938C1Aa0680954093495B70A9F5e2249aBa",
+      "decimals": 18
+    },
+    {
+      "symbol": "SLVon",
+      "name": "iShares Silver Trust (Ondo Tokenized)",
+      "address": "0xF3e4872e6a4cF365888D93b6146a2bAA7348F1A4",
+      "decimals": 18
+    },
+    {
+      "symbol": "SPYon",
+      "name": "SPDR S\u0026P 500 ETF (Ondo Tokenized)",
+      "address": "0xFeDC5f4a6c38211c1338aa411018DFAf26612c08",
+      "decimals": 18
+    },
+    {
+      "symbol": "TLTon",
+      "name": "iShares 20+ Year Treasury Bond ETF (Ondo Tokenized)",
+      "address": "0x992651BFeB9A0DCC4457610E284ba66D86489d4d",
+      "decimals": 18
+    },
+    {
+      "symbol": "TSLAon",
+      "name": "Tesla (Ondo Tokenized)",
+      "address": "0xf6b1117ec07684D3958caD8BEb1b302bfD21103f",
+      "decimals": 18
+    },
+    {
+      "symbol": "USDY",
+      "name": "Ondo U.S. Dollar Yield",
+      "address": "0x96F6eF951840721AdBF46Ac996b59E0235CB985C",
+      "decimals": 18
+    },
+    {
+      "symbol": "USDon",
+      "name": "Ondo U.S. Dollar Token",
+      "address": "0xAcE8E719899F6E91831B18AE746C9A965c2119F1",
+      "decimals": 18
+    },
+    {
+      "symbol": "USOon",
+      "name": "United States Oil Fund (Ondo Tokenized)",
+      "address": "0x1F5fc5c3c8B0F15c7E21AF623936FF2b210b6415",
+      "decimals": 18
+    },
+    {
+      "symbol": "SPCXon",
+      "address": "0xc9eef266834730340A55B6CC24621B31BAF55581",
+      "decimals": 18
+    }
+  ]
+}

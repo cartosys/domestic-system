@@ -219,6 +219,45 @@ func ERC20Allowance(ctx context.Context, client *Client, token, owner, spender c
 	return new(big.Int).SetBytes(out), nil
 }
 
+// Permit2Address is the canonical Permit2 deployment, reused across every
+// chain it's deployed to via a deterministic CREATE2 factory. [VERIFY]: not
+// yet cross-checked against Etherscan from this environment (see the
+// V4 tx-packaging notes in commands.go) — confirm before trusting with real
+// funds.
+var Permit2Address = common.HexToAddress("0x000000000022D473030F116dDEE9F6B43aC78BA3")
+
+const permit2AllowanceABI = `[{"inputs":[{"name":"user","type":"address"},{"name":"token","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"amount","type":"uint160"},{"name":"expiration","type":"uint48"},{"name":"nonce","type":"uint48"}],"stateMutability":"view","type":"function"}]`
+
+// Permit2Allowance reads Permit2's allowance(owner, token, spender), mirroring
+// ERC20Allowance's shape for the Universal Router's Permit2-based approval flow.
+func Permit2Allowance(ctx context.Context, client *Client, token, owner, spender common.Address) (amount *big.Int, expiration uint64, err error) {
+	parsed, err := abi.JSON(strings.NewReader(permit2AllowanceABI))
+	if err != nil {
+		return nil, 0, err
+	}
+	data, err := parsed.Pack("allowance", owner, token, spender)
+	if err != nil {
+		return nil, 0, err
+	}
+	out, err := client.CallContract(ctx, ethereum.CallMsg{To: &Permit2Address, Data: data}, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	vals, err := parsed.Unpack("allowance", out)
+	if err != nil || len(vals) < 2 {
+		return nil, 0, fmt.Errorf("unpack Permit2 allowance: %w", err)
+	}
+	amount, _ = vals[0].(*big.Int)
+	expBig, _ := vals[1].(*big.Int)
+	if amount == nil {
+		amount = big.NewInt(0)
+	}
+	if expBig != nil {
+		expiration = expBig.Uint64()
+	}
+	return amount, expiration, nil
+}
+
 // erc20SymbolABI describes the standard ERC-20 symbol() view function, used to
 // decode the dynamic-string return value via abi.Unpack.
 const erc20SymbolABI = `[{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"}]`

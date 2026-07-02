@@ -722,6 +722,44 @@ func poolCurrencyStr(a common.Address) string {
 	return a.Hex()
 }
 
+// v4GetSlot0 calls getSlot0 and getLiquidity on the V4 StateView for poolID,
+// shared by FetchPoolInfo and the V4 quote code (helpers/uniswap_v4_quote.go)
+// so both use one StateView-call implementation.
+func v4GetSlot0(ctx context.Context, client *ethclient.Client, stateViewABI *abi.ABI, stateView common.Address, poolID common.Hash) (sqrtPriceX96 *big.Int, tick int32, protocolFee, lpFee uint32, liquidity *big.Int, err error) {
+	slot0Calldata, err := stateViewABI.Pack("getSlot0", poolID)
+	if err != nil {
+		return nil, 0, 0, 0, nil, fmt.Errorf("pack getSlot0: %w", err)
+	}
+	slot0Raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: slot0Calldata}, nil)
+	if err != nil {
+		return nil, 0, 0, 0, nil, fmt.Errorf("call getSlot0: %w", err)
+	}
+	slot0Vals, err := stateViewABI.Unpack("getSlot0", slot0Raw)
+	if err != nil {
+		return nil, 0, 0, 0, nil, fmt.Errorf("unpack getSlot0: %w (raw=%s)", err, hex.EncodeToString(slot0Raw))
+	}
+
+	liqCalldata, err := stateViewABI.Pack("getLiquidity", poolID)
+	if err != nil {
+		return nil, 0, 0, 0, nil, fmt.Errorf("pack getLiquidity: %w", err)
+	}
+	liqRaw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: liqCalldata}, nil)
+	if err != nil {
+		return nil, 0, 0, 0, nil, fmt.Errorf("call getLiquidity: %w", err)
+	}
+	liqVals, err := stateViewABI.Unpack("getLiquidity", liqRaw)
+	if err != nil {
+		return nil, 0, 0, 0, nil, fmt.Errorf("unpack getLiquidity: %w", err)
+	}
+
+	sqrtPriceX96 = slot0Vals[0].(*big.Int)
+	tick = int32(slot0Vals[1].(*big.Int).Int64())
+	protocolFee = uint32(slot0Vals[2].(*big.Int).Uint64())
+	lpFee = uint32(slot0Vals[3].(*big.Int).Uint64())
+	liquidity = liqVals[0].(*big.Int)
+	return sqrtPriceX96, tick, protocolFee, lpFee, liquidity, nil
+}
+
 // FetchPoolInfo calls getSlot0 and getLiquidity on the V4 StateView for the given pool ID.
 func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
@@ -740,43 +778,14 @@ func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
 
 	stateView := common.HexToAddress(V4StateViewAddress)
 
-	// getSlot0
-	slot0Calldata, err := parsedABI.Pack("getSlot0", poolID)
+	sqrtPriceX96, tick, protocolFee, lpFee, liquidity, err := v4GetSlot0(ctx, client, &parsedABI, stateView, poolID)
 	if err != nil {
-		return nil, fmt.Errorf("pack getSlot0: %w", err)
+		return nil, err
 	}
-	slot0Raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: slot0Calldata}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("call getSlot0: %w", err)
-	}
-	slot0Vals, err := parsedABI.Unpack("getSlot0", slot0Raw)
-	if err != nil {
-		return nil, fmt.Errorf("unpack getSlot0: %w (raw=%s)", err, hex.EncodeToString(slot0Raw))
-	}
-
-	// getLiquidity
-	liqCalldata, err := parsedABI.Pack("getLiquidity", poolID)
-	if err != nil {
-		return nil, fmt.Errorf("pack getLiquidity: %w", err)
-	}
-	liqRaw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: liqCalldata}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("call getLiquidity: %w", err)
-	}
-	liqVals, err := parsedABI.Unpack("getLiquidity", liqRaw)
-	if err != nil {
-		return nil, fmt.Errorf("unpack getLiquidity: %w", err)
-	}
-
-	sqrtPriceX96 := slot0Vals[0].(*big.Int)
-	tick := slot0Vals[1].(*big.Int).Int64()
-	protocolFee := uint32(slot0Vals[2].(*big.Int).Uint64())
-	lpFee := uint32(slot0Vals[3].(*big.Int).Uint64())
-	liquidity := liqVals[0].(*big.Int)
 
 	return &PoolInfo{
 		SqrtPriceX96: sqrtPriceX96.String(),
-		Tick:         tick,
+		Tick:         int64(tick),
 		ProtocolFee:  protocolFee,
 		LpFee:        lpFee,
 		Liquidity:    liquidity.String(),

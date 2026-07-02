@@ -27,6 +27,8 @@ type SwapQuote struct {
 	PriceImpact    float64  // Price impact percentage
 	EffectivePrice float64  // Effective price (output/input)
 	IsV3           bool     // true when quote came from a Uniswap V3 pool
+	IsV4           bool     // true when quote came from a Uniswap V4 pool
+	HookAddr       common.Address // V4 pool's hook contract; zero if none or not V4
 }
 
 // Uniswap V2 function selectors
@@ -75,6 +77,14 @@ type UniswapNetworkAddresses struct {
 	FactoryV3    common.Address // V3 factory, for on-chain getPool() lookups
 	QuoterV2     common.Address // QuoterV2 for off-chain quote simulation
 	SwapRouterV3 common.Address // SwapRouter02
+
+	// Uniswap V4. Zero on networks where V4 isn't deployed/supported — callers
+	// gate on V4PoolManager != (common.Address{}) before trying the V4 tier.
+	V4PoolManager     common.Address // singleton pool ledger; also holds Initialize/Swap/etc. events
+	V4StateView       common.Address // read-only slot0/liquidity peripheral (PoolManager storage isn't eth_call-readable)
+	V4Quoter          common.Address // V4Quoter, for off-chain quote simulation
+	V4PositionManager common.Address // NFT position manager (liquidity positions, not swaps)
+	UniversalRouter   common.Address // swap execution entrypoint (Permit2-based allowance model)
 }
 
 // mainnetUniswapAddresses mirrors the package-level mainnet vars above so the
@@ -94,6 +104,16 @@ var mainnetUniswapAddresses = UniswapNetworkAddresses{
 	FactoryV3:    common.HexToAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"),
 	QuoterV2:     common.HexToAddress("0x61fFE014bA17989E743c5F6cB21bF9697530B21e"),
 	SwapRouterV3: common.HexToAddress("0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"),
+
+	// V4 addresses reuse the constants/vars already defined for the existing
+	// V4 read-side code (event listener, NFT positions) rather than being
+	// retyped here. V4Quoter and UniversalRouter are new, cited from
+	// Uniswap's official deployments doc (developers.uniswap.org/contracts/v4/deployments).
+	V4PoolManager:     common.HexToAddress(V4PoolManagerAddress),
+	V4StateView:       common.HexToAddress(V4StateViewAddress),
+	V4Quoter:          common.HexToAddress("0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203"),
+	V4PositionManager: v4NftPositionManager,
+	UniversalRouter:   common.HexToAddress("0x66a9893cc07d91d95644aedd05d03f95e1dba8af"),
 }
 
 // sepoliaUniswapAddresses holds the Uniswap V2 deployment and token addresses
@@ -192,6 +212,18 @@ func orderReserves(pair *UniswapV2Pair, tokenIn common.Address, r0, r1 *big.Int)
 	}
 }
 
+// priceImpactFromSpot returns the price impact percentage given a spot price
+// and the effective price actually received, both expressed as the same
+// raw-unit (not decimal-adjusted) ratio. Shared by computePriceImpact (V2,
+// spot derived from pool reserves) and the V4 quote code (spot derived from
+// the pool's current tick via v4RawSpotPrice).
+func priceImpactFromSpot(spot, effectivePrice float64) float64 {
+	if spot <= 0 {
+		return 0
+	}
+	return ((spot - effectivePrice) / spot) * 100
+}
+
 // computePriceImpact returns the price impact percentage given spot and effective prices.
 func computePriceImpact(reserveIn, reserveOut *big.Int, effectivePrice float64) float64 {
 	if reserveIn.Sign() <= 0 || reserveOut.Sign() <= 0 {
@@ -199,10 +231,7 @@ func computePriceImpact(reserveIn, reserveOut *big.Int, effectivePrice float64) 
 	}
 	spotPrice := new(big.Float).Quo(new(big.Float).SetInt(reserveOut), new(big.Float).SetInt(reserveIn))
 	spot, _ := spotPrice.Float64()
-	if spot <= 0 {
-		return 0
-	}
-	return ((spot - effectivePrice) / spot) * 100
+	return priceImpactFromSpot(spot, effectivePrice)
 }
 
 // GetSwapQuote calculates the expected output amount for a swap using the Uniswap V2 formula.
@@ -359,8 +388,11 @@ func v3PoolLiquidity(ctx context.Context, client *ethclient.Client, pool common.
 //
 // V3 is preferred over V2 when both have liquidity (matching this app's
 // prior hand-picked behavior for SPCXon, whose deepest liquidity is on V3).
-// Among V3 fee tiers, the one with the highest liquidity() wins.
-func ResolvePairOnChain(ctx context.Context, client *ethclient.Client, addrs UniswapNetworkAddresses, tokenA, tokenB common.Address) (poolAddr common.Address, isV3 bool, fee uint32, err error) {
+// Among V3 fee tiers, the one with the highest liquidity() wins. V4 is tried
+// last, only when neither V2 nor V3 has liquidity — V4 has no factory to
+// query live, so this tier costs more (see resolveV4Pool) and is only worth
+// paying when the established versions come up empty.
+func ResolvePairOnChain(ctx context.Context, client *ethclient.Client, addrs UniswapNetworkAddresses, tokenA, tokenB common.Address) (ResolvedPool, error) {
 	var bestV3Addr common.Address
 	var bestV3Fee uint32
 	var bestV3Liquidity *big.Int
@@ -383,7 +415,7 @@ func ResolvePairOnChain(ctx context.Context, client *ethclient.Client, addrs Uni
 		}
 	}
 	if bestV3Liquidity != nil {
-		return bestV3Addr, true, bestV3Fee, nil
+		return ResolvedPool{Version: PoolVersionV3, PairAddr: bestV3Addr, V3Fee: bestV3Fee}, nil
 	}
 
 	if addrs.Factory != (common.Address{}) {
@@ -391,12 +423,18 @@ func ResolvePairOnChain(ctx context.Context, client *ethclient.Client, addrs Uni
 		if perr == nil && pair != (common.Address{}) {
 			r0, r1, rerr := fetchReserves(ctx, client, pair)
 			if rerr == nil && r0.Sign() > 0 && r1.Sign() > 0 {
-				return pair, false, 0, nil
+				return ResolvedPool{Version: PoolVersionV2, PairAddr: pair}, nil
 			}
 		}
 	}
 
-	return common.Address{}, false, 0, fmt.Errorf("no Uniswap V2 or V3 pool found")
+	if addrs.V4PoolManager != (common.Address{}) {
+		if pool, ok := resolveV4Pool(ctx, client, addrs, tokenA, tokenB); ok {
+			return pool, nil
+		}
+	}
+
+	return ResolvedPool{}, fmt.Errorf("no Uniswap V2, V3, or V4 pool found")
 }
 
 // FormatSwapQuote returns a human-readable string for a swap quote

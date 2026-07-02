@@ -47,7 +47,16 @@ Tests in `rpc/rpc_test.go` and `helpers/uniswap_test.go` skip without `ETH_RPC_U
 | `rpc/rpc.go` | Ethereum RPC client, balance loading, QR generation |
 | `rpc/rpc_test.go` | Live integration tests |
 | `helpers/helpers.go` | ENS resolution, address formatting, validation |
-| `helpers/uniswap.go` | Uniswap V2 swap quote logic |
+| `helpers/uniswap.go` | Uniswap V2 swap quote logic + `ResolvePairOnChain` (V2/V3/V4 dispatch) |
+| `helpers/uniswap_v3.go` | Uniswap V3 swap quote logic (QuoterV2 simulation) |
+| `helpers/uniswap_v4_quote.go` | Uniswap V4 swap quote logic (V4Quoter simulation) + V4 pool resolution |
+| `helpers/uniswap_v4_listener.go` | Uniswap V4 event listener + on-demand pool reads (separate from quote logic) |
+| `helpers/ondo_tokens.go` | Vendored Ondo Global Markets token list (`go:embed`), all ~440 tokens |
+| `helpers/ondo_v4_pools.go` | Vendored Ondo Global Markets V4 pool discovery index (`go:embed`) |
+| `helpers/ondo_liquid_tokens.go` | Vendored subset of Ondo tokens with confirmed live liquidity (`go:embed`); seeds the default watchlist |
+| `cmd/updateondotokens/` | Dev tool: refreshes `helpers/data/ondo_gm_tokens.json` from Ondo's official GitHub token list |
+| `cmd/discoverondopools/` | Dev tool: scans `PoolManager` Initialize events to rebuild `helpers/data/ondo_v4_pools.json` |
+| `cmd/discoverondoliquidity/` | Dev tool: re-checks all Ondo tokens for live V2/V3/V4 liquidity, rebuilds `helpers/data/ondo_liquid_tokens.json` |
 | `helpers/uniswap_v4_listener.go` | Uniswap V4 event listener (separate from V2 quote logic) |
 | `config/config.go` | JSON config load/save, type definitions |
 | `styles/styles.go` | All Lip Gloss colors and shared styles |
@@ -86,8 +95,24 @@ The palette is retro-future dark: near-black bg, purple borders, green/blue acce
 | `styles.CError` | Pink/red `#F25D94` |
 
 ### Token Watchlist
-Defined in `model.go` inside `newModel()` as `[]rpc.WatchedToken`.
+Defined in `model_helpers.go`'s `buildTokenWatchlist()`, seeded into `model.go`'s `newModel()`
+only when the loaded config has no `WatchedTokens` yet (fresh/reset configs) — existing users'
+saved watchlists are never modified by changing the defaults here.
 Hardcoded mainnet addresses: WETH, USDC, USDT, DAI. Do not duplicate or move this.
+
+`buildTokenWatchlist` also seeds `helpers.OndoLiquidTokens` (vendored, `helpers/ondo_liquid_tokens.go`,
+rebuilt by `cmd/discoverondoliquidity`) — the subset of Ondo Global Markets tokens confirmed to have
+live V2/V3/V4 liquidity as of that tool's last run. This is a snapshot, not a live check; liquidity
+shifts, so re-run the tool periodically rather than hand-editing the vendored JSON. Empirically
+measured at ~220ms for the full ~27-token default list against a local node — comfortably inside
+the 12s balance-load timeout, but re-check if this list grows much further.
+
+The Watched Tokens page's Ondo picker (`o` key, `dialogOndoPicker`) autofills the add-token
+form's address from `helpers.OndoGMTokenList` (vendored, `helpers/ondo_tokens.go`, all ~440 Ondo
+tokens regardless of liquidity) but always runs the existing on-chain `symbol()`/`decimals()`
+verification before adding — the vendored list's Symbol/Decimals are never trusted directly into
+`m.tokenWatch`. Do not bulk-add the full picker list to the default watchlist; it's 400+ tokens
+and most have no liquidity — that's what `OndoLiquidTokens` filters down to.
 
 ### RPC Timeouts
 Connect: 8s. Balance/token loads: 12s. Do not exceed these or remove them.
@@ -102,9 +127,9 @@ Load/save only through `config/config.go`. Config path: `~/.charm-wallet-config.
 
 - **No private key storage or signing** anywhere in the codebase.
 - **No on-chain transaction broadcasting, except for user-pasted pre-signed transactions**, which may be submitted via `eth_sendRawTransaction` to the user's configured RPC endpoint. Unsigned txs built by the app are still packaged as EIP-681/EIP-4527 QR only — the app never signs anything itself.
-- **No telemetry, analytics, or external HTTP** outside user-configured RPC endpoints.
+- **No telemetry, analytics, or external HTTP** outside user-configured RPC endpoints, with one narrow exception: `cmd/updateondotokens` and `cmd/discoverondopools` are maintainer-run dev tools, never invoked by the shipped TUI binary (`go run .` / the built app never calls them) — the same category as `go mod tidy` fetching a module. Anything reachable from the running app still must not make outside HTTP calls.
 - **No custodial services or hosted backends.**
-- Uniswap quoting is V2 pair reserves only (USDC ↔ ETH/WETH). Do not add routing.
+- Uniswap quoting resolves pools fully on-chain across V2 (pair reserves), V3 (QuoterV2 simulation), and V4 (V4Quoter simulation) — see `helpers.ResolvePairOnChain`. V4 has no on-chain factory/registry to query live (a pool's existence is only knowable from having observed its `Initialize` event), so V4 resolution uses a vendored discovery index (`helpers/data/ondo_v4_pools.json`, rebuilt by `cmd/discoverondopools`) plus a bounded recent-block fallback scan — never an unbounded scan or a hand-typed pair-address table. Do not add multi-hop routing; every quote/swap is single-pool, single-hop, matching V2/V3 scope.
 
 ---
 

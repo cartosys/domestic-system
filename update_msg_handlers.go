@@ -16,6 +16,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 func (m *model) handleLogInit() (tea.Model, tea.Cmd) {
@@ -387,12 +388,14 @@ func (m *model) handleUniswapQuote(msg uniswapQuoteMsg) (tea.Model, tea.Cmd) {
 		m.uniswapToAmount = ""
 		m.uniswapFromAmount = ""
 		m.uniswapPriceImpactWarn = ""
+		m.uniswapHookWarn = ""
 		m.logError(fmt.Sprintf("Swap quote error: %v", msg.err))
 		return m, nil
 	}
 	m.uniswapQuoteError = ""
 	m.uniswapQuote = msg.quote
 	m.uniswapPriceImpactWarn = ""
+	m.uniswapHookWarn = ""
 
 	if msg.quote == nil {
 		return m, nil
@@ -406,6 +409,9 @@ func (m *model) handleUniswapQuote(msg uniswapQuoteMsg) (tea.Model, tea.Cmd) {
 	version := "V2"
 	if msg.quote.IsV3 {
 		version = "V3"
+	}
+	if msg.quote.IsV4 {
+		version = "V4"
 	}
 
 	if isReverseQuote {
@@ -436,6 +442,11 @@ func (m *model) handleUniswapQuote(msg uniswapQuoteMsg) (tea.Model, tea.Cmd) {
 		m.logWarn(m.uniswapPriceImpactWarn)
 	} else if msg.quote.PriceImpact > 0.5 {
 		m.uniswapPriceImpactWarn = fmt.Sprintf("⚠ Moderate price impact: %.2f%%", msg.quote.PriceImpact)
+	}
+
+	if msg.quote.HookAddr != (common.Address{}) {
+		m.uniswapHookWarn = fmt.Sprintf("⚠ Hook-gated pool (%s) — quoting or swapping may fail if you're not allowlisted (e.g. KYC/geo restrictions)", helpers.ShortenAddr(msg.quote.HookAddr.Hex()))
+		m.logWarn(m.uniswapHookWarn)
 	}
 	return m, nil
 }
