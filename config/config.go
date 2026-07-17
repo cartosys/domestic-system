@@ -135,7 +135,10 @@ func DefaultDapps() []DApp {
 			Name:    "Uniswap v4",
 			Address: "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00",
 			Icon:    "🦄",
-			Network: "Mainnet",
+			// Network intentionally left blank: Uniswap v4 is supported on
+			// both mainnet and Sepolia (see helpers.UniswapAddressesForChain),
+			// so its card shows whichever network is actively connected
+			// instead of a fixed label (see views/dapps.Render).
 			Description: "Uniswap is a leading decentralized cryptocurrency exchange (DEX) on the Ethereum blockchain that utilizes an automated market maker (AMM) system to allow users to swap tokens directly from their wallets without intermediaries. It enables anyone to provide liquidity to pools, earning fees in a non-custodial manner.",
 		},
 		{

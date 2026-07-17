@@ -4,6 +4,7 @@ import (
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/styles"
+	"math/big"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -54,8 +55,11 @@ func dAppCardFocusedStyle() lipgloss.Style {
 		BorderForeground(lipgloss.Color("69")) // Purple-blue from composable-views
 }
 
-// renderDAppCard renders a single dApp card
-func renderDAppCard(dapp config.DApp, focused bool) string {
+// renderDAppCard renders a single dApp card. chainID is the currently
+// connected network, used as the card's network label when dapp.Network is
+// blank (i.e. the dapp follows whichever network is active, rather than
+// being pinned to one — see config.DefaultDapps).
+func renderDAppCard(dapp config.DApp, focused bool, chainID *big.Int) string {
 	icon := dapp.Icon
 	if icon == "" {
 		icon = "🌐"
@@ -71,22 +75,22 @@ func renderDAppCard(dapp config.DApp, focused bool) string {
 		Bold(true).
 		Align(lipgloss.Center)
 
-	// Network badge
-	networkBadge := ""
-	if dapp.Network != "" {
-		networkBadge = lipgloss.NewStyle().
-			Foreground(styles.CAccent).
-			Render("[" + dapp.Network + "]")
+	// Network badge: dapp.Network pins a fixed label (e.g. Terra Nullius,
+	// whose contract only ever exists on mainnet); blank means "follow the
+	// active connection" (e.g. Uniswap v4, supported on both networks).
+	label := dapp.Network
+	if label == "" {
+		label = helpers.ChainName(chainID)
 	}
+	networkBadge := lipgloss.NewStyle().
+		Foreground(styles.CAccent).
+		Render("[" + label + "]")
 
 	// Build card content
 	content := icon + "\n\n" +
 		nameStyle.Render(dapp.Name) + "\n" +
-		fadedAddr
-
-	if networkBadge != "" {
-		content += "\n" + networkBadge
-	}
+		fadedAddr + "\n" +
+		networkBadge
 
 	// Apply appropriate style
 	if focused {
@@ -95,8 +99,9 @@ func renderDAppCard(dapp config.DApp, focused bool) string {
 	return dAppCardStyle().Render(content)
 }
 
-// Render renders the dApp browser view with grid layout
-func Render(width int, dapps []config.DApp, selectedIdx int) string {
+// Render renders the dApp browser view with grid layout. chainID is the
+// currently connected network (see renderDAppCard).
+func Render(width int, dapps []config.DApp, selectedIdx int, chainID *big.Int) string {
 	h := styles.TitleStyle.Render("dApp Browser")
 
 	if len(dapps) == 0 {
@@ -116,7 +121,7 @@ func Render(width int, dapps []config.DApp, selectedIdx int) string {
 		for j := 0; j < columnsPerRow && i+j < len(dapps); j++ {
 			idx := i + j
 			focused := (idx == selectedIdx)
-			card := renderDAppCard(dapps[idx], focused)
+			card := renderDAppCard(dapps[idx], focused, chainID)
 			rowCards = append(rowCards, card)
 
 			if j < columnsPerRow-1 && i+j+1 < len(dapps) {

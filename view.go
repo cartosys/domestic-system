@@ -826,7 +826,7 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 		return m.renderWalletsPage(headerPanel)
 
 	case config.PageDappBrowser:
-		c := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx)
+		c := dapps.Render(m.w-2, m.dapps, m.selectedDappIdx, m.chainID())
 		return styles.PanelStyle.Width(m.contentW).Render(c), dapps.Nav(m.w-2, m.txIndexerActive)
 
 	case config.PageDetails:
