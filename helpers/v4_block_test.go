@@ -544,7 +544,7 @@ func TestV4PoolCreationFromPositionManager(t *testing.T) {
 	if len(poolIds) == 0 {
 		t.Logf("  Strategy A found nothing — falling back to positions(tokenId) at block %d", v4TestBlock)
 		for _, tokenId := range tokenIds {
-			pos, posErr := v4FetchPosition(ctx, client, tokenId, blockBig)
+			pos, posErr := v4FetchPosition(ctx, client, v4NftPositionManager, tokenId, blockBig)
 			if posErr != nil {
 				t.Logf("  positions(%s) error: %v", tokenId, posErr)
 				continue

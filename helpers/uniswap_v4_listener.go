@@ -621,7 +621,7 @@ func (m *PoolEventMonitor) run(ctx context.Context, wsURL string) {
 	}
 	defer client.Close()
 
-	poolManager := common.HexToAddress(V4PoolManagerAddress)
+	poolManager := addressesForClient(ctx, client).V4PoolManager
 
 	var (
 		mu       sync.RWMutex
@@ -711,7 +711,9 @@ type PoolInfo struct {
 }
 
 // v4PoolManagerDeployBlock is the approximate mainnet block at which the V4
-// PoolManager was deployed, used as the lower bound for Initialize event lookups.
+// PoolManager was deployed, used as the lower bound for Initialize event
+// lookups on mainnet only (see the isMainnet gate in FetchPoolKey) — it's not
+// a meaningful bound on other chains, whose block heights aren't comparable.
 const v4PoolManagerDeployBlock = 21688000
 
 // poolCurrencyStr returns "NATIVE" for the zero address, or the checksummed hex address.
@@ -776,7 +778,7 @@ func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
 		return nil, fmt.Errorf("parse ABI: %w", err)
 	}
 
-	stateView := common.HexToAddress(V4StateViewAddress)
+	stateView := addressesForClient(ctx, client).V4StateView
 
 	sqrtPriceX96, tick, protocolFee, lpFee, liquidity, err := v4GetSlot0(ctx, client, &parsedABI, stateView, poolID)
 	if err != nil {
@@ -824,11 +826,20 @@ func FetchPoolKey(rpcURL string, poolID common.Hash) (*PoolKeyInfo, error) {
 	}
 	latestBlock := header.Number.Int64()
 	fromBlock := latestBlock - 99000
-	if fromBlock < int64(v4PoolManagerDeployBlock) {
+	// v4PoolManagerDeployBlock is a mainnet-specific block number; it's only a
+	// meaningful floor there. On other chains (e.g. Sepolia, whose current
+	// height is below that mainnet block number) applying it would invert the
+	// range into fromBlock > toBlock, so just rely on the 99,000-block window
+	// there instead.
+	chainID, _ := client.ChainID(ctx)
+	if isMainnet(chainID) && fromBlock < int64(v4PoolManagerDeployBlock) {
 		fromBlock = int64(v4PoolManagerDeployBlock)
 	}
+	if fromBlock < 0 {
+		fromBlock = 0
+	}
 
-	poolManager := common.HexToAddress(V4PoolManagerAddress)
+	poolManager := UniswapAddressesForChain(chainID).V4PoolManager
 	q := ethereum.FilterQuery{
 		FromBlock: big.NewInt(fromBlock),
 		ToBlock:   big.NewInt(latestBlock),

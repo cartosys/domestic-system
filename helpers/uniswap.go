@@ -116,11 +116,15 @@ var mainnetUniswapAddresses = UniswapNetworkAddresses{
 	UniversalRouter:   common.HexToAddress("0x66a9893cc07d91d95644aedd05d03f95e1dba8af"),
 }
 
-// sepoliaUniswapAddresses holds the Uniswap V2 deployment and token addresses
-// on Sepolia (chain ID 11155111). Verified directly on-chain against a public
-// Sepolia RPC: router.factory()/router.WETH() match the listed Factory/WETH,
-// each token's symbol()/decimals() match, and each pair has live non-zero
-// reserves on the Factory's pair list.
+// sepoliaUniswapAddresses holds the Uniswap V2/V3/V4 deployment and token
+// addresses on Sepolia (chain ID 11155111). V2 addresses verified directly
+// on-chain against a public Sepolia RPC: router.factory()/router.WETH()
+// match the listed Factory/WETH, each token's symbol()/decimals() match, and
+// each pair has live non-zero reserves on the Factory's pair list. V3/V4
+// addresses cross-checked against two independent official Uniswap sources
+// (developers.uniswap.org's deployments pages and the Uniswap/sdks monorepo's
+// sdk-core/src/addresses.ts) and confirmed to hold live contract bytecode via
+// eth_getCode against a public Sepolia RPC.
 var sepoliaUniswapAddresses = UniswapNetworkAddresses{
 	Router:  common.HexToAddress("0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3"),
 	Factory: common.HexToAddress("0xF62c03E08ada871A0bEb309762E260a7a6a880E6"),
@@ -130,7 +134,15 @@ var sepoliaUniswapAddresses = UniswapNetworkAddresses{
 	USDT: common.HexToAddress("0xaa8E23Fb1079EA71e0a56F48a2aa51851D8433D0"),
 	DAI:  common.HexToAddress("0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D"),
 
-	FactoryV3: common.HexToAddress("0x0227628f3F023bb0B980b67D528571c95c6DaC1c"),
+	FactoryV3:    common.HexToAddress("0x0227628f3F023bb0B980b67D528571c95c6DaC1c"),
+	QuoterV2:     common.HexToAddress("0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3"),
+	SwapRouterV3: common.HexToAddress("0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E"),
+
+	V4PoolManager:     common.HexToAddress("0xE03A1074c86CFeDd5C142C4F04F1a1536e203543"),
+	V4StateView:       common.HexToAddress("0xe1dd9c3fa50edb962e442f60dfbc432e24537e4c"),
+	V4Quoter:          common.HexToAddress("0x61b3f2011a92d183c7dbadbda940a7555ccf9227"),
+	V4PositionManager: common.HexToAddress("0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4"),
+	UniversalRouter:   common.HexToAddress("0x3a9d48ab9751398bbfa63ad67599bb04e4bdf98b"),
 }
 
 // UniswapAddressesForChain returns the Uniswap V2 router/factory/token/pair
@@ -141,6 +153,21 @@ func UniswapAddressesForChain(chainID *big.Int) UniswapNetworkAddresses {
 		return sepoliaUniswapAddresses
 	}
 	return mainnetUniswapAddresses
+}
+
+// addressesForClient detects client's chain and resolves the matching
+// UniswapNetworkAddresses, mirroring rpc.ConnectWithTimeout's best-effort
+// chain detection (a failed lookup is treated as mainnet, same as nil).
+func addressesForClient(ctx context.Context, client *ethclient.Client) UniswapNetworkAddresses {
+	chainID, _ := client.ChainID(ctx)
+	return UniswapAddressesForChain(chainID)
+}
+
+// isMainnet reports whether chainID (nil-safe, nil = mainnet) refers to
+// Ethereum mainnet, for the handful of call sites that need a mainnet-only
+// bound (e.g. FetchPoolKey's block-range floor) rather than a full address set.
+func isMainnet(chainID *big.Int) bool {
+	return chainID == nil || chainID.Cmp(big.NewInt(1)) == 0
 }
 
 // GetUniswapV2Pair fetches the token addresses for a Uniswap V2 pair

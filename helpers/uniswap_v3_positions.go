@@ -15,11 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-// v4NftPositionManager is the Uniswap V4 PositionManager (ERC-721) on Ethereum mainnet.
+// v4NftPositionManager is the Uniswap V4 PositionManager (ERC-721) on Ethereum
+// mainnet — used by mainnetUniswapAddresses (helpers/uniswap.go) and by the
+// mainnet-specific live-RPC test in v4_block_test.go. GetLiquidityPositions
+// itself resolves the chain-appropriate address via addressesForClient
+// instead of using this directly, so it also works on Sepolia.
 var v4NftPositionManager = common.HexToAddress("0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9E")
-
-// v4StateView is the Uniswap V4 StateView peripheral contract on Ethereum mainnet.
-var v4StateViewAddr = common.HexToAddress(V4StateViewAddress)
 
 const v4PositionManagerViewABI = `[
   {
@@ -70,7 +71,11 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 	}
 	defer client.Close()
 
-	balance, err := v4BalanceOf(ctx, client, ownerAddr)
+	addrs := addressesForClient(ctx, client)
+	posManager := addrs.V4PositionManager
+	stateView := addrs.V4StateView
+
+	balance, err := v4BalanceOf(ctx, client, posManager, ownerAddr)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("balanceOf: %w", err)
 	}
@@ -84,7 +89,7 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 	}
 
 	diags := []string{fmt.Sprintf("balanceOf: %d NFT(s)", balance)}
-	tokenIds, enumDiags, enumErr := v4EnumerateOwnedTokenIds(ctx, client, ownerAddr, balance)
+	tokenIds, enumDiags, enumErr := v4EnumerateOwnedTokenIds(ctx, client, posManager, ownerAddr, balance)
 	diags = append(diags, enumDiags...)
 	if enumErr != nil {
 		return nil, balance, diags, fmt.Errorf("enumerate token IDs: %w", enumErr)
@@ -94,7 +99,7 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 	positions := make([]LiquidityPosition, 0, len(tokenIds))
 
 	for _, tokenId := range tokenIds {
-		pos, err := v4FetchPosition(ctx, client, tokenId)
+		pos, err := v4FetchPosition(ctx, client, posManager, tokenId)
 		if err != nil {
 			diags = append(diags, fmt.Sprintf("tokenId %s: positions() error: %v", tokenId, err))
 			// Still include a stub so the token ID is visible in the panel.
@@ -104,8 +109,8 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 
 		// Fetch per-position liquidity from StateView.
 		poolId := v4ComputePoolId(pos.Token0, pos.Token1, pos.Hooks, pos.Fee, pos.TickSpacing)
-		posKey := v4ComputePositionKey(tokenId, pos.TickLower, pos.TickUpper)
-		pos.Liquidity = v4FetchPositionLiquidity(ctx, client, &stateViewABI, poolId, posKey)
+		posKey := v4ComputePositionKey(posManager, tokenId, pos.TickLower, pos.TickUpper)
+		pos.Liquidity = v4FetchPositionLiquidity(ctx, client, stateView, &stateViewABI, poolId, posKey)
 
 		if pos.Liquidity == nil || pos.Liquidity.Sign() == 0 {
 			diags = append(diags, fmt.Sprintf("tokenId %s: liquidity=0", tokenId))
@@ -147,12 +152,12 @@ func GetLiquidityPositions(rpcURL string, ownerAddr common.Address) ([]Liquidity
 // It uses ERC-721 Enumerable (tokenOfOwnerByIndex). If that reverts it falls
 // back to Transfer event log scanning + ownerOf verification.
 // Returns token IDs, per-step diagnostic lines, and any fatal error.
-func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, owner common.Address, expectedCount uint64) ([]*big.Int, []string, error) {
+func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, posManager, owner common.Address, expectedCount uint64) ([]*big.Int, []string, error) {
 	var diags []string
 	count := min(expectedCount, 50)
 
 	// Try ERC-721 Enumerable path.
-	first, err := v4TokenOfOwnerByIndex(ctx, client, owner, 0)
+	first, err := v4TokenOfOwnerByIndex(ctx, client, posManager, owner, 0)
 	if err != nil {
 		diags = append(diags, fmt.Sprintf("tokenOfOwnerByIndex(0): error: %v", err))
 		diags = append(diags, "falling back to Transfer event log scan")
@@ -161,7 +166,7 @@ func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, own
 		ids := make([]*big.Int, 0, count)
 		ids = append(ids, first)
 		for i := uint64(1); i < count; i++ {
-			id, e := v4TokenOfOwnerByIndex(ctx, client, owner, i)
+			id, e := v4TokenOfOwnerByIndex(ctx, client, posManager, owner, i)
 			if e != nil {
 				diags = append(diags, fmt.Sprintf("tokenOfOwnerByIndex(%d): error: %v", i, e))
 				break
@@ -188,7 +193,7 @@ func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, own
 
 	query := ethereum.FilterQuery{
 		FromBlock: fromBlock,
-		Addresses: []common.Address{v4NftPositionManager},
+		Addresses: []common.Address{posManager},
 		Topics: [][]common.Hash{
 			{transferSig},
 			nil,          // from: any
@@ -213,7 +218,7 @@ func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, own
 			continue
 		}
 		seen[key] = true
-		currentOwner := v4OwnerOf(ctx, client, tokenId)
+		currentOwner := v4OwnerOf(ctx, client, posManager, tokenId)
 		if currentOwner == owner {
 			diags = append(diags, fmt.Sprintf("Transfer-log: tokenId=%s confirmed owned", tokenId))
 			ids = append(ids, tokenId)
@@ -230,12 +235,12 @@ func v4EnumerateOwnedTokenIds(ctx context.Context, client *ethclient.Client, own
 // ---- ERC-721 calls ----
 
 // v4BalanceOf calls balanceOf(address) on the V4 NFT Position Manager.
-func v4BalanceOf(ctx context.Context, client *ethclient.Client, owner common.Address) (uint64, error) {
+func v4BalanceOf(ctx context.Context, client *ethclient.Client, posManager, owner common.Address) (uint64, error) {
 	// selector: balanceOf(address) = 0x70a08231
 	data := make([]byte, 36)
 	copy(data[:4], []byte{0x70, 0xa0, 0x82, 0x31})
 	copy(data[16:36], owner.Bytes()) // address right-aligned in 32-byte slot
-	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &v4NftPositionManager, Data: data}, nil)
+	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &posManager, Data: data}, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -246,14 +251,14 @@ func v4BalanceOf(ctx context.Context, client *ethclient.Client, owner common.Add
 }
 
 // v4TokenOfOwnerByIndex calls tokenOfOwnerByIndex(address, uint256) on the V4 Position Manager.
-func v4TokenOfOwnerByIndex(ctx context.Context, client *ethclient.Client, owner common.Address, index uint64) (*big.Int, error) {
+func v4TokenOfOwnerByIndex(ctx context.Context, client *ethclient.Client, posManager, owner common.Address, index uint64) (*big.Int, error) {
 	// selector: tokenOfOwnerByIndex(address,uint256) = 0x2f745c59
 	data := make([]byte, 68)
 	copy(data[:4], []byte{0x2f, 0x74, 0x5c, 0x59})
 	copy(data[16:36], owner.Bytes())
 	idxBytes := new(big.Int).SetUint64(index).Bytes()
 	copy(data[68-len(idxBytes):68], idxBytes)
-	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &v4NftPositionManager, Data: data}, nil)
+	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &posManager, Data: data}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -265,13 +270,13 @@ func v4TokenOfOwnerByIndex(ctx context.Context, client *ethclient.Client, owner 
 
 // v4OwnerOf calls ownerOf(uint256) on the V4 Position Manager.
 // Returns zero address on any error.
-func v4OwnerOf(ctx context.Context, client *ethclient.Client, tokenId *big.Int) common.Address {
+func v4OwnerOf(ctx context.Context, client *ethclient.Client, posManager common.Address, tokenId *big.Int) common.Address {
 	// selector: ownerOf(uint256) = 0x6352211e
 	data := make([]byte, 36)
 	copy(data[:4], []byte{0x63, 0x52, 0x21, 0x1e})
 	idBytes := tokenId.Bytes()
 	copy(data[36-len(idBytes):36], idBytes)
-	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &v4NftPositionManager, Data: data}, nil)
+	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &posManager, Data: data}, nil)
 	if err != nil || len(result) < 32 {
 		return common.Address{}
 	}
@@ -293,7 +298,7 @@ func v4OwnerOf(ctx context.Context, client *ethclient.Client, tokenId *big.Int) 
 //   Slot 6 (bytes 192–223): feeGrowthInside0LastX128 (uint256, skipped)
 //   Slot 7 (bytes 224–255): feeGrowthInside1LastX128 (uint256, skipped)
 
-func v4FetchPosition(ctx context.Context, client *ethclient.Client, tokenId *big.Int, blockNumber ...*big.Int) (LiquidityPosition, error) {
+func v4FetchPosition(ctx context.Context, client *ethclient.Client, posManager common.Address, tokenId *big.Int, blockNumber ...*big.Int) (LiquidityPosition, error) {
 	var pos LiquidityPosition
 	pos.TokenID = tokenId
 
@@ -307,7 +312,7 @@ func v4FetchPosition(ctx context.Context, client *ethclient.Client, tokenId *big
 	if len(blockNumber) > 0 {
 		atBlock = blockNumber[0]
 	}
-	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &v4NftPositionManager, Data: data}, atBlock)
+	result, err := client.CallContract(ctx, ethereum.CallMsg{To: &posManager, Data: data}, atBlock)
 	if err != nil {
 		return pos, err
 	}
@@ -386,10 +391,10 @@ func v4ComputePoolId(currency0, currency1, hooks common.Address, fee uint32, tic
 // v4ComputePositionKey computes the StateView position key:
 // keccak256(abi.encodePacked(positionManager, tickLower, tickUpper, salt))
 // where salt = bytes32(tokenId).
-func v4ComputePositionKey(tokenId *big.Int, tickLower, tickUpper int32) common.Hash {
+func v4ComputePositionKey(posManager common.Address, tokenId *big.Int, tickLower, tickUpper int32) common.Hash {
 	// packed: 20 + 3 + 3 + 32 = 58 bytes
 	data := make([]byte, 58)
-	copy(data[0:20], v4NftPositionManager.Bytes())
+	copy(data[0:20], posManager.Bytes())
 
 	rawLower := uint32(tickLower) & 0xFFFFFF
 	data[20] = byte(rawLower >> 16)
@@ -410,12 +415,12 @@ func v4ComputePositionKey(tokenId *big.Int, tickLower, tickUpper int32) common.H
 
 // v4FetchPositionLiquidity calls StateView.getPositionInfo(poolId, positionKey) and returns the liquidity.
 // Returns nil on any error so the caller can gracefully skip.
-func v4FetchPositionLiquidity(ctx context.Context, client *ethclient.Client, stateViewABI *abi.ABI, poolId, posKey common.Hash) *big.Int {
+func v4FetchPositionLiquidity(ctx context.Context, client *ethclient.Client, stateView common.Address, stateViewABI *abi.ABI, poolId, posKey common.Hash) *big.Int {
 	calldata, err := stateViewABI.Pack("getPositionInfo", poolId, posKey)
 	if err != nil {
 		return nil
 	}
-	raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &v4StateViewAddr, Data: calldata}, nil)
+	raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: calldata}, nil)
 	if err != nil || len(raw) < 32 {
 		return nil
 	}

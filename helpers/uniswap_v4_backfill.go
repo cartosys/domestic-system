@@ -70,7 +70,7 @@ func BackfillPoolEvents(ctx context.Context, httpURL string, fromBlock, toBlock 
 			allSigs = append(allSigs, ev.ID)
 		}
 
-		poolManager := common.HexToAddress(V4PoolManagerAddress)
+		poolManager := addressesForClient(ctx, client).V4PoolManager
 		var (
 			mu       sync.RWMutex
 			poolKeys = make(map[common.Hash]v4PoolKey)

@@ -137,8 +137,9 @@ func (s *V4BlockScanner) run(ctx context.Context, rpcURL string, blockNum uint64
 		syms     = newV4SymbolCache()
 	)
 
-	poolManager := common.HexToAddress(V4PoolManagerAddress)
-	posManager := common.HexToAddress("0xbD216513d74C8cf14cf4747E6D3B7356D9Ef3B34")
+	addrs := addressesForClient(ctx, client)
+	poolManager := addrs.V4PoolManager
+	posManager := addrs.V4PositionManager
 	erc721Sig := common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
 	incLiqSig := common.HexToHash("0x3067048beee31b25b2f1681f88dac838c8bba36af25bfb2b7cf7473a5847e35f")
 
