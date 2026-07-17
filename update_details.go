@@ -20,7 +20,7 @@ func (m *model) handleDetailsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		addr := common.HexToAddress(m.details.Address)
 		m.loading = true
 		m.logInfo(fmt.Sprintf("Refreshing details for `%s`", helpers.ShortenAddr(m.details.Address)))
-		return m, loadDetails(m.ethClient, addr, m.tokenWatch)
+		return m, loadDetails(m.ethClient, addr, m.tokenWatchForActiveChain())
 	}
 	return m, nil
 }

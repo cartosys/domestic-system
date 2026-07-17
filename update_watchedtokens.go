@@ -79,7 +79,7 @@ func (m *model) handleTokenMetadataMsg(msg tokenMetadataMsg) (tea.Model, tea.Cmd
 		return m, nil
 	}
 
-	newToken := rpc.WatchedToken{Symbol: msg.symbol, Name: msg.name, Decimals: msg.decimals, Address: msg.address, TotalSupply: msg.totalSupply}
+	newToken := rpc.WatchedToken{Symbol: msg.symbol, Name: msg.name, Decimals: msg.decimals, Address: msg.address, TotalSupply: msg.totalSupply, ChainID: m.chainID()}
 	if m.tokenFormMode == "add" {
 		m.tokenWatch = append(m.tokenWatch, newToken)
 		m.logSuccess(fmt.Sprintf("Added watched token: `%s` (%s)", msg.symbol, msg.address.Hex()))
@@ -282,7 +282,7 @@ func (m *model) handleWatchedTokensKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	sorted := sortedWatchedTokens(m.tokenWatch, m.details)
+	sorted := sortedWatchedTokens(m.tokenWatchForActiveChain(), m.details)
 
 	if m.tokenFormMode == "list" {
 		switch msg.String() {

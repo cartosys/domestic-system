@@ -34,6 +34,27 @@ func ExplorerBaseURL(chainID *big.Int) string {
 	return "https://etherscan.io"
 }
 
+// ChainName returns a short human-readable network name for chainID, falling
+// back to "Chain <id>" for anything unrecognized. Nil is treated as mainnet,
+// matching ExplorerBaseURL/UniswapAddressesForChain's nil-defaults convention.
+func ChainName(chainID *big.Int) string {
+	if chainID != nil {
+		switch chainID.Int64() {
+		case 1:
+			return "Mainnet"
+		case SepoliaChainID:
+			return "Sepolia"
+		case 17000:
+			return "Holesky"
+		case 5:
+			return "Goerli"
+		default:
+			return "Chain " + chainID.String()
+		}
+	}
+	return "Mainnet"
+}
+
 // ShortenAddr shortens an Ethereum address for display
 func ShortenAddr(addr string) string {
 	if len(addr) < 10 {

@@ -21,6 +21,10 @@ type WatchedToken struct {
 	Decimals    uint8    `json:"decimals"`
 	Address     string   `json:"address"`
 	TotalSupply *big.Int `json:"total_supply,omitempty"`
+	// ChainID is the network this entry's Address belongs to. Nil means
+	// mainnet — entries saved before chain-awareness was added never had
+	// this field, and every one of them is a mainnet address.
+	ChainID *big.Int `json:"chain_id,omitempty"`
 }
 
 // RPCUrl represents an RPC endpoint
@@ -101,6 +105,11 @@ func DefaultConfig() Config {
 				Name:   "Sepolia Testnet",
 				URL:    "https://ethereum-sepolia-rpc.publicnode.com",
 				Active: true,
+			},
+			{
+				Name:   "Mainnet",
+				URL:    "https://ethereum-rpc.publicnode.com/",
+				Active: false,
 			},
 		},
 		Wallets: []WalletEntry{

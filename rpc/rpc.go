@@ -85,6 +85,8 @@ type WatchedToken struct {
 	Decimals    uint8
 	Address     common.Address
 	TotalSupply *big.Int // not currently displayed; stored for future use
+	// ChainID is the network Address belongs to. Nil means mainnet.
+	ChainID *big.Int
 }
 
 // WalletDetails contains all balance information for a wallet

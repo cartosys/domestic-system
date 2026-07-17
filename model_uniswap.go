@@ -33,7 +33,7 @@ func (m model) buildTokenList() []uniswap.TokenOption {
 		IsETH:    true,
 	}}
 
-	for _, wt := range m.tokenWatch {
+	for _, wt := range m.tokenWatchForActiveChain() {
 		opt := uniswap.TokenOption{
 			Symbol:   wt.Symbol,
 			Decimals: wt.Decimals,
@@ -57,6 +57,13 @@ func (m *model) chainID() *big.Int {
 		return nil
 	}
 	return m.ethClient.DetectedChainID
+}
+
+// tokenWatchForActiveChain returns m.tokenWatch filtered to the connected
+// chain, so balance loads, the tx indexer, the Watched Tokens page, and the
+// Uniswap token picker only ever see the current network's addresses.
+func (m *model) tokenWatchForActiveChain() []rpc.WatchedToken {
+	return tokensForChain(m.tokenWatch, m.chainID())
 }
 
 // pairResolution carries routing metadata for a resolved token pair.

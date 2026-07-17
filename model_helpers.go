@@ -15,27 +15,40 @@ import (
 )
 
 // buildTokenWatchlist returns the starter token watchlist (WETH/USDC/USDT/DAI)
-// pointed at the given network's token addresses, so balances are queried
-// against the contracts that actually exist on the connected chain.
-func buildTokenWatchlist(addrs helpers.UniswapNetworkAddresses) []rpc.WatchedToken {
-	tokens := []rpc.WatchedToken{
-		{Symbol: "WETH", Decimals: 18, Address: addrs.WETH},
-		{Symbol: "USDC", Decimals: 6, Address: addrs.USDC},
-		{Symbol: "USDT", Decimals: 6, Address: addrs.USDT},
-		{Symbol: "DAI", Decimals: 18, Address: addrs.DAI},
-	}
-	if addrs.SPCXon != (common.Address{}) {
-		tokens = append(tokens, rpc.WatchedToken{Symbol: "SPCXon", Decimals: 18, Address: addrs.SPCXon})
+// for both mainnet and Sepolia, each entry tagged with its ChainID, so a
+// fresh install has working defaults on whichever network is active.
+func buildTokenWatchlist() []rpc.WatchedToken {
+	var tokens []rpc.WatchedToken
+
+	mainnet := helpers.UniswapAddressesForChain(nil)
+	tokens = append(tokens,
+		rpc.WatchedToken{Symbol: "WETH", Decimals: 18, Address: mainnet.WETH, ChainID: big.NewInt(1)},
+		rpc.WatchedToken{Symbol: "USDC", Decimals: 6, Address: mainnet.USDC, ChainID: big.NewInt(1)},
+		rpc.WatchedToken{Symbol: "USDT", Decimals: 6, Address: mainnet.USDT, ChainID: big.NewInt(1)},
+		rpc.WatchedToken{Symbol: "DAI", Decimals: 18, Address: mainnet.DAI, ChainID: big.NewInt(1)},
+	)
+	if mainnet.SPCXon != (common.Address{}) {
+		tokens = append(tokens, rpc.WatchedToken{Symbol: "SPCXon", Decimals: 18, Address: mainnet.SPCXon, ChainID: big.NewInt(1)})
 		// helpers.OndoLiquidTokens (vendored by cmd/discoverondoliquidity) is
 		// mainnet-only, matching SPCXon above — gate on the same "is this
 		// mainnet" signal rather than adding a second network check.
 		for _, t := range helpers.OndoLiquidTokens {
-			if t.Address == addrs.SPCXon {
+			if t.Address == mainnet.SPCXon {
 				continue // already added above
 			}
-			tokens = append(tokens, rpc.WatchedToken{Symbol: t.Symbol, Name: t.Name, Decimals: t.Decimals, Address: t.Address})
+			tokens = append(tokens, rpc.WatchedToken{Symbol: t.Symbol, Name: t.Name, Decimals: t.Decimals, Address: t.Address, ChainID: big.NewInt(1)})
 		}
 	}
+
+	sepolia := helpers.UniswapAddressesForChain(big.NewInt(helpers.SepoliaChainID))
+	sepoliaChainID := big.NewInt(helpers.SepoliaChainID)
+	tokens = append(tokens,
+		rpc.WatchedToken{Symbol: "WETH", Decimals: 18, Address: sepolia.WETH, ChainID: sepoliaChainID},
+		rpc.WatchedToken{Symbol: "USDC", Decimals: 6, Address: sepolia.USDC, ChainID: sepoliaChainID},
+		rpc.WatchedToken{Symbol: "USDT", Decimals: 6, Address: sepolia.USDT, ChainID: sepoliaChainID},
+		rpc.WatchedToken{Symbol: "DAI", Decimals: 18, Address: sepolia.DAI, ChainID: sepoliaChainID},
+	)
+
 	return tokens
 }
 
@@ -43,7 +56,7 @@ func buildTokenWatchlist(addrs helpers.UniswapNetworkAddresses) []rpc.WatchedTok
 func tokenWatchToConfigList(watch []rpc.WatchedToken) []config.WatchedToken {
 	out := make([]config.WatchedToken, len(watch))
 	for i, t := range watch {
-		out[i] = config.WatchedToken{Symbol: t.Symbol, Name: t.Name, Decimals: t.Decimals, Address: t.Address.Hex(), TotalSupply: t.TotalSupply}
+		out[i] = config.WatchedToken{Symbol: t.Symbol, Name: t.Name, Decimals: t.Decimals, Address: t.Address.Hex(), TotalSupply: t.TotalSupply, ChainID: t.ChainID}
 	}
 	return out
 }
@@ -52,7 +65,30 @@ func tokenWatchToConfigList(watch []rpc.WatchedToken) []config.WatchedToken {
 func configListToTokenWatch(entries []config.WatchedToken) []rpc.WatchedToken {
 	out := make([]rpc.WatchedToken, len(entries))
 	for i, e := range entries {
-		out[i] = rpc.WatchedToken{Symbol: e.Symbol, Name: e.Name, Decimals: e.Decimals, Address: common.HexToAddress(e.Address), TotalSupply: e.TotalSupply}
+		out[i] = rpc.WatchedToken{Symbol: e.Symbol, Name: e.Name, Decimals: e.Decimals, Address: common.HexToAddress(e.Address), TotalSupply: e.TotalSupply, ChainID: e.ChainID}
+	}
+	return out
+}
+
+// chainIDOrMainnet treats a nil chain ID (undetected connection, or a
+// pre-chain-aware saved entry) as mainnet, matching
+// helpers.UniswapAddressesForChain's existing nil-defaults-to-mainnet rule.
+func chainIDOrMainnet(id *big.Int) *big.Int {
+	if id == nil {
+		return big.NewInt(1)
+	}
+	return id
+}
+
+// tokensForChain returns the subset of watch whose ChainID matches chainID
+// (nil-safe on both sides — see chainIDOrMainnet).
+func tokensForChain(watch []rpc.WatchedToken, chainID *big.Int) []rpc.WatchedToken {
+	want := chainIDOrMainnet(chainID)
+	var out []rpc.WatchedToken
+	for _, t := range watch {
+		if chainIDOrMainnet(t.ChainID).Cmp(want) == 0 {
+			out = append(out, t)
+		}
 	}
 	return out
 }
@@ -124,7 +160,7 @@ func (m *model) loadSelectedWalletDetails() tea.Cmd {
 	}
 	m.loading = true
 	m.details = rpc.WalletDetails{Address: addr}
-	return loadDetails(m.ethClient, common.HexToAddress(addr), m.tokenWatch)
+	return loadDetails(m.ethClient, common.HexToAddress(addr), m.tokenWatchForActiveChain())
 }
 
 // loadSelectedWalletDetailsFresh drops the cached details for the selected

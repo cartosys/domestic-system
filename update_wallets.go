@@ -605,7 +605,7 @@ func (m *model) handleWalletsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.details = rpc.WalletDetails{Address: addr}
 				ethAddr := common.HexToAddress(addr)
-				return m, loadDetails(m.ethClient, ethAddr, m.tokenWatch)
+				return m, loadDetails(m.ethClient, ethAddr, m.tokenWatchForActiveChain())
 			}
 		}
 		return m, nil

@@ -850,7 +850,7 @@ func (m *model) renderPage(headerPanel string) (pageContent, nav string) {
 }
 
 func (m *model) renderWatchedTokensPage(headerPanel string) (pageContent, nav string) {
-	sorted := sortedWatchedTokens(m.tokenWatch, m.details)
+	sorted := sortedWatchedTokens(m.tokenWatchForActiveChain(), m.details)
 	content := watchedtokens.Render(sorted, m.details, m.selectedTokenIdx)
 	m.tokenListViewport.SetContent(content)
 

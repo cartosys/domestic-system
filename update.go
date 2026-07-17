@@ -282,7 +282,10 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.txSwapQRFrames = nil
 			m.txSwapJSON = ""
 			m.txSwapStep = false
-			return m, nil
+			// Refresh watched-token balances — this is the shared dismiss path
+			// for swaps, ETH sends, and Terra claims, any of which can have
+			// just changed the active wallet's on-chain balances.
+			return m, m.loadSelectedWalletDetailsFresh()
 		}
 		return m, vpCmd
 	}
@@ -313,7 +316,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				config.Save(m.configPath, config.Config{RPCURLs: m.rpcURLs, Wallets: m.accounts, Logger: m.logEnabled})
 				m.logSuccess(fmt.Sprintf("Activated account: %s", helpers.ShortenAddr(selectedAddr)))
 				m.activeDialog = dialogNone
-				return m, m.loadSelectedWalletDetails()
+				return m, m.loadSelectedWalletDetailsFresh()
 			}
 		case "esc":
 			m.activeDialog = dialogNone
@@ -411,7 +414,7 @@ func (m *model) handleIndexerToggle() (tea.Model, tea.Cmd) {
 		labels[i] = helpers.HyperAddr(addrs[i])
 	}
 	m.txIndexer = indexer.New()
-	m.txIndexer.Start(m.rpcURL, addrs, m.tokenWatch)
+	m.txIndexer.Start(m.rpcURL, addrs, m.tokenWatchForActiveChain())
 	m.txIndexerActive = true
 	m.logInfo(fmt.Sprintf("Address indexer started — scanning backward from current block, watching: %s", strings.Join(labels, "  ")))
 	cmds := []tea.Cmd{waitForIndexedEvent(m.txIndexer), waitForV4PoolEvent(m.txIndexer), waitForIndexerProgress(m.txIndexer)}
@@ -614,7 +617,7 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 							if m.activeDialog == dialogAccountList {
 								m.activeDialog = dialogNone
 							}
-							return m, m.loadSelectedWalletDetails()
+							return m, m.loadSelectedWalletDetailsFresh()
 						}
 					}
 					return m, nil
@@ -646,7 +649,7 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.activePage = config.PageDetails
 			m.loading = true
 			m.details = rpc.WalletDetails{Address: area.Address}
-			return m, loadDetails(m.ethClient, common.HexToAddress(area.Address), m.tokenWatch)
+			return m, loadDetails(m.ethClient, common.HexToAddress(area.Address), m.tokenWatchForActiveChain())
 		}
 	}
 

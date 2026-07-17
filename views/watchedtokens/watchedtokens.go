@@ -93,6 +93,7 @@ func Render(tokens []rpc.WatchedToken, details rpc.WalletDetails, selectedIdx in
 			if t.Name != "" {
 				label = t.Symbol + " - " + t.Name
 			}
+			label += "  [" + helpers.ChainName(t.ChainID) + "]"
 
 			line := marker + nameStyle.Render(label) + "  " + addrStyle.Render(balanceText)
 			lines = append(lines, line)

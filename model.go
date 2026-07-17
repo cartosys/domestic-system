@@ -427,13 +427,15 @@ func newModel() model {
 	}
 
 	// Token watchlist: loaded from persisted config. On first run (no entries
-	// saved yet) it's seeded from the starter set (WETH/USDC/USDT/DAI, mainnet
-	// addresses since no RPC has connected yet) and saved immediately. From
-	// then on it's entirely user-editable via the Watched Tokens page and is
-	// not rebuilt on RPC reconnect (see handleRPCConnected).
+	// saved yet) it's seeded from the starter set (WETH/USDC/USDT/DAI, tagged
+	// per-chain for both mainnet and Sepolia — see buildTokenWatchlist) and
+	// saved immediately. From then on it's entirely user-editable via the
+	// Watched Tokens page and is not rebuilt on RPC reconnect (see
+	// handleRPCConnected); m.tokenWatchForActiveChain() filters it down to
+	// whichever network is currently connected.
 	var watch []rpc.WatchedToken
 	if len(cfg.WatchedTokens) == 0 {
-		watch = buildTokenWatchlist(helpers.UniswapAddressesForChain(nil))
+		watch = buildTokenWatchlist()
 		cfg.WatchedTokens = tokenWatchToConfigList(watch)
 		config.Save(configPath, cfg)
 	} else {
