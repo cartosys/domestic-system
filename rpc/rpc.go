@@ -339,57 +339,6 @@ func FetchERC20Metadata(ctx context.Context, client *ethclient.Client, addr comm
 	return symbol, name, decimals, totalSupply, nil
 }
 
-// TransactionPackage contains both raw hex and EIP-681 formatted transaction data
-type TransactionPackage struct {
-	RawHex string // RLP-encoded transaction hex
-	EIP681 string // EIP-681 formatted URI (ethereum:<address>@<chainId>?value=<wei>)
-}
-
-// PackageTransaction creates an unsigned transaction with both raw hex and EIP-681 format.
-func PackageTransaction(fromAddress common.Address, toAddress common.Address, amount *big.Int, rpcURL string) (TransactionPackage, error) {
-	client, err := ethclient.Dial(rpcURL)
-	if err != nil {
-		return TransactionPackage{}, err
-	}
-
-	// 1. Fetch current network requirements
-	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
-	if err != nil {
-		return TransactionPackage{}, err
-	}
-
-	gasPrice, err := client.SuggestGasPrice(context.Background())
-	if err != nil {
-		return TransactionPackage{}, err
-	}
-
-	// Get chain ID
-	chainID, err := client.ChainID(context.Background())
-	if err != nil {
-		return TransactionPackage{}, err
-	}
-
-	// 2. Create the transaction object
-	gasLimit := uint64(21000) 
-	tx := types.NewTransaction(nonce, toAddress, amount, gasLimit, gasPrice, nil)
-
-	// 3. Serialize the transaction using RLP encoding
-	// MarshalBinary returns the RLP-encoded bytes of the transaction
-	rawTxBytes, err := tx.MarshalBinary()
-	if err != nil {
-		return TransactionPackage{}, err
-	}
-
-	// 4. Format as EIP-681 URI: ethereum:<address>@<chainId>?value=<wei>
-	// Use checksummed address (with capital letters) as per EIP-55
-	eip681URI := "ethereum:" + toAddress.Hex() + "@" + chainID.String() + "?value=" + amount.String()
-
-	// 5. Return both formats
-	return TransactionPackage{
-		RawHex: hex.EncodeToString(rawTxBytes),
-		EIP681: eip681URI,
-	}, nil
-}
 
 // bytewordsLookup maps each byte value (0-255) to its 2-character minimal bytewords encoding.
 // Source: Blockchain Commons bc-bytewords specification (https://github.com/BlockchainCommons/bc-bytewords).
@@ -473,20 +422,6 @@ func cborUintField(v uint64) []byte {
 	default:
 		return []byte{0x1A, byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}
 	}
-}
-
-// rlpEIP155UnsignedTx is the RLP structure for an EIP-155 unsigned transaction signing preimage.
-// Per EIP-155: rlp([nonce, gasPrice, gasLimit, to, value, data, chainId, 0, 0])
-type rlpEIP155UnsignedTx struct {
-	Nonce    uint64
-	GasPrice *big.Int
-	Gas      uint64
-	To       common.Address
-	Value    *big.Int
-	Data     []byte
-	V        *big.Int // ChainID (EIP-155 replay protection)
-	R        *big.Int // 0 for unsigned
-	S        *big.Int // 0 for unsigned
 }
 
 // rlpEIP1559UnsignedTx is the RLP structure for an EIP-1559 type-2 signing preimage.
@@ -737,15 +672,23 @@ func decodeRawTx(rawHex string) (*types.Transaction, error) {
 // transaction. The sender is recovered from the transaction's own signature —
 // no private key is ever read or required.
 type DecodedSignedTx struct {
-	Hash          string
-	From          string
-	To            string
-	ValueHuman    string
-	Nonce         uint64
-	Gas           uint64
-	GasPriceHuman string
-	ChainID       *big.Int
-	JSON          string // pretty-printed transaction JSON
+	Hash       string
+	From       string
+	To         string
+	ValueHuman string
+	Nonce      uint64
+	Gas        uint64
+	// Exactly one of these is populated, matching the pasted tx's own type —
+	// a legacy (type-0) tx uses GasPriceHuman, an EIP-1559 (type-2) tx uses
+	// MaxFeeHuman/PriorityFeeHuman. This app only ever packages EIP-1559
+	// transactions itself, but a pasted signed tx was constructed externally
+	// and may legitimately be either type.
+	IsEIP1559        bool
+	GasPriceHuman    string
+	MaxFeeHuman      string
+	PriorityFeeHuman string
+	ChainID          *big.Int
+	JSON             string // pretty-printed transaction JSON
 }
 
 // DecodeSignedRawTx parses a "0x..." pre-signed raw transaction and extracts
@@ -774,17 +717,24 @@ func DecodeSignedRawTx(rawHex string) (DecodedSignedTx, error) {
 		}
 	}
 
-	return DecodedSignedTx{
-		Hash:          tx.Hash().Hex(),
-		From:          from.Hex(),
-		To:            to,
-		ValueHuman:    weiToEthStr(tx.Value()),
-		Nonce:         tx.Nonce(),
-		Gas:           tx.Gas(),
-		GasPriceHuman: weiToGweiStr(tx.GasPrice()),
-		ChainID:       tx.ChainId(),
-		JSON:          prettyJSON,
-	}, nil
+	decoded := DecodedSignedTx{
+		Hash:       tx.Hash().Hex(),
+		From:       from.Hex(),
+		To:         to,
+		ValueHuman: weiToEthStr(tx.Value()),
+		Nonce:      tx.Nonce(),
+		Gas:        tx.Gas(),
+		ChainID:    tx.ChainId(),
+		JSON:       prettyJSON,
+	}
+	if tx.Type() == types.DynamicFeeTxType {
+		decoded.IsEIP1559 = true
+		decoded.MaxFeeHuman = weiToGweiStr(tx.GasFeeCap())
+		decoded.PriorityFeeHuman = weiToGweiStr(tx.GasTipCap())
+	} else {
+		decoded.GasPriceHuman = weiToGweiStr(tx.GasPrice())
+	}
+	return decoded, nil
 }
 
 // SendRawTransaction decodes a "0x..." pre-signed raw transaction and relays
@@ -837,15 +787,25 @@ func revertReason(ctx context.Context, client *Client, tx *types.Transaction, bl
 		return ""
 	}
 
+	// tx.GasPrice() is never nil, even for an EIP-1559 tx — go-ethereum
+	// returns GasFeeCap as a legacy-compat value for DynamicFeeTx. Setting
+	// GasPrice alongside GasFeeCap/GasTipCap makes the eth_call request
+	// carry both, which every node rejects with "both gasPrice and
+	// (maxFeePerGas or maxPriorityFeePerGas) specified" — masking whatever
+	// the transaction's real revert reason was. Only set the fields that
+	// match the tx's actual type.
 	msg := ethereum.CallMsg{
-		From:      from,
-		To:        tx.To(),
-		Gas:       tx.Gas(),
-		GasPrice:  tx.GasPrice(),
-		GasFeeCap: tx.GasFeeCap(),
-		GasTipCap: tx.GasTipCap(),
-		Value:     tx.Value(),
-		Data:      tx.Data(),
+		From:  from,
+		To:    tx.To(),
+		Gas:   tx.Gas(),
+		Value: tx.Value(),
+		Data:  tx.Data(),
+	}
+	if tx.Type() == types.DynamicFeeTxType {
+		msg.GasFeeCap = tx.GasFeeCap()
+		msg.GasTipCap = tx.GasTipCap()
+	} else {
+		msg.GasPrice = tx.GasPrice()
 	}
 
 	_, callErr := client.CallContract(ctx, msg, new(big.Int).Sub(blockNumber, big.NewInt(1)))

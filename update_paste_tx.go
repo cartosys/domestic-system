@@ -78,13 +78,18 @@ func formatSignedTxPreview(rawHex string) string {
 		to = "(contract creation)"
 	}
 
+	gasRow := row("Gas", fmt.Sprintf("%d @ %s", decoded.Gas, decoded.GasPriceHuman))
+	if decoded.IsEIP1559 {
+		gasRow = row("Gas", fmt.Sprintf("%d limit, max %s / priority %s", decoded.Gas, decoded.MaxFeeHuman, decoded.PriorityFeeHuman))
+	}
+
 	summary := strings.Join([]string{
 		row("Hash", decoded.Hash),
 		row("From", decoded.From),
 		row("To", to),
 		row("Value", decoded.ValueHuman),
 		row("Nonce", fmt.Sprintf("%d", decoded.Nonce)),
-		row("Gas", fmt.Sprintf("%d @ %s", decoded.Gas, decoded.GasPriceHuman)),
+		gasRow,
 		row("Chain ID", decoded.ChainID.String()),
 	}, "\n")
 
