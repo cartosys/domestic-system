@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // pasteSignedTxDialogWidth is the fixed width of the paste-tx popup across all phases.
@@ -448,7 +449,8 @@ func (m *model) renderPasteTxPollingPhase() string {
 
 	hashLabel := muteStyle.Render("Tx hash: ")
 	hashStyle := lipgloss.NewStyle().Foreground(styles.CAccent).Underline(true)
-	hashLine := hashLabel + hashStyle.Render(m.pasteTxHash)
+	hashURL := etherscanTxURL(m.pasteTxChainID, m.pasteTxHash)
+	hashLine := hashLabel + ansi.SetHyperlink(hashURL) + hashStyle.Render(m.pasteTxHash) + ansi.ResetHyperlink()
 	status := m.spin.View() + muteStyle.Render(" Watching the chain for this transaction…")
 	countdown := muteStyle.Render(fmt.Sprintf("Next check in %ds", m.pasteTxCountdown))
 

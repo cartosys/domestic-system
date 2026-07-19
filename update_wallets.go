@@ -93,10 +93,18 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// broadcast-to-all-fields branch, once via its focused-field branch
 		// — which double-inserts the pasted text.
 		if keyMsg.String() == "ctrl+v" && !m.sendFormButtonFocused {
-			if text, err := clipboard.ReadAll(); err == nil && text != "" {
-				msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)}
-			} else {
+			text, err := clipboard.ReadAll()
+			switch {
+			case err != nil:
+				m.sendFormError = "Clipboard unavailable: " + err.Error()
+				m.sendFormErrTime = time.Now()
 				return m, nil
+			case text == "":
+				m.sendFormError = "Clipboard is empty"
+				m.sendFormErrTime = time.Now()
+				return m, nil
+			default:
+				msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)}
 			}
 		}
 
