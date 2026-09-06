@@ -86,7 +86,6 @@ func loadOscillatorSeriesCmd(s *store.Store, tokens []rpc.WatchedToken) tea.Cmd 
 			if !ok {
 				break
 			}
-			msg.ethCloses = wethSeries[1:]
 			ethChange := make([]float64, len(wethSeries)-1)
 			for i := 1; i < len(wethSeries); i++ {
 				ethChange[i-1] = wethSeries[i] - wethSeries[i-1]

@@ -279,7 +279,6 @@ type model struct {
 	oscillatorCancel         context.CancelFunc
 	oscillatorDays           []string
 	oscillatorSeries         []float64
-	oscillatorEthCloses      []float64
 	oscillatorEthChange      []float64
 	oscillatorSeriesErr      string
 

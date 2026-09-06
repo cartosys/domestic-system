@@ -237,7 +237,6 @@ type oscillatorBackscanDoneMsg struct{}
 type oscillatorSeriesMsg struct {
 	days      []string
 	values    []float64
-	ethCloses []float64 // WETH's own daily close, day-aligned to days; nil if WETH isn't in the basket
-	ethChange []float64 // day-over-day delta of ethCloses; nil under the same condition
+	ethChange []float64 // WETH's day-over-day close delta, day-aligned to days; nil if WETH isn't in the basket
 	err       error
 }

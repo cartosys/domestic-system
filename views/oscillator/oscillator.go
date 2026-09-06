@@ -3,6 +3,7 @@ package oscillator
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"charm-wallet-tui/helpers"
@@ -44,6 +45,48 @@ func sparkline(values []float64) string {
 		b.WriteRune(sparkRamp[idx])
 	}
 	return b.String()
+}
+
+// shortDate turns a "YYYY-MM-DD" day string into a compact "M/D" label
+// (no leading zeros), e.g. "2026-09-02" -> "9/2". Returns iso unchanged if
+// it isn't in the expected shape.
+func shortDate(iso string) string {
+	if len(iso) < 10 {
+		return iso
+	}
+	month, errM := strconv.Atoi(iso[5:7])
+	day, errD := strconv.Atoi(iso[8:10])
+	if errM != nil || errD != nil {
+		return iso
+	}
+	return fmt.Sprintf("%d/%d", month, day)
+}
+
+// axisLine renders short "M/D" date-tick labels under a chart, evenly
+// spaced (~4 ticks across the window) and aligned under the day column each
+// tick belongs to — colWidth characters per day, matching the chart above it.
+func axisLine(days []string, colWidth int) string {
+	n := len(days)
+	if n == 0 {
+		return ""
+	}
+	totalWidth := n * colWidth
+	row := []rune(strings.Repeat(" ", totalWidth))
+
+	step := n / 4
+	if step < 1 {
+		step = 1
+	}
+	for c := 0; c < n; c += step {
+		pos := c * colWidth
+		for i, r := range shortDate(days[c]) {
+			if pos+i >= totalWidth {
+				break
+			}
+			row[pos+i] = r
+		}
+	}
+	return string(row)
 }
 
 // Nav returns the navigation bar for the McClellan Oscillator page.
@@ -184,7 +227,7 @@ func comboChart(values, ethChange []float64, colWidth int) string {
 // fewer than DaysNeeded daily closes have been collected, otherwise the
 // current reading, a chart of recent values (overlaid with ETH's daily price
 // change when available), and a short recent-values table.
-func Render(width, height int, backfillActive bool, days []string, values []float64, ethCloses []float64, ethChange []float64, statusErr string) (string, Geometry) {
+func Render(width, height int, backfillActive bool, days []string, values []float64, ethChange []float64, statusErr string) (string, Geometry) {
 	containerWidth := helpers.Min(80, width-4)
 
 	titleStyle := lipgloss.NewStyle().
@@ -258,17 +301,19 @@ func Render(width, height int, backfillActive bool, days []string, values []floa
 			parts = append(parts, "")
 			if hasChange {
 				parts = append(parts, lipgloss.NewStyle().Align(lipgloss.Center).Width(containerWidth).Render(comboChart(sparkWindow, ethChangeWindow, chartColWidth)))
+				parts = append(parts, lipgloss.NewStyle().Align(lipgloss.Center).Width(containerWidth).Foreground(styles.CMuted).
+					Render(axisLine(sparkDays, chartColWidth)))
 				legend := lipgloss.NewStyle().Bold(true).Foreground(styles.CAccent2).Render("●") + " Oscillator    " +
 					lipgloss.NewStyle().Foreground(styles.CAccent).Render("█") + " ETH daily Δ"
 				parts = append(parts, lipgloss.NewStyle().Align(lipgloss.Center).Width(containerWidth).Render(legend))
 			} else {
 				parts = append(parts, lipgloss.NewStyle().Align(lipgloss.Center).Width(containerWidth).Foreground(styles.CAccent2).Render(sparkline(sparkWindow)))
+				parts = append(parts, lipgloss.NewStyle().Align(lipgloss.Center).Width(containerWidth).Foreground(styles.CMuted).
+					Render(axisLine(sparkDays, 1)))
 			}
-			parts = append(parts, lipgloss.NewStyle().Align(lipgloss.Center).Width(containerWidth).Foreground(styles.CMuted).
-				Render(sparkDays[0]+"  →  "+sparkDays[len(sparkDays)-1]))
 		}
 
-		hasEth := len(ethCloses) == len(values)
+		hasEthChange := len(ethChange) == len(values)
 		const tableRows = 10
 		start := len(values) - tableRows
 		if start < 0 {
@@ -276,8 +321,8 @@ func Render(width, height int, backfillActive bool, days []string, values []floa
 		}
 		parts = append(parts, "")
 		var headerText string
-		if hasEth {
-			headerText = fmt.Sprintf("%-12s  %-10s  %s", "Day", "Oscillator", "ETH Close")
+		if hasEthChange {
+			headerText = fmt.Sprintf("%-12s  %-10s  %s", "Day", "Oscillator", "ETH Δ")
 		} else {
 			headerText = fmt.Sprintf("%-12s  %s", "Day", "Oscillator")
 		}
@@ -291,10 +336,14 @@ func Render(width, height int, backfillActive bool, days []string, values []floa
 				valText = fmt.Sprintf("%+.2f", values[i])
 			}
 			var row string
-			if hasEth {
+			if hasEthChange {
 				ethText := "—"
-				if !math.IsNaN(ethCloses[i]) {
-					ethText = fmt.Sprintf("$%.2f", ethCloses[i])
+				if !math.IsNaN(ethChange[i]) {
+					sign, mag := "+", ethChange[i]
+					if mag < 0 {
+						sign, mag = "-", -mag
+					}
+					ethText = fmt.Sprintf("%s$%.2f", sign, mag)
 				}
 				row = fmt.Sprintf("%-12s  %-10s  %s", days[i], valText, ethText)
 			} else {
