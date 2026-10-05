@@ -162,13 +162,6 @@ func (m *model) renderAccountListPopup() string {
 	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
-func (m *model) renderOndoPickerPopup() string {
-	dialogBoxStyle := styles.DialogBox.Background(styles.CPanel).Width(70)
-	content := watchedtokens.RenderOndoPicker(m.filteredOndoTokens(), m.ondoPickerFilter, m.ondoPickerIdx)
-	dialog := dialogBoxStyle.Render(content)
-	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, dialog)
-}
-
 func (m *model) renderTxResultContent() string {
 	titleStr := "Transaction Ready To Sign (EIP-4527)"
 	if m.txApproveQRFrames != nil {
@@ -466,8 +459,6 @@ func (m *model) renderActiveOverlay() string {
 		return m.renderRPCDeleteDialog()
 	case dialogDeleteToken:
 		return m.renderTokenDeleteDialog()
-	case dialogOndoPicker:
-		return m.renderOndoPickerPopup()
 	case dialogAccountList:
 		return m.renderAccountListPopup()
 	case dialogPoolInfo:

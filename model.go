@@ -59,7 +59,6 @@ const (
 	dialogAddWallet                // add a new wallet (same popup as edit)
 	dialogSendTx                   // send transaction form
 	dialogDeleteToken              // watched token delete confirmation
-	dialogOndoPicker               // Ondo Global Markets token picker (Watched Tokens page)
 )
 
 // pasteTxPhaseKind identifies which step of the paste-signed-transaction
@@ -121,14 +120,6 @@ type model struct {
 	deleteTokenDialogYesSelected bool
 	tokenListViewport            viewport.Model
 	tokenListScroll              scrollbar.State
-
-	// Ondo Global Markets token picker (dialogOndoPicker), opened from the
-	// Watched Tokens page. Selecting an entry only autofills the existing
-	// add-token form's address field — the on-chain symbol()/decimals()
-	// lookup in submitTokenForm still runs, so nothing here is trusted
-	// directly into the persisted watchlist.
-	ondoPickerFilter string
-	ondoPickerIdx    int
 
 	// clipboard feedback
 	copiedMsg     string
