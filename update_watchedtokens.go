@@ -294,12 +294,6 @@ func (m *model) handleWatchedTokensKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.createAddTokenForm()
 			return m, nil
 
-		case "o", "O":
-			m.activeDialog = dialogOndoPicker
-			m.ondoPickerFilter = ""
-			m.ondoPickerIdx = 0
-			return m, nil
-
 		case "e", "E":
 			if len(sorted) > 0 && m.selectedTokenIdx < len(sorted) {
 				idx := tokenWatchIndex(m.tokenWatch, sorted[m.selectedTokenIdx].Address)

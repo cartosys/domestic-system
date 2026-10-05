@@ -41,7 +41,6 @@ func Nav(width int, mode string, indexerActive bool) string {
 		left = strings.Join([]string{
 			styles.Key("↑/↓") + " select",
 			styles.Key("a") + " add",
-			styles.Key("o") + " Ondo",
 			styles.Key("e") + " edit",
 			styles.Key("del") + " delete",
 			styles.Key("l") + " logger",
