@@ -19,6 +19,7 @@ import (
 	"charm-wallet-tui/store"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/scrollbar"
+	"charm-wallet-tui/views/uniswap"
 	"charm-wallet-tui/webcam/capture"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -303,6 +304,22 @@ type model struct {
 	v4EventsViewport viewport.Model
 	focusedPanel     focusedPanelKind // which panel (V4 events or log) has scroll focus
 	v4Scroll         scrollbar.State  // scrollbar state for the V4 events panel
+	v4EventsExpandedID string            // pool ID of the expanded card in the V4 events panel ("" = none)
+	v4EventsContent    string            // last content set on v4EventsViewport (for click hit-testing)
+	v4EventsSpans      []uniswap.CardSpan // card positions within v4EventsContent
+
+	// Pool List view (Uniswap sub-view, toggled with "o")
+	uniswapShowingPoolList bool
+	poolListSearch         textinput.Model
+	poolListViewport       viewport.Model
+	poolListScroll         scrollbar.State
+	poolListExpandedID     string
+	poolListContent        string
+	poolListSpans          []uniswap.CardSpan
+	poolListShown          int // number of rows after the search filter
+
+	// Live pool-state reads for expanded cards, shared by the Pool List and V4 events views.
+	poolDetails map[string]*poolDetailState
 
 	// Pool Info popup state
 	poolInfoLoading    bool
@@ -402,6 +419,14 @@ func newModel() model {
 	in.CharLimit = 42
 	in.Width = 48
 
+	poolSearch := textinput.New()
+	poolSearch.Placeholder = "ticker, e.g. USDC or WETH/USDC"
+	poolSearch.Prompt = "Search: "
+	poolSearch.PromptStyle = lipgloss.NewStyle().Foreground(styles.CAccent)
+	poolSearch.TextStyle = lipgloss.NewStyle().Foreground(styles.CText)
+	poolSearch.Cursor.Style = lipgloss.NewStyle().Foreground(styles.CAccent2)
+	poolSearch.CharLimit = 40
+
 	// input for nickname
 	nicknameIn := textinput.New()
 	nicknameIn.Placeholder = "Optional nickname"
@@ -472,6 +497,8 @@ func newModel() model {
 	v4vp.Style = lipgloss.NewStyle().
 		Foreground(styles.CText).
 		Background(styles.CPanel)
+	poolListVP := viewport.New(0, 20)
+	poolListVP.Style = v4vp.Style
 
 	// Initialize Watched Tokens list viewport
 	tokenListVP := viewport.New(0, 20) // Will be resized on first WindowSizeMsg
@@ -514,6 +541,9 @@ func newModel() model {
 		logEnabled:         cfg.Logger,
 		logViewport:        vp,
 		v4EventsViewport:   v4vp,
+		poolListSearch:     poolSearch,
+		poolListViewport:   poolListVP,
+		poolDetails:        make(map[string]*poolDetailState),
 		tokenListViewport:  tokenListVP,
 		txQRViewport:       txqrvp,
 		logBuffer:          &strings.Builder{},

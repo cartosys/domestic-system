@@ -731,6 +731,13 @@ func fetchPoolInfo(rpcURL, poolIDHex string) tea.Cmd {
 	}
 }
 
+func fetchPoolDetailsCmd(rpcURL, poolIDHex string, tickSpacing int32) tea.Cmd {
+	return func() tea.Msg {
+		data, err := helpers.FetchPoolDetails(rpcURL, common.HexToHash(poolIDHex), tickSpacing)
+		return poolDetailsMsg{poolID: poolIDHex, data: data, err: err}
+	}
+}
+
 func fetchPoolKey(rpcURL, poolIDHex string) tea.Cmd {
 	return func() tea.Msg {
 		key, err := helpers.FetchPoolKey(rpcURL, common.HexToHash(poolIDHex))

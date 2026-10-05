@@ -29,7 +29,7 @@ type TokenOption struct {
 // poolMonitorActive controls the color of the pool event monitor hotkey.
 // liquidityActive controls the color of the liquidity hotkey.
 // blockScanActive controls the color of the block scan hotkey.
-func Nav(width int, poolMonitorActive, liquidityActive, blockScanActive bool) string {
+func Nav(width int, poolMonitorActive, liquidityActive, blockScanActive, poolListActive bool) string {
 	var pItem string
 	if poolMonitorActive {
 		pKey := lipgloss.NewStyle().Foreground(styles.CError).Bold(true).Render("p")
@@ -57,6 +57,15 @@ func Nav(width int, poolMonitorActive, liquidityActive, blockScanActive bool) st
 		bItem = styles.Key("b") + " block scan"
 	}
 
+	var oItem string
+	if poolListActive {
+		oKey := lipgloss.NewStyle().Foreground(styles.CAccent2).Bold(true).Render("o")
+		oLabel := lipgloss.NewStyle().Foreground(styles.CAccent2).Render("pool list")
+		oItem = oKey + " " + oLabel
+	} else {
+		oItem = styles.Key("o") + " pool list"
+	}
+
 	left := strings.Join([]string{
 		styles.Key("↑/↓") + " navigate",
 		styles.Key("m") + " max",
@@ -64,6 +73,7 @@ func Nav(width int, poolMonitorActive, liquidityActive, blockScanActive bool) st
 		pItem,
 		qItem,
 		bItem,
+		oItem,
 	}, "   ")
 
 	return styles.NavStyle.Width(width).Render(left)
@@ -549,9 +559,35 @@ func liquidityFormatPrice(price float64) string {
 }
 
 
+// CardSpan records where one pool card sits in the content returned by PoolCards,
+// in content-relative lines/columns, so mouse clicks can be mapped back to a pool.
+// EndLine is exclusive. Close* is the ✕ hit zone (only set on the expanded card).
+type CardSpan struct {
+	PoolID             string
+	StartLine, EndLine int
+	Expanded           bool
+	CloseLine          int
+	CloseX1, CloseX2   int
+}
+
+// PoolDetailView is the live-state payload for the expanded pool card.
+type PoolDetailView struct {
+	Loading bool
+	Err     string
+	Data    *helpers.PoolDetails
+}
+
 // V4EventsContent builds the scrollable body string (pool cards) for the V4 Events panel.
 // width is the outer panel width; the content is sized to fit inside it.
-func V4EventsContent(width int, pools []store.PoolRow) string {
+func V4EventsContent(width int, pools []store.PoolRow, expandedID string, detail PoolDetailView) (string, []CardSpan) {
+	return PoolCards(width, pools, "Listening for V4 pool events…", expandedID, detail)
+}
+
+// PoolCards renders one bordered card per pool. The card whose PoolID equals
+// expandedID is drawn expanded with the live pool-state section and a ✕ close
+// control; all others are the compact summary card. Shared by the V4 Events panel
+// and the Pool List view so both render pools identically.
+func PoolCards(width int, pools []store.PoolRow, emptyMsg, expandedID string, detail PoolDetailView) (string, []CardSpan) {
 	containerWidth := helpers.Min(width-2, 120)
 
 	if len(pools) == 0 {
@@ -559,89 +595,224 @@ func V4EventsContent(width int, pools []store.PoolRow) string {
 			Foreground(styles.CMuted).
 			Align(lipgloss.Center).
 			Width(containerWidth).
-			Render("Listening for V4 pool events…")
+			Render(emptyMsg), nil
 	}
 
+	cardWidth := containerWidth - 4
+	innerWidth := cardWidth - 4
+	card := styles.CardNormal.Width(cardWidth)
+	cardExpanded := styles.CardFocused.Width(cardWidth)
+
+	var cards []string
+	var spans []CardSpan
+	line := 0
+	for _, r := range pools {
+		var rendered string
+		span := CardSpan{PoolID: r.PoolID}
+		if r.PoolID == expandedID {
+			closeStyle := lipgloss.NewStyle().Foreground(styles.CError).Bold(true)
+			titleStyle := lipgloss.NewStyle().Foreground(styles.CBorder).Bold(true).Align(lipgloss.Center).Width(innerWidth - 2)
+			topLine := titleStyle.Render("pool details") + " " + closeStyle.Render("✕")
+			rendered = cardExpanded.Render(topLine + "\n" + poolCardBody(r, cardWidth, false) + "\n" + poolDetailSection(r, detail, innerWidth))
+			// Border(1) + padding(2) puts content column 0 at card column 3.
+			closeCol := 3 + innerWidth - 1
+			span.Expanded = true
+			span.CloseLine = line + 1
+			span.CloseX1 = closeCol - 1
+			span.CloseX2 = closeCol + 2
+		} else {
+			rendered = card.Render(poolCardBody(r, cardWidth, true))
+		}
+		h := lipgloss.Height(rendered)
+		span.StartLine = line
+		span.EndLine = line + h
+		line += h
+		cards = append(cards, rendered)
+		spans = append(spans, span)
+	}
+	return strings.Join(cards, "\n"), spans
+}
+
+// poolCardBody renders the summary lines shared by collapsed and expanded cards.
+// withType prepends the centered "initialize" event-type line used by the compact card.
+func poolCardBody(r store.PoolRow, cardWidth int, withType bool) string {
 	labelStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
 	accentStyle := lipgloss.NewStyle().Foreground(styles.CAccent)
 	accent2Style := lipgloss.NewStyle().Foreground(styles.CAccent2)
 	boldStyle := lipgloss.NewStyle().Foreground(styles.CText).Bold(true)
 	warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn)
 	eventTypeStyle := lipgloss.NewStyle().Foreground(styles.CBorder).Bold(true).Align(lipgloss.Center)
-	cardWidth := containerWidth - 4
-	card := styles.CardNormal.Width(cardWidth)
 
-	var cards []string
-	for _, r := range pools {
-		poolLink := helpers.HyperPoolID(common.HexToHash(r.PoolID))
+	poolLink := helpers.HyperPoolID(common.HexToHash(r.PoolID))
 
-		tok0Sym := r.Token0Sym
-		if tok0Sym == "" {
-			tok0Sym = helpers.ShortenAddr(r.Currency0)
-		}
-		tok1Sym := r.Token1Sym
-		if tok1Sym == "" {
-			tok1Sym = helpers.ShortenAddr(r.Currency1)
-		}
-
-		pair := boldStyle.Render(tok0Sym) + labelStyle.Render(" / ") + accent2Style.Render(tok1Sym)
-		feeStr := fmt.Sprintf("%.4f%%", float64(r.Fee)/10000.0)
-
-		headerLine := pair +
-			"   " + labelStyle.Render("fee:") + " " + accentStyle.Render(feeStr) +
-			"   " + labelStyle.Render("swaps:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Swaps)) +
-			"   " + labelStyle.Render("liq events:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.LiqEvents))
-
-		tok0Name := r.Token0Name
-		if tok0Name == "" {
-			tok0Name = labelStyle.Render("(unknown)")
-		} else {
-			tok0Name = labelStyle.Render(tok0Name)
-		}
-		tok1Name := r.Token1Name
-		if tok1Name == "" {
-			tok1Name = labelStyle.Render("(unknown)")
-		} else {
-			tok1Name = labelStyle.Render(tok1Name)
-		}
-
-		vol0 := r.SwapVolume0 / math.Pow(10, float64(r.Decimals0))
-		vol1 := r.SwapVolume1 / math.Pow(10, float64(r.Decimals1))
-		liqVol := r.LiqVolume / math.Pow(10, 18)
-
-		tok0Line := labelStyle.Render("Token0: ") +
-			accentStyle.Render(tok0Sym) + "  " + tok0Name +
-			"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency0))) +
-			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(vol0))
-
-		tok1Line := labelStyle.Render("Token1: ") +
-			accent2Style.Render(tok1Sym) + "  " + tok1Name +
-			"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency1))) +
-			"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(vol1))
-
-		metaLine := labelStyle.Render("liq vol:") + " " + accentStyle.Render(v4FormatVolume(liqVol)) +
-			"   " + labelStyle.Render("pool:") + " " + poolLink +
-			"   " + labelStyle.Render("seen:") + " " + labelStyle.Render(r.SeenAt)
-
-		txHash := common.HexToHash(r.TxHash)
-		txShort := txHash.Hex()[:10] + "…" + txHash.Hex()[len(txHash.Hex())-6:]
-		txLink := ansi.SetHyperlink("https://etherscan.io/tx/"+txHash.Hex()) +
-			helpers.FadeString(txShort, "#7D5AFC", "#FF87D7") +
-			ansi.ResetHyperlink()
-		blockLine := labelStyle.Render("block:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Block)) +
-			"   " + labelStyle.Render("tx:") + " " + txLink
-
-		var hooksLine string
-		hooksAddr := common.HexToAddress(r.Hooks)
-		if hooksAddr != (common.Address{}) {
-			hooksLine = "\n" + labelStyle.Render("hooks:") + " " + helpers.HyperAddr(hooksAddr)
-		}
-
-		typeLine := eventTypeStyle.Width(cardWidth).Render("initialize")
-		content := typeLine + "\n" + headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine + "\n" + blockLine + hooksLine
-		cards = append(cards, card.Render(content))
+	tok0Sym := r.Token0Sym
+	if tok0Sym == "" {
+		tok0Sym = helpers.ShortenAddr(r.Currency0)
 	}
-	return strings.Join(cards, "\n")
+	tok1Sym := r.Token1Sym
+	if tok1Sym == "" {
+		tok1Sym = helpers.ShortenAddr(r.Currency1)
+	}
+
+	pair := boldStyle.Render(tok0Sym) + labelStyle.Render(" / ") + accent2Style.Render(tok1Sym)
+	feeStr := fmt.Sprintf("%.4f%%", float64(r.Fee)/10000.0)
+
+	headerLine := pair +
+		"   " + labelStyle.Render("fee:") + " " + accentStyle.Render(feeStr) +
+		"   " + labelStyle.Render("swaps:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Swaps)) +
+		"   " + labelStyle.Render("liq events:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.LiqEvents))
+
+	tok0Name := r.Token0Name
+	if tok0Name == "" {
+		tok0Name = labelStyle.Render("(unknown)")
+	} else {
+		tok0Name = labelStyle.Render(tok0Name)
+	}
+	tok1Name := r.Token1Name
+	if tok1Name == "" {
+		tok1Name = labelStyle.Render("(unknown)")
+	} else {
+		tok1Name = labelStyle.Render(tok1Name)
+	}
+
+	vol0 := r.SwapVolume0 / math.Pow(10, float64(r.Decimals0))
+	vol1 := r.SwapVolume1 / math.Pow(10, float64(r.Decimals1))
+	liqVol := r.LiqVolume / math.Pow(10, 18)
+
+	tok0Line := labelStyle.Render("Token0: ") +
+		accentStyle.Render(tok0Sym) + "  " + tok0Name +
+		"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency0))) +
+		"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(vol0))
+
+	tok1Line := labelStyle.Render("Token1: ") +
+		accent2Style.Render(tok1Sym) + "  " + tok1Name +
+		"  " + labelStyle.Render(helpers.HyperAddr(common.HexToAddress(r.Currency1))) +
+		"  " + labelStyle.Render("vol:") + " " + warnStyle.Render(v4FormatVolume(vol1))
+
+	metaLine := labelStyle.Render("liq vol:") + " " + accentStyle.Render(v4FormatVolume(liqVol)) +
+		"   " + labelStyle.Render("pool:") + " " + poolLink +
+		"   " + labelStyle.Render("seen:") + " " + labelStyle.Render(r.SeenAt)
+
+	txHash := common.HexToHash(r.TxHash)
+	txShort := txHash.Hex()[:10] + "…" + txHash.Hex()[len(txHash.Hex())-6:]
+	txLink := ansi.SetHyperlink("https://etherscan.io/tx/"+txHash.Hex()) +
+		helpers.FadeString(txShort, "#7D5AFC", "#FF87D7") +
+		ansi.ResetHyperlink()
+	blockLine := labelStyle.Render("block:") + " " + accentStyle.Render(fmt.Sprintf("%d", r.Block)) +
+		"   " + labelStyle.Render("tx:") + " " + txLink
+
+	var hooksLine string
+	hooksAddr := common.HexToAddress(r.Hooks)
+	if hooksAddr != (common.Address{}) {
+		hooksLine = "\n" + labelStyle.Render("hooks:") + " " + helpers.HyperAddr(hooksAddr)
+	}
+
+	content := headerLine + "\n" + tok0Line + "\n" + tok1Line + "\n" + metaLine + "\n" + blockLine + hooksLine
+	if withType {
+		content = eventTypeStyle.Width(cardWidth).Render("initialize") + "\n" + content
+	}
+	return content
+}
+
+// poolDetailSection renders the live StateView read-out shown inside an expanded pool card.
+func poolDetailSection(r store.PoolRow, detail PoolDetailView, innerWidth int) string {
+	labelStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
+	accentStyle := lipgloss.NewStyle().Foreground(styles.CAccent)
+	accent2Style := lipgloss.NewStyle().Foreground(styles.CAccent2)
+	headStyle := lipgloss.NewStyle().Foreground(styles.CBorder).Bold(true)
+
+	rule := func(title string) string {
+		pad := helpers.Max(0, innerWidth-lipgloss.Width(title)-4)
+		return headStyle.Render("── " + title + " " + strings.Repeat("─", pad))
+	}
+	kv := func(label, value string) string {
+		return labelStyle.Render(label+":") + " " + accentStyle.Render(value)
+	}
+	big2s := func(x *big.Int) string {
+		if x == nil {
+			return "—"
+		}
+		return x.String()
+	}
+
+	switch {
+	case detail.Loading:
+		return rule("Pool State") + "\n" + labelStyle.Render("Loading live pool state from StateView…")
+	case detail.Err != "":
+		return rule("Pool State") + "\n" + lipgloss.NewStyle().Foreground(styles.CError).Width(innerWidth).Render("Error: "+detail.Err)
+	case detail.Data == nil:
+		return rule("Pool State") + "\n" + labelStyle.Render("No data")
+	}
+	d := detail.Data
+
+	tok0, tok1 := r.Token0Sym, r.Token1Sym
+	if tok0 == "" {
+		tok0 = "token0"
+	}
+	if tok1 == "" {
+		tok1 = "token1"
+	}
+
+	var lines []string
+	lines = append(lines, rule("Pool State"))
+	lines = append(lines, kv("sqrtPriceX96", big2s(d.SqrtPriceX96)))
+	lines = append(lines, kv("price", liquidityFormatPrice(poolSqrtPriceToPrice(d.SqrtPriceX96, r.Decimals0, r.Decimals1)))+
+		" "+labelStyle.Render(tok1+" per "+tok0))
+	lines = append(lines, kv("current tick", fmt.Sprintf("%d", d.Tick))+"   "+kv("tick spacing", fmt.Sprintf("%d", d.TickSpacing)))
+	lines = append(lines, kv("LP fee", fmt.Sprintf("%.4f%% (%d)", float64(d.LpFee)/10000.0, d.LpFee)))
+	pf0, pf1 := d.ProtocolFee&0xfff, d.ProtocolFee>>12
+	lines = append(lines, kv("protocol fee", fmt.Sprintf("0→1 %.4f%%  1→0 %.4f%% (%d)", float64(pf0)/10000.0, float64(pf1)/10000.0, d.ProtocolFee)))
+	lines = append(lines, kv("active liquidity", big2s(d.Liquidity)))
+	lines = append(lines, kv("fee growth global0", big2s(d.FeeGrowthGlobal0)))
+	lines = append(lines, kv("fee growth global1", big2s(d.FeeGrowthGlobal1)))
+
+	lines = append(lines, "", rule("Tick Bitmap"))
+	if d.BitmapWord == nil {
+		lines = append(lines, labelStyle.Render("unavailable (unknown tick spacing)"))
+	} else {
+		set := 0
+		for i := 0; i < 256; i++ {
+			set += int(d.BitmapWord.Bit(i))
+		}
+		lines = append(lines, kv("word position", fmt.Sprintf("%d", d.BitmapWordPos))+"   "+kv("initialized ticks in word", fmt.Sprintf("%d", set)))
+		lines = append(lines, kv("word", fmt.Sprintf("0x%064x", d.BitmapWord)))
+	}
+
+	tickBlock := func(name string, t *helpers.TickDetails) []string {
+		if t == nil {
+			return []string{labelStyle.Render(name + ": no initialized tick within ±1 bitmap word")}
+		}
+		return []string{
+			accent2Style.Render(fmt.Sprintf("%s tick %d", name, t.Tick)),
+			"  " + kv("liquidityGross", big2s(t.LiquidityGross)) + "   " + kv("liquidityNet", big2s(t.LiquidityNet)),
+			"  " + kv("feeGrowthOutside0", big2s(t.FeeGrowthOutside0)),
+			"  " + kv("feeGrowthOutside1", big2s(t.FeeGrowthOutside1)),
+		}
+	}
+	lines = append(lines, "", rule("Ticks Around Current Price"))
+	lines = append(lines, tickBlock("lower", d.Lower)...)
+	lines = append(lines, tickBlock("upper", d.Upper)...)
+
+	lines = append(lines, "", rule("Fee Growth Inside Active Range"))
+	if d.Lower != nil && d.Upper != nil {
+		lines = append(lines, labelStyle.Render(fmt.Sprintf("range [%d, %d)", d.Lower.Tick, d.Upper.Tick)))
+		lines = append(lines, kv("feeGrowthInside0", big2s(d.FeeGrowthInside0)))
+		lines = append(lines, kv("feeGrowthInside1", big2s(d.FeeGrowthInside1)))
+	} else {
+		lines = append(lines, labelStyle.Render("unavailable — need initialized ticks on both sides of the current tick"))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// poolSqrtPriceToPrice converts sqrtPriceX96 to a decimal-adjusted token1-per-token0 price.
+func poolSqrtPriceToPrice(sqrtPriceX96 *big.Int, dec0, dec1 int64) float64 {
+	if sqrtPriceX96 == nil || sqrtPriceX96.Sign() == 0 {
+		return 0
+	}
+	q96 := new(big.Float).SetInt(new(big.Int).Lsh(big.NewInt(1), 96))
+	ratio := new(big.Float).Quo(new(big.Float).SetInt(sqrtPriceX96), q96)
+	p, _ := new(big.Float).Mul(ratio, ratio).Float64()
+	return p * math.Pow(10, float64(dec0-dec1))
 }
 
 // RenderV4Events renders the V4 Events panel shown when the Pool Event Monitor is active.
@@ -670,6 +841,49 @@ func RenderV4Events(width, height int, vp viewport.Model) string {
 	vpContent := scrollbar.Decorate(vp.View(), track)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", vpContent, "", infoText)
+	return lipgloss.NewStyle().Width(width).Render(content)
+}
+
+// PoolListHeaderLines is the number of lines RenderPoolList draws above its viewport
+// (title, blank, search box (3), count line, blank), used for mouse hit-testing.
+const PoolListHeaderLines = 7
+
+// RenderPoolList renders the Pool List view: a ticker search box above a scrollable
+// list of pool cards. vp must have its content pre-set via PoolCards.
+func RenderPoolList(width, height int, searchView string, searchFocused bool, vp viewport.Model, shown, total int) string {
+	containerWidth := helpers.Min(width-2, 120)
+
+	title := lipgloss.NewStyle().
+		Foreground(styles.CAccent2).
+		Bold(true).
+		Align(lipgloss.Center).
+		Width(containerWidth).
+		Render("🦄 Pool List")
+
+	searchStyle := styles.CardNormal
+	if searchFocused {
+		searchStyle = styles.CardFocused
+	}
+	search := searchStyle.Width(containerWidth - 4).Render(searchView)
+
+	count := lipgloss.NewStyle().
+		Foreground(styles.CMuted).
+		Width(containerWidth).
+		Render(fmt.Sprintf("%d of %d pools", shown, total))
+
+	infoText := lipgloss.NewStyle().
+		Foreground(styles.CMuted).
+		Width(containerWidth).
+		Align(lipgloss.Center).
+		Render("type to filter by ticker   click card → expand   click ✕ → collapse   tab or / → search   esc close")
+
+	vpHeight := helpers.Max(1, height-PoolListHeaderLines-2)
+	vp.Height = vpHeight
+
+	track := scrollbar.Track(vpHeight, vp.TotalLineCount(), vp.YOffset)
+	vpContent := scrollbar.Decorate(vp.View(), track)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", search, count, "", vpContent, "", infoText)
 	return lipgloss.NewStyle().Width(width).Render(content)
 }
 

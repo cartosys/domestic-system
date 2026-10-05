@@ -12,7 +12,6 @@ import (
 	"charm-wallet-tui/indexer"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/txqr"
-	"charm-wallet-tui/views/uniswap"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -55,6 +54,8 @@ func (m *model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.v4EventsViewport.Width = max(0, msg.Width-8)
+	m.poolListViewport.Width = max(0, msg.Width-8)
+	m.refreshPoolViewports()
 	m.tokenListViewport.Width = max(0, msg.Width-8)
 	m.txQRViewport.Width = max(0, msg.Width-10)
 	return m, nil
@@ -237,7 +238,20 @@ func (m *model) handlePoolMonitorEvent(msg poolMonitorEventMsg) (tea.Model, tea.
 
 func (m *model) handleV4PoolTable(msg v4PoolTableMsg) (tea.Model, tea.Cmd) {
 	m.v4PoolRows = msg.rows
-	m.v4EventsViewport.SetContent(uniswap.V4EventsContent(m.w-2, msg.rows))
+	m.refreshPoolViewports()
+	return m, nil
+}
+
+func (m *model) handlePoolDetails(msg poolDetailsMsg) (tea.Model, tea.Cmd) {
+	shortID := shortPoolID(msg.poolID)
+	if msg.err != nil {
+		m.poolDetails[msg.poolID] = &poolDetailState{err: msg.err.Error()}
+		m.logError(fmt.Sprintf("Pool details: failed for pool %s: %s", shortID, msg.err.Error()))
+	} else {
+		m.poolDetails[msg.poolID] = &poolDetailState{data: msg.data}
+		m.logSuccess(fmt.Sprintf("Pool details: pool %s — tick=%d liquidity=%s", shortID, msg.data.Tick, msg.data.Liquidity))
+	}
+	m.refreshPoolViewports()
 	return m, nil
 }
 

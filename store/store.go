@@ -493,6 +493,7 @@ type PoolRow struct {
 	LiqVolume   float64
 	SeenAt      string
 	Hooks       string
+	TickSpacing int64
 }
 
 // V4PoolStats returns all indexed pools with aggregated swap and liquidity metrics,
@@ -516,7 +517,8 @@ func (s *Store) V4PoolStats() ([]PoolRow, error) {
 			COUNT(DISTINCT ml.id) AS liq_events,
 			COALESCE(SUM(ABS(ml.liq_delta)), 0) AS liq_volume,
 			p.seen_at,
-			p.hooks
+			p.hooks,
+			p.tick_spacing
 		FROM v4_pools p
 		LEFT JOIN erc20_tokens        t0 ON t0.address = p.currency0
 		LEFT JOIN erc20_tokens        t1 ON t1.address = p.currency1
@@ -538,7 +540,7 @@ func (s *Store) V4PoolStats() ([]PoolRow, error) {
 			&r.Token0Sym, &r.Token0Name, &r.Currency0, &r.SwapVolume0,
 			&r.Token1Sym, &r.Token1Name, &r.Currency1, &r.SwapVolume1,
 			&r.Fee, &r.Decimals0, &r.Decimals1, &r.Swaps, &r.LiqEvents, &r.LiqVolume,
-			&r.SeenAt, &r.Hooks,
+			&r.SeenAt, &r.Hooks, &r.TickSpacing,
 		); err != nil {
 			continue
 		}

@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
+	"charm-wallet-tui/store"
 	"charm-wallet-tui/views/uniswap"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -409,4 +411,100 @@ func fetchV4ReverseSwapQuote(client *rpc.Client, addrs helpers.UniswapNetworkAdd
 		quote, err := helpers.GetV4ReverseSwapQuote(client.Client, addrs, key, poolID, tokenIn, amountOut)
 		return uniswapQuoteMsg{quote, err}
 	}
+}
+
+// filterPoolRows returns the pools whose token symbols match query (case-insensitive
+// substring). "A/B" requires one side to match A and the other B, in either order.
+func filterPoolRows(rows []store.PoolRow, query string) []store.PoolRow {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return rows
+	}
+	match := func(sym, part string) bool {
+		return part == "" || strings.Contains(strings.ToLower(sym), part)
+	}
+	var out []store.PoolRow
+	for _, r := range rows {
+		if a, b, ok := strings.Cut(q, "/"); ok {
+			a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+			if (match(r.Token0Sym, a) && match(r.Token1Sym, b)) || (match(r.Token1Sym, a) && match(r.Token0Sym, b)) {
+				out = append(out, r)
+			}
+			continue
+		}
+		if match(r.Token0Sym, q) || match(r.Token1Sym, q) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// poolListVisible reports whether the Pool List sub-view is on screen.
+func (m model) poolListVisible() bool {
+	return m.activePage == config.PageUniswap && m.uniswapShowingPoolList && !m.uniswapShowingLiquidity
+}
+
+// poolDetailView adapts the shared pool-detail cache entry for poolID to the view payload.
+func (m model) poolDetailView(poolID string) uniswap.PoolDetailView {
+	st, ok := m.poolDetails[poolID]
+	if !ok {
+		return uniswap.PoolDetailView{}
+	}
+	return uniswap.PoolDetailView{Loading: st.loading, Err: st.err, Data: st.data}
+}
+
+// refreshPoolViewports rebuilds the V4 Events and Pool List viewport contents (and
+// their card hit-test spans) from the current rows, search, and expansion state.
+func (m *model) refreshPoolViewports() {
+	m.v4EventsContent, m.v4EventsSpans = uniswap.V4EventsContent(m.w-2, m.v4PoolRows,
+		m.v4EventsExpandedID, m.poolDetailView(m.v4EventsExpandedID))
+	m.v4EventsViewport.SetContent(m.v4EventsContent)
+
+	emptyMsg := "No pools match your search"
+	if len(m.v4PoolRows) == 0 {
+		emptyMsg = "No indexed pools yet — press p to start the pool event monitor"
+		if m.eventStore == nil {
+			emptyMsg = "Event store unavailable — pools can't be listed"
+		}
+	}
+	filtered := filterPoolRows(m.v4PoolRows, m.poolListSearch.Value())
+	m.poolListShown = len(filtered)
+	m.poolListContent, m.poolListSpans = uniswap.PoolCards(m.w-2, filtered, emptyMsg,
+		m.poolListExpandedID, m.poolDetailView(m.poolListExpandedID))
+	m.poolListViewport.SetContent(m.poolListContent)
+}
+
+// handlePoolCardClick maps a click at content line/col within a pool-card viewport to
+// expand/collapse. expandedID points at the view's own expansion state. Returns
+// handled=false when the click wasn't on a card.
+func (m *model) handlePoolCardClick(spans []uniswap.CardSpan, rows []store.PoolRow, expandedID *string, line, col int) (tea.Cmd, bool) {
+	for _, sp := range spans {
+		if line < sp.StartLine || line >= sp.EndLine {
+			continue
+		}
+		if sp.Expanded {
+			if line >= sp.StartLine && line <= sp.CloseLine && col >= sp.CloseX1 && col < sp.CloseX2 {
+				*expandedID = ""
+				m.refreshPoolViewports()
+			}
+			return nil, true
+		}
+		*expandedID = sp.PoolID
+		var cmd tea.Cmd
+		if st, ok := m.poolDetails[sp.PoolID]; !ok || (!st.loading && st.err != "") {
+			var tickSpacing int32
+			for _, r := range rows {
+				if r.PoolID == sp.PoolID {
+					tickSpacing = int32(r.TickSpacing)
+					break
+				}
+			}
+			m.poolDetails[sp.PoolID] = &poolDetailState{loading: true}
+			m.logInfo(fmt.Sprintf("Pool details: querying pool %s", shortPoolID(sp.PoolID)))
+			cmd = fetchPoolDetailsCmd(m.rpcURL, sp.PoolID, tickSpacing)
+		}
+		m.refreshPoolViewports()
+		return cmd, true
+	}
+	return nil, false
 }

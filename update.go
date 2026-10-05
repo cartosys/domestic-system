@@ -162,6 +162,8 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePoolInfoResult(msg)
 	case poolKeyResultMsg:
 		return m.handlePoolKeyResult(msg)
+	case poolDetailsMsg:
+		return m.handlePoolDetails(msg)
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case tea.MouseMsg:
@@ -222,6 +224,10 @@ func (m *model) handleMouseMotion(mm tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.v4Scroll.Dragging {
 		m.v4Scroll.ApplyDrag(mm.Y, &m.v4EventsViewport)
+		return m, nil
+	}
+	if m.poolListScroll.Dragging {
+		m.poolListScroll.ApplyDrag(mm.Y, &m.poolListViewport)
 		return m, nil
 	}
 	if m.txQRScroll.Dragging {
@@ -357,7 +363,12 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleIndexerToggle()
 
 		case "pageup", "pagedown", "up", "down":
-			v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
+			if m.poolListVisible() {
+				var cmd tea.Cmd
+				m.poolListViewport, cmd = m.poolListViewport.Update(msg)
+				return m, cmd
+			}
+			v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity && !m.uniswapShowingPoolList
 			bothVisible := v4Visible && m.logEnabled && m.logReady
 			var cmd tea.Cmd
 			switch {
@@ -468,7 +479,12 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.tokenListViewport, cmd = m.tokenListViewport.Update(msg)
 			return m, cmd
 		}
-		v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
+		if m.poolListVisible() && !(m.logEnabled && m.logReady && m.logScroll.PanelTop > 3 && msg.Y >= m.logScroll.PanelTop-3) {
+			var cmd tea.Cmd
+			m.poolListViewport, cmd = m.poolListViewport.Update(msg)
+			return m, cmd
+		}
+		v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity && !m.uniswapShowingPoolList
 		bothVisible := v4Visible && m.logEnabled && m.logReady
 		var cmd tea.Cmd
 		switch {
@@ -487,6 +503,7 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.MouseRelease {
 		m.logScroll.Dragging = false
 		m.v4Scroll.Dragging = false
+		m.poolListScroll.Dragging = false
 		m.txQRScroll.Dragging = false
 		m.webcamLogScroll.Dragging = false
 		m.tokenListScroll.Dragging = false
@@ -502,7 +519,7 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Panel focus when both V4 events and log are visible.
 	if m.activePage == config.PageUniswap && m.poolEventMonitorActive &&
-		!m.uniswapShowingLiquidity && m.logEnabled && m.logScroll.PanelTop > 3 {
+		!m.uniswapShowingLiquidity && !m.uniswapShowingPoolList && m.logEnabled && m.logScroll.PanelTop > 3 {
 		if msg.Y >= m.logScroll.PanelTop-3 {
 			m.focusedPanel = focusedPanelLog
 		} else {
@@ -532,11 +549,18 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity
+	v4Visible := m.activePage == config.PageUniswap && m.poolEventMonitorActive && !m.uniswapShowingLiquidity && !m.uniswapShowingPoolList
 	if v4Visible && m.v4Scroll.PanelTop > 0 {
 		if m.v4Scroll.HitTest(msg.X, msg.Y, m.v4Scroll.PanelTop+m.v4EventsViewport.Height-1) {
 			m.v4Scroll.Dragging = true
 			m.v4Scroll.ApplyDrag(msg.Y, &m.v4EventsViewport)
+			return m, nil
+		}
+	}
+	if m.poolListVisible() && m.poolListScroll.PanelTop > 0 {
+		if m.poolListScroll.HitTest(msg.X, msg.Y, m.poolListScroll.PanelTop+m.poolListViewport.Height-1) {
+			m.poolListScroll.Dragging = true
+			m.poolListScroll.ApplyDrag(msg.Y, &m.poolListViewport)
 			return m, nil
 		}
 	}
@@ -581,18 +605,44 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// V4 events panel OSC 8 hyperlink click.
+	// V4 events panel: OSC 8 hyperlink click, else pool card expand/collapse.
 	if v4Visible && m.v4Scroll.PanelTop > 0 {
 		vpH := m.v4EventsViewport.Height
 		if msg.Y >= m.v4Scroll.PanelTop && msg.Y < m.v4Scroll.PanelTop+vpH {
 			vpLine := msg.Y - m.v4Scroll.PanelTop
 			absLine := vpLine + m.v4EventsViewport.YOffset
-			lines := strings.Split(uniswap.V4EventsContent(m.w-2, m.v4PoolRows), "\n")
+			lines := strings.Split(m.v4EventsContent, "\n")
 			if absLine < len(lines) {
 				if url := urlAtCol(lines[absLine], msg.X-3); url != "" {
 					return m.handleURLClick(url)
 				}
 			}
+			if cmd, ok := m.handlePoolCardClick(m.v4EventsSpans, m.v4PoolRows, &m.v4EventsExpandedID, absLine, msg.X-3); ok {
+				return m, cmd
+			}
+		}
+	}
+
+	// Pool List view: search box focus, OSC 8 hyperlink click, else pool card expand/collapse.
+	if m.poolListVisible() && m.poolListScroll.PanelTop > 0 {
+		searchTop := m.poolListScroll.PanelTop - uniswap.PoolListHeaderLines + 2
+		if msg.Y >= searchTop && msg.Y < searchTop+3 {
+			return m, m.poolListSearch.Focus()
+		}
+		vpH := m.poolListViewport.Height
+		if msg.Y >= m.poolListScroll.PanelTop && msg.Y < m.poolListScroll.PanelTop+vpH {
+			absLine := msg.Y - m.poolListScroll.PanelTop + m.poolListViewport.YOffset
+			lines := strings.Split(m.poolListContent, "\n")
+			if absLine < len(lines) {
+				if url := urlAtCol(lines[absLine], msg.X-3); url != "" {
+					return m.handleURLClick(url)
+				}
+			}
+			m.poolListSearch.Blur()
+			if cmd, ok := m.handlePoolCardClick(m.poolListSpans, m.v4PoolRows, &m.poolListExpandedID, absLine, msg.X-3); ok {
+				return m, cmd
+			}
+			return m, nil
 		}
 	}
 

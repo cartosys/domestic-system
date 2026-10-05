@@ -804,7 +804,7 @@ func (m *model) View() string {
 		usedHeight := lipgloss.Height(headerPanel) + lipgloss.Height(pageContent) + lipgloss.Height(nav)
 		viewportHeight := helpers.Max(3, m.h-usedHeight-4)
 		m.logViewport.Height = viewportHeight
-		logFocused := m.poolEventMonitorActive && !m.uniswapShowingLiquidity &&
+		logFocused := m.poolEventMonitorActive && !m.uniswapShowingLiquidity && !m.uniswapShowingPoolList &&
 			m.activePage == config.PageUniswap && m.focusedPanel == focusedPanelLog
 		logPanel = logview.Render(m.w, viewportHeight, m.logReady, m.logSpinner.View(), m.logViewport, logFocused)
 		// log border top = m.h - height(logPanel); +3 for top border(1)+title(1)+blank(1)
@@ -933,7 +933,7 @@ func (m *model) renderWalletsPage(headerPanel string) (pageContent, nav string) 
 
 func (m *model) renderUniswapPage(headerPanel string) (pageContent, nav string) {
 	tokens := m.buildTokenList()
-	navStr := uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive)
+	navStr := uniswap.Nav(m.w-2, m.poolEventMonitorActive, m.uniswapShowingLiquidity, m.v4BlockScanActive, m.uniswapShowingPoolList)
 
 	if m.uniswapShowingSelector {
 		c := uniswap.RenderTokenSelector(m.w, m.h-8, tokens, m.uniswapSelectorIdx, m.uniswapSelectorFor == 0)
@@ -943,6 +943,16 @@ func (m *model) renderUniswapPage(headerPanel string) (pageContent, nav string) 
 		c := uniswap.RenderLiquidity(m.w-2, m.h-8, m.liquidityPositions, m.liquidityLoading,
 			m.liquidityFocusedIdx, m.liquidityErr, m.spin.View())
 		return styles.PanelStyle.Width(m.contentW).Render(c), navStr
+	}
+	if m.uniswapShowingPoolList {
+		// PanelStyle adds 4 vertical lines; size like the V4 events panel so the log still fits.
+		plView := uniswap.RenderPoolList(m.w-2, helpers.Max(1, m.h/2-4), m.poolListSearch.View(),
+			m.poolListSearch.Focused(), m.poolListViewport, m.poolListShown, len(m.v4PoolRows))
+		c := styles.PanelStyle.Width(m.contentW).Render(plView)
+		// Panel border(1) + padding(1) + RenderPoolList header lines above the viewport.
+		m.poolListScroll.PanelTop = lipgloss.Height(headerPanel) + 2 + uniswap.PoolListHeaderLines
+		m.poolListScroll.TrackCol = m.poolListViewport.Width + 3
+		return c, navStr
 	}
 	if m.poolEventMonitorActive {
 		// PanelStyle adds 4 vertical lines; RenderV4Events overhead is 4 — so m.h/2-4 yields half-height.

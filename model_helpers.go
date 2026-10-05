@@ -137,7 +137,8 @@ func (m model) textInputActive() bool {
 		((m.settingsMode == "add" || m.settingsMode == "edit") && m.form != nil) ||
 		((m.tokenFormMode == "add" || m.tokenFormMode == "edit") && m.tokenForm != nil) ||
 		(m.activeDialog == dialogPasteSignedTx && m.pasteTxPhase == pasteTxPhaseForm && m.pasteTxForm != nil) ||
-		m.activeDialog == dialogTerraClaim
+		m.activeDialog == dialogTerraClaim ||
+		(m.activePage == config.PageUniswap && m.uniswapShowingPoolList && m.poolListSearch.Focused())
 }
 
 // loadSelectedWalletDetails loads details for the currently selected wallet,

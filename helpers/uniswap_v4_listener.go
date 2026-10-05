@@ -691,6 +691,55 @@ const poolManagerViewABI = `[
     "outputs": [{"internalType": "uint128", "name": "liquidity", "type": "uint128"}],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "PoolId", "name": "poolId", "type": "bytes32"}],
+    "name": "getFeeGrowthGlobals",
+    "outputs": [
+      {"internalType": "uint256", "name": "feeGrowthGlobal0", "type": "uint256"},
+      {"internalType": "uint256", "name": "feeGrowthGlobal1", "type": "uint256"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {"internalType": "PoolId", "name": "poolId", "type": "bytes32"},
+      {"internalType": "int16",  "name": "tick",   "type": "int16"}
+    ],
+    "name": "getTickBitmap",
+    "outputs": [{"internalType": "uint256", "name": "tickBitmap", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {"internalType": "PoolId", "name": "poolId", "type": "bytes32"},
+      {"internalType": "int24",  "name": "tick",   "type": "int24"}
+    ],
+    "name": "getTickInfo",
+    "outputs": [
+      {"internalType": "uint128", "name": "liquidityGross",        "type": "uint128"},
+      {"internalType": "int128",  "name": "liquidityNet",          "type": "int128"},
+      {"internalType": "uint256", "name": "feeGrowthOutside0X128", "type": "uint256"},
+      {"internalType": "uint256", "name": "feeGrowthOutside1X128", "type": "uint256"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {"internalType": "PoolId", "name": "poolId",    "type": "bytes32"},
+      {"internalType": "int24",  "name": "tickLower", "type": "int24"},
+      {"internalType": "int24",  "name": "tickUpper", "type": "int24"}
+    ],
+    "name": "getFeeGrowthInside",
+    "outputs": [
+      {"internalType": "uint256", "name": "feeGrowthInside0X128", "type": "uint256"},
+      {"internalType": "uint256", "name": "feeGrowthInside1X128", "type": "uint256"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]`
 
@@ -792,6 +841,208 @@ func FetchPoolInfo(rpcURL string, poolID common.Hash) (*PoolInfo, error) {
 		LpFee:        lpFee,
 		Liquidity:    liquidity.String(),
 	}, nil
+}
+
+// TickDetails holds StateView getTickInfo output for one initialized tick.
+type TickDetails struct {
+	Tick              int32
+	LiquidityGross    *big.Int
+	LiquidityNet      *big.Int
+	FeeGrowthOutside0 *big.Int
+	FeeGrowthOutside1 *big.Int
+}
+
+// PoolDetails holds the full live StateView read-out for one V4 pool, as shown in
+// the expanded pool card. Lower/Upper are the nearest initialized ticks bracketing
+// the current tick (nil when none was found within the bounded bitmap scan), and
+// FeeGrowthInside0/1 cover that [Lower, Upper) range (nil unless both exist).
+type PoolDetails struct {
+	SqrtPriceX96     *big.Int
+	Tick             int32
+	ProtocolFee      uint32
+	LpFee            uint32
+	Liquidity        *big.Int
+	FeeGrowthGlobal0 *big.Int
+	FeeGrowthGlobal1 *big.Int
+
+	TickSpacing   int32
+	BitmapWordPos int16
+	BitmapWord    *big.Int
+
+	Lower            *TickDetails
+	Upper            *TickDetails
+	FeeGrowthInside0 *big.Int
+	FeeGrowthInside1 *big.Int
+}
+
+// v4CompressTick floors tick/spacing toward negative infinity, matching TickBitmap.compress.
+func v4CompressTick(tick, spacing int32) int32 {
+	c := tick / spacing
+	if tick < 0 && tick%spacing != 0 {
+		c--
+	}
+	return c
+}
+
+// v4FindActiveRange locates the nearest initialized ticks at-or-below and above tick
+// using the pool's tick bitmap. It reads the word containing tick and at most one
+// adjacent word on each side — a bounded scan, never a walk across the whole bitmap.
+// getWord returns the bitmap word for a word position.
+func v4FindActiveRange(getWord func(wordPos int16) (*big.Int, error), tick, spacing int32) (lower, upper int32, hasLower, hasUpper bool, wordPos int16, word *big.Int, err error) {
+	c := v4CompressTick(tick, spacing)
+	wordPos = int16(c >> 8)
+	bitPos := int(c & 0xff)
+
+	word, err = getWord(wordPos)
+	if err != nil {
+		return 0, 0, false, false, wordPos, nil, err
+	}
+
+	for i := bitPos; i >= 0; i-- {
+		if word.Bit(i) == 1 {
+			lower, hasLower = (int32(wordPos)*256+int32(i))*spacing, true
+			break
+		}
+	}
+	if !hasLower {
+		prev, perr := getWord(wordPos - 1)
+		if perr != nil {
+			return 0, 0, false, false, wordPos, word, perr
+		}
+		for i := 255; i >= 0; i-- {
+			if prev.Bit(i) == 1 {
+				lower, hasLower = (int32(wordPos-1)*256+int32(i))*spacing, true
+				break
+			}
+		}
+	}
+
+	for i := bitPos + 1; i < 256; i++ {
+		if word.Bit(i) == 1 {
+			upper, hasUpper = (int32(wordPos)*256+int32(i))*spacing, true
+			break
+		}
+	}
+	if !hasUpper {
+		next, nerr := getWord(wordPos + 1)
+		if nerr != nil {
+			return lower, 0, hasLower, false, wordPos, word, nerr
+		}
+		for i := 0; i < 256; i++ {
+			if next.Bit(i) == 1 {
+				upper, hasUpper = (int32(wordPos+1)*256+int32(i))*spacing, true
+				break
+			}
+		}
+	}
+	return lower, upper, hasLower, hasUpper, wordPos, word, nil
+}
+
+// FetchPoolDetails reads the full live state of a V4 pool from StateView: slot0,
+// active liquidity, global fee growth, the tick bitmap word around the current tick,
+// tick info for the nearest initialized ticks, and fee growth inside that range.
+func FetchPoolDetails(rpcURL string, poolID common.Hash, tickSpacing int32) (*PoolDetails, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	client, err := ethclient.DialContext(ctx, rpcURL)
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+	defer client.Close()
+
+	parsedABI, err := abi.JSON(strings.NewReader(poolManagerViewABI))
+	if err != nil {
+		return nil, fmt.Errorf("parse ABI: %w", err)
+	}
+	stateView := addressesForClient(ctx, client).V4StateView
+
+	call := func(method string, args ...interface{}) ([]interface{}, error) {
+		data, err := parsedABI.Pack(method, args...)
+		if err != nil {
+			return nil, fmt.Errorf("pack %s: %w", method, err)
+		}
+		raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &stateView, Data: data}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("call %s: %w", method, err)
+		}
+		vals, err := parsedABI.Unpack(method, raw)
+		if err != nil {
+			return nil, fmt.Errorf("unpack %s: %w", method, err)
+		}
+		return vals, nil
+	}
+
+	sqrtPriceX96, tick, protocolFee, lpFee, liquidity, err := v4GetSlot0(ctx, client, &parsedABI, stateView, poolID)
+	if err != nil {
+		return nil, err
+	}
+	d := &PoolDetails{
+		SqrtPriceX96: sqrtPriceX96,
+		Tick:         tick,
+		ProtocolFee:  protocolFee,
+		LpFee:        lpFee,
+		Liquidity:    liquidity,
+		TickSpacing:  tickSpacing,
+	}
+
+	fg, err := call("getFeeGrowthGlobals", poolID)
+	if err != nil {
+		return nil, err
+	}
+	d.FeeGrowthGlobal0 = fg[0].(*big.Int)
+	d.FeeGrowthGlobal1 = fg[1].(*big.Int)
+
+	if tickSpacing <= 0 {
+		return d, nil
+	}
+
+	getWord := func(wordPos int16) (*big.Int, error) {
+		vals, err := call("getTickBitmap", poolID, wordPos)
+		if err != nil {
+			return nil, err
+		}
+		return vals[0].(*big.Int), nil
+	}
+	lower, upper, hasLower, hasUpper, wordPos, word, err := v4FindActiveRange(getWord, tick, tickSpacing)
+	if err != nil {
+		return nil, err
+	}
+	d.BitmapWordPos = wordPos
+	d.BitmapWord = word
+
+	tickInfo := func(t int32) (*TickDetails, error) {
+		vals, err := call("getTickInfo", poolID, big.NewInt(int64(t)))
+		if err != nil {
+			return nil, err
+		}
+		return &TickDetails{
+			Tick:              t,
+			LiquidityGross:    vals[0].(*big.Int),
+			LiquidityNet:      vals[1].(*big.Int),
+			FeeGrowthOutside0: vals[2].(*big.Int),
+			FeeGrowthOutside1: vals[3].(*big.Int),
+		}, nil
+	}
+	if hasLower {
+		if d.Lower, err = tickInfo(lower); err != nil {
+			return nil, err
+		}
+	}
+	if hasUpper {
+		if d.Upper, err = tickInfo(upper); err != nil {
+			return nil, err
+		}
+	}
+	if hasLower && hasUpper {
+		fi, err := call("getFeeGrowthInside", poolID, big.NewInt(int64(lower)), big.NewInt(int64(upper)))
+		if err != nil {
+			return nil, err
+		}
+		d.FeeGrowthInside0 = fi[0].(*big.Int)
+		d.FeeGrowthInside1 = fi[1].(*big.Int)
+	}
+	return d, nil
 }
 
 // PoolKeyInfo holds the pool key fields retrieved from the Initialize event log.

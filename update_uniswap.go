@@ -40,6 +40,11 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, vpCmd
 	}
 
+	// Handle Pool List view
+	if m.uniswapShowingPoolList {
+		return m.handlePoolListKey(msg)
+	}
+
 	// Handle liquidity positions view
 	if m.uniswapShowingLiquidity {
 		switch msg.String() {
@@ -310,6 +315,16 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "o", "O":
+		m.uniswapShowingPoolList = true
+		m.poolListViewport.GotoTop()
+		m.refreshPoolViewports()
+		cmds := []tea.Cmd{m.poolListSearch.Focus()}
+		if m.eventStore != nil {
+			cmds = append(cmds, loadV4PoolTableCmd(m.eventStore))
+		}
+		return m, tea.Batch(cmds...)
+
 	case "p", "P":
 		if m.poolEventMonitorActive {
 			// Stop the monitor
@@ -428,4 +443,54 @@ func (m *model) executeUniswapSwap() (tea.Model, tea.Cmd) {
 		return m, packageSwapTransactionV3(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapLastFee, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
 	}
 	return m, packageSwapTransaction(m.ethClient, m.activeAddress, fromToken, toToken, m.uniswapFromAmount, amountOutMin, m.rpcURL, m.chainID())
+}
+
+// handlePoolListKey handles keys while the Pool List sub-view is shown. With the search
+// box focused, text keys edit the ticker filter; scroll keys always scroll the list.
+func (m *model) handlePoolListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.uniswapShowingPoolList = false
+		m.poolListSearch.Blur()
+		return m, nil
+	case "tab":
+		if m.poolListSearch.Focused() {
+			m.poolListSearch.Blur()
+			return m, nil
+		}
+		return m, m.poolListSearch.Focus()
+	case "up", "down", "pgup", "pgdown":
+		var cmd tea.Cmd
+		m.poolListViewport, cmd = m.poolListViewport.Update(msg)
+		return m, cmd
+	}
+
+	// While the list (not the search box) has focus, all-motion mouse mode is on
+	// (textInputActive() is false), so stray SGR mouse sequences can arrive as
+	// KeyRunes — never forward unfocused keystrokes into the search input.
+	if !m.poolListSearch.Focused() {
+		switch msg.String() {
+		case "o", "O":
+			m.uniswapShowingPoolList = false
+			return m, nil
+		case "/":
+			return m, m.poolListSearch.Focus()
+		}
+		return m, nil
+	}
+	return m, m.updatePoolListSearch(msg)
+}
+
+// updatePoolListSearch forwards msg to the search input and re-filters on change.
+func (m *model) updatePoolListSearch(msg tea.KeyMsg) tea.Cmd {
+	before := m.poolListSearch.Value()
+	var cmd tea.Cmd
+	m.poolListSearch, cmd = m.poolListSearch.Update(msg)
+	if m.poolListSearch.Value() != before {
+		m.poolListViewport.GotoTop()
+		m.refreshPoolViewports()
+	}
+	return cmd
 }

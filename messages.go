@@ -118,6 +118,21 @@ type poolInfoResultMsg struct {
 	err    error
 }
 
+// poolDetailsMsg carries the result of a FetchPoolDetails call for an expanded pool card
+type poolDetailsMsg struct {
+	poolID string
+	data   *helpers.PoolDetails
+	err    error
+}
+
+// poolDetailState is the cached live-state read for one pool, shared by every view
+// that can expand a pool card.
+type poolDetailState struct {
+	loading bool
+	data    *helpers.PoolDetails
+	err     string
+}
+
 // poolKeyResultMsg carries the result of a FetchPoolKey call
 type poolKeyResultMsg struct {
 	poolID string
