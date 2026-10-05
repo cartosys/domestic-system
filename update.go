@@ -38,6 +38,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return updated, cmd
 	}
+	if more := mm.maybeLoadMorePools(); more != nil {
+		cmd = tea.Batch(cmd, more)
+	}
 	wantAllMotion := enableHoverAllMotion && !mm.textInputActive()
 	if wantAllMotion == mm.mouseAllMotionActive {
 		return mm, cmd
@@ -136,8 +139,10 @@ func (m *model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePoolEventLine(msg)
 	case poolMonitorEventMsg:
 		return m.handlePoolMonitorEvent(msg)
-	case v4PoolTableMsg:
-		return m.handleV4PoolTable(msg)
+	case poolPageMsg:
+		return m.handlePoolPage(msg)
+	case poolEventSavedMsg:
+		return m.handlePoolEventSaved(msg)
 	case poolEventMonitorStoppedMsg:
 		return m.handlePoolMonitorStopped()
 	case v4BlockScanLineMsg:
@@ -617,7 +622,7 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 					return m.handleURLClick(url)
 				}
 			}
-			if cmd, ok := m.handlePoolCardClick(m.v4EventsSpans, m.v4PoolRows, &m.v4EventsExpandedID, absLine, msg.X-3); ok {
+			if cmd, ok := m.handlePoolCardClick(poolViewV4Events, absLine, msg.X-3); ok {
 				return m, cmd
 			}
 		}
@@ -626,7 +631,7 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Pool List view: search box focus, OSC 8 hyperlink click, else pool card expand/collapse.
 	if m.poolListVisible() && m.poolListScroll.PanelTop > 0 {
 		searchTop := m.poolListScroll.PanelTop - uniswap.PoolListHeaderLines + 2
-		if msg.Y >= searchTop && msg.Y < searchTop+3 {
+		if m.poolListPager.expanded == nil && msg.Y >= searchTop && msg.Y < searchTop+3 {
 			return m, m.poolListSearch.Focus()
 		}
 		vpH := m.poolListViewport.Height
@@ -639,7 +644,7 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.poolListSearch.Blur()
-			if cmd, ok := m.handlePoolCardClick(m.poolListSpans, m.v4PoolRows, &m.poolListExpandedID, absLine, msg.X-3); ok {
+			if cmd, ok := m.handlePoolCardClick(poolViewList, absLine, msg.X-3); ok {
 				return m, cmd
 			}
 			return m, nil

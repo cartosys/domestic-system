@@ -571,23 +571,30 @@ type CardSpan struct {
 }
 
 // PoolDetailView is the live-state payload for the expanded pool card.
+// MinHeight, when > 0, stretches the expanded card (border included) to at least
+// that many lines, and Width, when > 0, sets its outer width (border included), so
+// it fills the panel it is shown in.
 type PoolDetailView struct {
-	Loading bool
-	Err     string
-	Data    *helpers.PoolDetails
+	Loading   bool
+	Err       string
+	Data      *helpers.PoolDetails
+	MinHeight int
+	Width     int
 }
 
 // V4EventsContent builds the scrollable body string (pool cards) for the V4 Events panel.
 // width is the outer panel width; the content is sized to fit inside it.
-func V4EventsContent(width int, pools []store.PoolRow, expandedID string, detail PoolDetailView) (string, []CardSpan) {
-	return PoolCards(width, pools, "Listening for V4 pool events…", expandedID, detail)
+func V4EventsContent(width int, pools []store.PoolRow, expandedID string, detail PoolDetailView, cache map[string]string) (string, []CardSpan) {
+	return PoolCards(width, pools, "Listening for V4 pool events…", expandedID, detail, cache)
 }
 
 // PoolCards renders one bordered card per pool. The card whose PoolID equals
 // expandedID is drawn expanded with the live pool-state section and a ✕ close
 // control; all others are the compact summary card. Shared by the V4 Events panel
 // and the Pool List view so both render pools identically.
-func PoolCards(width int, pools []store.PoolRow, emptyMsg, expandedID string, detail PoolDetailView) (string, []CardSpan) {
+// cache, when non-nil, memoizes collapsed cards by pool ID; the caller must clear it
+// when width changes or drop an entry when that pool's row data changes.
+func PoolCards(width int, pools []store.PoolRow, emptyMsg, expandedID string, detail PoolDetailView, cache map[string]string) (string, []CardSpan) {
 	containerWidth := helpers.Min(width-2, 120)
 
 	if len(pools) == 0 {
@@ -599,9 +606,16 @@ func PoolCards(width int, pools []store.PoolRow, emptyMsg, expandedID string, de
 	}
 
 	cardWidth := containerWidth - 4
-	innerWidth := cardWidth - 4
 	card := styles.CardNormal.Width(cardWidth)
-	cardExpanded := styles.CardFocused.Width(cardWidth)
+	expCardWidth := cardWidth
+	if detail.Width > 0 {
+		expCardWidth = helpers.Max(10, detail.Width-2)
+	}
+	expInnerWidth := expCardWidth - 4
+	cardExpanded := styles.CardFocused.Width(expCardWidth)
+	if detail.MinHeight > 2 {
+		cardExpanded = cardExpanded.Height(detail.MinHeight - 2)
+	}
 
 	var cards []string
 	var spans []CardSpan
@@ -611,17 +625,22 @@ func PoolCards(width int, pools []store.PoolRow, emptyMsg, expandedID string, de
 		span := CardSpan{PoolID: r.PoolID}
 		if r.PoolID == expandedID {
 			closeStyle := lipgloss.NewStyle().Foreground(styles.CError).Bold(true)
-			titleStyle := lipgloss.NewStyle().Foreground(styles.CBorder).Bold(true).Align(lipgloss.Center).Width(innerWidth - 2)
+			titleStyle := lipgloss.NewStyle().Foreground(styles.CBorder).Bold(true).Align(lipgloss.Center).Width(expInnerWidth - 2)
 			topLine := titleStyle.Render("pool details") + " " + closeStyle.Render("✕")
-			rendered = cardExpanded.Render(topLine + "\n" + poolCardBody(r, cardWidth, false) + "\n" + poolDetailSection(r, detail, innerWidth))
+			rendered = cardExpanded.Render(topLine + "\n" + poolCardBody(r, expCardWidth, false) + "\n" + poolDetailSection(r, detail, expInnerWidth))
 			// Border(1) + padding(2) puts content column 0 at card column 3.
-			closeCol := 3 + innerWidth - 1
+			closeCol := 3 + expInnerWidth - 1
 			span.Expanded = true
 			span.CloseLine = line + 1
 			span.CloseX1 = closeCol - 1
 			span.CloseX2 = closeCol + 2
+		} else if c, ok := cache[r.PoolID]; ok {
+			rendered = c
 		} else {
 			rendered = card.Render(poolCardBody(r, cardWidth, true))
+			if cache != nil {
+				cache[r.PoolID] = rendered
+			}
 		}
 		h := lipgloss.Height(rendered)
 		span.StartLine = line
@@ -815,9 +834,39 @@ func poolSqrtPriceToPrice(sqrtPriceX96 *big.Int, dec0, dec1 int64) float64 {
 	return p * math.Pow(10, float64(dec0-dec1))
 }
 
+// V4EventsViewportHeight is the card viewport height RenderV4Events uses for a panel of
+// the given height: title (1), blank (1), blank (1), info (1) = 4 lines overhead, or
+// the whole panel when a pool detail is open.
+func V4EventsViewportHeight(height int, detailOpen bool) int {
+	if detailOpen {
+		return helpers.Max(1, height)
+	}
+	return helpers.Max(1, height-4)
+}
+
+// V4EventsViewportTop is the line offset of RenderV4Events' viewport within its output.
+func V4EventsViewportTop(detailOpen bool) int {
+	if detailOpen {
+		return 0
+	}
+	return 2
+}
+
+// renderDetailPanel renders only the scrollbar-decorated viewport at the full panel
+// height: the pool detail view covers the panel's title/search/hint chrome.
+func renderDetailPanel(width, height int, vp viewport.Model) string {
+	vp.Height = helpers.Max(1, height)
+	track := scrollbar.Track(vp.Height, vp.TotalLineCount(), vp.YOffset)
+	return lipgloss.NewStyle().Width(width).Render(scrollbar.Decorate(vp.View(), track))
+}
+
 // RenderV4Events renders the V4 Events panel shown when the Pool Event Monitor is active.
 // vp must have its content pre-set via V4EventsContent; width/height are the available dimensions.
-func RenderV4Events(width, height int, vp viewport.Model) string {
+// With detailOpen, only the viewport (holding the pool detail) is drawn.
+func RenderV4Events(width, height int, vp viewport.Model, detailOpen bool) string {
+	if detailOpen {
+		return renderDetailPanel(width, height, vp)
+	}
 	containerWidth := helpers.Min(width-2, 120)
 
 	titleStyle := lipgloss.NewStyle().
@@ -833,8 +882,7 @@ func RenderV4Events(width, height int, vp viewport.Model) string {
 		Align(lipgloss.Center).
 		Render("click pool ID → pool info   click address → Etherscan   ↑↓/PgUp/PgDn to scroll")
 
-	// Reserve lines for title (1), blank (1), info (1), blank (1) = 4 lines overhead.
-	vpHeight := helpers.Max(1, height-4)
+	vpHeight := V4EventsViewportHeight(height, false)
 	vp.Height = vpHeight
 
 	track := scrollbar.Track(vpHeight, vp.TotalLineCount(), vp.YOffset)
@@ -848,9 +896,31 @@ func RenderV4Events(width, height int, vp viewport.Model) string {
 // (title, blank, search box (3), count line, blank), used for mouse hit-testing.
 const PoolListHeaderLines = 7
 
+// PoolListViewportHeight is the card viewport height RenderPoolList uses for a panel of
+// the given height: the header lines above plus a blank and the info line below, or
+// the whole panel when a pool detail is open.
+func PoolListViewportHeight(height int, detailOpen bool) int {
+	if detailOpen {
+		return helpers.Max(1, height)
+	}
+	return helpers.Max(1, height-PoolListHeaderLines-2)
+}
+
+// PoolListViewportTop is the line offset of RenderPoolList's viewport within its output.
+func PoolListViewportTop(detailOpen bool) int {
+	if detailOpen {
+		return 0
+	}
+	return PoolListHeaderLines
+}
+
 // RenderPoolList renders the Pool List view: a ticker search box above a scrollable
 // list of pool cards. vp must have its content pre-set via PoolCards.
-func RenderPoolList(width, height int, searchView string, searchFocused bool, vp viewport.Model, shown, total int) string {
+// With detailOpen, only the viewport (holding the pool detail) is drawn.
+func RenderPoolList(width, height int, searchView string, searchFocused bool, vp viewport.Model, shown, total int, detailOpen bool) string {
+	if detailOpen {
+		return renderDetailPanel(width, height, vp)
+	}
 	containerWidth := helpers.Min(width-2, 120)
 
 	title := lipgloss.NewStyle().
@@ -869,7 +939,7 @@ func RenderPoolList(width, height int, searchView string, searchFocused bool, vp
 	count := lipgloss.NewStyle().
 		Foreground(styles.CMuted).
 		Width(containerWidth).
-		Render(fmt.Sprintf("%d of %d pools", shown, total))
+		Render(fmt.Sprintf("%d of %d matching pools loaded", shown, total))
 
 	infoText := lipgloss.NewStyle().
 		Foreground(styles.CMuted).
@@ -877,7 +947,7 @@ func RenderPoolList(width, height int, searchView string, searchFocused bool, vp
 		Align(lipgloss.Center).
 		Render("type to filter by ticker   click card → expand   click ✕ → collapse   tab or / → search   esc close")
 
-	vpHeight := helpers.Max(1, height-PoolListHeaderLines-2)
+	vpHeight := PoolListViewportHeight(height, false)
 	vp.Height = vpHeight
 
 	track := scrollbar.Track(vpHeight, vp.TotalLineCount(), vp.YOffset)

@@ -11,9 +11,12 @@ import (
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/store"
+	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/uniswap"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -413,32 +416,6 @@ func fetchV4ReverseSwapQuote(client *rpc.Client, addrs helpers.UniswapNetworkAdd
 	}
 }
 
-// filterPoolRows returns the pools whose token symbols match query (case-insensitive
-// substring). "A/B" requires one side to match A and the other B, in either order.
-func filterPoolRows(rows []store.PoolRow, query string) []store.PoolRow {
-	q := strings.ToLower(strings.TrimSpace(query))
-	if q == "" {
-		return rows
-	}
-	match := func(sym, part string) bool {
-		return part == "" || strings.Contains(strings.ToLower(sym), part)
-	}
-	var out []store.PoolRow
-	for _, r := range rows {
-		if a, b, ok := strings.Cut(q, "/"); ok {
-			a, b = strings.TrimSpace(a), strings.TrimSpace(b)
-			if (match(r.Token0Sym, a) && match(r.Token1Sym, b)) || (match(r.Token1Sym, a) && match(r.Token0Sym, b)) {
-				out = append(out, r)
-			}
-			continue
-		}
-		if match(r.Token0Sym, q) || match(r.Token1Sym, q) {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 // poolListVisible reports whether the Pool List sub-view is on screen.
 func (m model) poolListVisible() bool {
 	return m.activePage == config.PageUniswap && m.uniswapShowingPoolList && !m.uniswapShowingLiquidity
@@ -453,58 +430,262 @@ func (m model) poolDetailView(poolID string) uniswap.PoolDetailView {
 	return uniswap.PoolDetailView{Loading: st.loading, Err: st.err, Data: st.data}
 }
 
-// refreshPoolViewports rebuilds the V4 Events and Pool List viewport contents (and
-// their card hit-test spans) from the current rows, search, and expansion state.
-func (m *model) refreshPoolViewports() {
-	m.v4EventsContent, m.v4EventsSpans = uniswap.V4EventsContent(m.w-2, m.v4PoolRows,
-		m.v4EventsExpandedID, m.poolDetailView(m.v4EventsExpandedID))
-	m.v4EventsViewport.SetContent(m.v4EventsContent)
+// poolPageSize is how many pools each lazy-load query fetches and renders.
+const poolPageSize = 20
 
-	emptyMsg := "No pools match your search"
-	if len(m.v4PoolRows) == 0 {
-		emptyMsg = "No indexed pools yet — press p to start the pool event monitor"
-		if m.eventStore == nil {
-			emptyMsg = "Event store unavailable — pools can't be listed"
-		}
-	}
-	filtered := filterPoolRows(m.v4PoolRows, m.poolListSearch.Value())
-	m.poolListShown = len(filtered)
-	m.poolListContent, m.poolListSpans = uniswap.PoolCards(m.w-2, filtered, emptyMsg,
-		m.poolListExpandedID, m.poolDetailView(m.poolListExpandedID))
-	m.poolListViewport.SetContent(m.poolListContent)
+// poolViewKind identifies which lazily-paged pool view a page belongs to.
+type poolViewKind uint8
+
+const (
+	poolViewV4Events poolViewKind = iota
+	poolViewList
+)
+
+// poolPager holds the lazily-loaded rows for one pool view. Every request bumps seq;
+// only the response carrying the current seq is applied, so results from superseded
+// requests (older search keystrokes, overlapping reloads) are dropped.
+type poolPager struct {
+	rows       []store.PoolRow
+	total      int
+	hasMore    bool
+	loading    bool
+	query      string
+	seq        int
+	cards      map[string]string // collapsed-card render cache by pool ID
+	cardsWidth int
+
+	// expanded is the pool whose detail view currently fills the panel (nil = list shown).
+	// It is a copy so the detail survives reloads that drop the row from the loaded page.
+	expanded    *store.PoolRow
+	listYOffset int // list scroll position to restore when the detail is closed
 }
 
-// handlePoolCardClick maps a click at content line/col within a pool-card viewport to
-// expand/collapse. expandedID points at the view's own expansion state. Returns
+func (m *model) poolViewport(view poolViewKind) *viewport.Model {
+	if view == poolViewList {
+		return &m.poolListViewport
+	}
+	return &m.v4EventsViewport
+}
+
+func (m *model) pager(view poolViewKind) *poolPager {
+	if view == poolViewList {
+		return &m.poolListPager
+	}
+	return &m.v4Pager
+}
+
+// loadPoolPage requests limit rows at offset for view, superseding any in-flight request.
+func (m *model) loadPoolPage(view poolViewKind, offset, limit int) tea.Cmd {
+	if m.eventStore == nil {
+		return nil
+	}
+	p := m.pager(view)
+	p.seq++
+	p.loading = true
+	return loadPoolPageCmd(m.eventStore, view, p.query, offset, limit, p.seq)
+}
+
+// reloadPoolPager re-queries view from the top, keeping at least as many rows as are
+// already loaded so scroll position survives (used when a new pool is indexed).
+func (m *model) reloadPoolPager(view poolViewKind) tea.Cmd {
+	return m.loadPoolPage(view, 0, max(poolPageSize, len(m.pager(view).rows)))
+}
+
+// handlePoolPage applies a page result: offset 0 replaces the rows, later offsets append.
+func (m *model) handlePoolPage(msg poolPageMsg) (tea.Model, tea.Cmd) {
+	p := m.pager(msg.view)
+	if msg.seq != p.seq {
+		return m, nil
+	}
+	p.loading = false
+	if msg.err != nil {
+		p.hasMore = false
+		m.logError(fmt.Sprintf("Pool list: query failed: %s", msg.err.Error()))
+		m.refreshPoolView(msg.view)
+		return m, nil
+	}
+	if msg.offset == 0 {
+		// Drop cached cards whose row data changed (e.g. new swap counts).
+		old := make(map[string]store.PoolRow, len(p.rows))
+		for _, r := range p.rows {
+			old[r.PoolID] = r
+		}
+		for _, r := range msg.rows {
+			if o, ok := old[r.PoolID]; ok && o != r {
+				delete(p.cards, r.PoolID)
+			}
+		}
+		p.rows = msg.rows
+	} else {
+		p.rows = append(p.rows, msg.rows...)
+	}
+	p.total = msg.total
+	p.hasMore = len(msg.rows) > 0 && len(p.rows) < p.total
+	m.refreshPoolView(msg.view)
+	return m, nil
+}
+
+// maybeLoadMorePools fetches the next page for each visible pool view once its viewport
+// is scrolled to within one screen of the end of the loaded cards. Called after every
+// Update, so it covers every scroll path (keys, wheel, scrollbar drag) and keeps
+// filling a tall viewport until it overflows.
+func (m *model) maybeLoadMorePools() tea.Cmd {
+	if m.activePage != config.PageUniswap || m.uniswapShowingLiquidity {
+		return nil
+	}
+	view, vp := poolViewV4Events, m.v4EventsViewport
+	switch {
+	case m.uniswapShowingPoolList:
+		view, vp = poolViewList, m.poolListViewport
+	case !m.poolEventMonitorActive:
+		return nil
+	}
+	p := m.pager(view)
+	if !p.hasMore || p.loading || p.expanded != nil {
+		return nil
+	}
+	if vp.YOffset+vp.Height < vp.TotalLineCount()-vp.Height {
+		return nil
+	}
+	return m.loadPoolPage(view, len(p.rows), poolPageSize)
+}
+
+// poolCardCache returns view's collapsed-card cache, cleared if the render width changed.
+func (m *model) poolCardCache(view poolViewKind) map[string]string {
+	p := m.pager(view)
+	if p.cards == nil || p.cardsWidth != m.w {
+		p.cards = make(map[string]string)
+		p.cardsWidth = m.w
+	}
+	return p.cards
+}
+
+// poolListFooter is the status line appended below the loaded cards.
+func poolListFooter(p *poolPager) string {
+	switch {
+	case len(p.rows) == 0:
+		return ""
+	case p.loading:
+		return "\n" + lipgloss.NewStyle().Foreground(styles.CMuted).Render("  Loading more pools…")
+	case !p.hasMore:
+		return "\n" + lipgloss.NewStyle().Foreground(styles.CMuted).Render("  — end of list —")
+	}
+	return ""
+}
+
+// refreshPoolView rebuilds one pool view's viewport content and card hit-test spans.
+// With a pool expanded, the content is only that pool's detail card, stretched to fill
+// the viewport; otherwise it is the list, where collapsed cards come from the render
+// cache so only new or changed cards render.
+func (m *model) refreshPoolView(view poolViewKind) {
+	p := m.pager(view)
+	vp := m.poolViewport(view)
+
+	var content string
+	var spans []uniswap.CardSpan
+	switch {
+	case p.expanded != nil:
+		detail := m.poolDetailView(p.expanded.PoolID)
+		detail.MinHeight = vp.Height
+		detail.Width = vp.Width
+		content, spans = uniswap.PoolCards(m.w-2, []store.PoolRow{*p.expanded}, "", p.expanded.PoolID, detail, nil)
+	case view == poolViewV4Events:
+		content, spans = uniswap.V4EventsContent(m.w-2, p.rows, "", uniswap.PoolDetailView{}, m.poolCardCache(view))
+		content += poolListFooter(p)
+	default:
+		emptyMsg := "No indexed pools yet — press p to start the pool event monitor"
+		switch {
+		case m.eventStore == nil:
+			emptyMsg = "Event store unavailable — pools can't be listed"
+		case p.loading:
+			emptyMsg = "Loading pools…"
+		case p.query != "":
+			emptyMsg = "No pools match your search"
+		}
+		content, spans = uniswap.PoolCards(m.w-2, p.rows, emptyMsg, "", uniswap.PoolDetailView{}, m.poolCardCache(view))
+		content += poolListFooter(p)
+	}
+
+	if view == poolViewV4Events {
+		m.v4EventsContent, m.v4EventsSpans = content, spans
+	} else {
+		m.poolListContent, m.poolListSpans = content, spans
+	}
+	vp.SetContent(content)
+}
+
+// refreshPoolViewports rebuilds both pool views (cheap: collapsed cards are cached).
+func (m *model) refreshPoolViewports() {
+	m.refreshPoolView(poolViewV4Events)
+	m.refreshPoolView(poolViewList)
+}
+
+// openPoolDetail makes row's detail view fill view's panel, remembering the list
+// scroll position, and fetches live pool state unless it is cached or in flight.
+func (m *model) openPoolDetail(view poolViewKind, row store.PoolRow) tea.Cmd {
+	p, vp := m.pager(view), m.poolViewport(view)
+	p.listYOffset = vp.YOffset
+	p.expanded = &row
+	m.syncPoolViewportHeights()
+	if view == poolViewList {
+		// The search box is hidden under the detail; it must not keep taking keystrokes.
+		m.poolListSearch.Blur()
+	}
+
+	var cmd tea.Cmd
+	if st, ok := m.poolDetails[row.PoolID]; !ok || (!st.loading && st.err != "") {
+		m.poolDetails[row.PoolID] = &poolDetailState{loading: true}
+		m.logInfo(fmt.Sprintf("Pool details: querying pool %s", shortPoolID(row.PoolID)))
+		cmd = fetchPoolDetailsCmd(m.rpcURL, row.PoolID, int32(row.TickSpacing))
+	}
+	m.refreshPoolView(view)
+	vp.GotoTop()
+	return cmd
+}
+
+// syncPoolViewportHeights sets both pool viewports' heights to what renderUniswapPage
+// will draw: the same m.h/2-4 panel height, minus the panel chrome unless a pool
+// detail is open (the detail covers the whole panel).
+func (m *model) syncPoolViewportHeights() {
+	panelH := helpers.Max(1, m.h/2-4)
+	m.v4EventsViewport.Height = uniswap.V4EventsViewportHeight(panelH, m.v4Pager.expanded != nil)
+	m.poolListViewport.Height = uniswap.PoolListViewportHeight(panelH, m.poolListPager.expanded != nil)
+}
+
+// closePoolDetail returns view's panel to the list at the scroll position it was left at.
+func (m *model) closePoolDetail(view poolViewKind) {
+	p, vp := m.pager(view), m.poolViewport(view)
+	p.expanded = nil
+	m.syncPoolViewportHeights()
+	m.refreshPoolView(view)
+	vp.SetYOffset(p.listYOffset)
+}
+
+// handlePoolCardClick maps a click at content line/col within view's viewport: on the
+// list, a card opens its full-panel detail; on the detail, the ✕ closes it. Returns
 // handled=false when the click wasn't on a card.
-func (m *model) handlePoolCardClick(spans []uniswap.CardSpan, rows []store.PoolRow, expandedID *string, line, col int) (tea.Cmd, bool) {
+func (m *model) handlePoolCardClick(view poolViewKind, line, col int) (tea.Cmd, bool) {
+	p := m.pager(view)
+	spans := m.v4EventsSpans
+	if view == poolViewList {
+		spans = m.poolListSpans
+	}
 	for _, sp := range spans {
 		if line < sp.StartLine || line >= sp.EndLine {
 			continue
 		}
 		if sp.Expanded {
-			if line >= sp.StartLine && line <= sp.CloseLine && col >= sp.CloseX1 && col < sp.CloseX2 {
-				*expandedID = ""
-				m.refreshPoolViewports()
+			if line <= sp.CloseLine && col >= sp.CloseX1 && col < sp.CloseX2 {
+				m.closePoolDetail(view)
 			}
 			return nil, true
 		}
-		*expandedID = sp.PoolID
-		var cmd tea.Cmd
-		if st, ok := m.poolDetails[sp.PoolID]; !ok || (!st.loading && st.err != "") {
-			var tickSpacing int32
-			for _, r := range rows {
-				if r.PoolID == sp.PoolID {
-					tickSpacing = int32(r.TickSpacing)
-					break
-				}
+		for _, r := range p.rows {
+			if r.PoolID == sp.PoolID {
+				return m.openPoolDetail(view, r), true
 			}
-			m.poolDetails[sp.PoolID] = &poolDetailState{loading: true}
-			m.logInfo(fmt.Sprintf("Pool details: querying pool %s", shortPoolID(sp.PoolID)))
-			cmd = fetchPoolDetailsCmd(m.rpcURL, sp.PoolID, tickSpacing)
 		}
-		m.refreshPoolViewports()
-		return cmd, true
+		return nil, true
 	}
 	return nil, false
 }

@@ -55,6 +55,7 @@ func (m *model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	}
 	m.v4EventsViewport.Width = max(0, msg.Width-8)
 	m.poolListViewport.Width = max(0, msg.Width-8)
+	m.syncPoolViewportHeights()
 	m.refreshPoolViewports()
 	m.tokenListViewport.Width = max(0, msg.Width-8)
 	m.txQRViewport.Width = max(0, msg.Width-10)
@@ -218,28 +219,39 @@ func (m *model) handlePoolEventLine(msg poolEventLineMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handlePoolMonitorEvent persists a monitor event off the UI thread: SQLite writes
+// fsync and share the store's single connection with background queries, so a
+// synchronous write here would stall input on every swap.
 func (m *model) handlePoolMonitorEvent(msg poolMonitorEventMsg) (tea.Model, tea.Cmd) {
-	ev := msg.event
-	if m.eventStore != nil {
-		if err := m.eventStore.SaveV4PoolEvent(ev); err != nil {
-			m.logWarn(fmt.Sprintf("[pool-monitor] db write error: %s", err.Error()))
-		}
-	}
 	var cmds []tea.Cmd
 	if m.poolEventMonitorActive && m.poolEventMonitor != nil {
 		cmds = append(cmds, waitForPoolEventData(m.poolEventMonitor))
 	}
-	if m.eventStore != nil && ev.Kind == indexer.V4KindInitialize {
-		cmds = append(cmds, indexERC20TokensCmd(m.eventStore, m.rpcURL, ev.Currency0, ev.Currency1))
-		cmds = append(cmds, loadV4PoolTableCmd(m.eventStore))
+	if m.eventStore != nil {
+		cmds = append(cmds, savePoolEventCmd(m.eventStore, msg.event))
 	}
 	return m, tea.Batch(cmds...)
 }
 
-func (m *model) handleV4PoolTable(msg v4PoolTableMsg) (tea.Model, tea.Cmd) {
-	m.v4PoolRows = msg.rows
-	m.refreshPoolViewports()
-	return m, nil
+// handlePoolEventSaved runs after a monitor event is stored; a new pool (Initialize)
+// triggers token indexing and an in-place reload of any opened pool view.
+func (m *model) handlePoolEventSaved(msg poolEventSavedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.logWarn(fmt.Sprintf("[pool-monitor] db write error: %s", msg.err.Error()))
+		return m, nil
+	}
+	ev := msg.event
+	if ev.Kind != indexer.V4KindInitialize {
+		return m, nil
+	}
+	cmds := []tea.Cmd{indexERC20TokensCmd(m.eventStore, m.rpcURL, ev.Currency0, ev.Currency1)}
+	if m.poolEventMonitorActive {
+		cmds = append(cmds, m.reloadPoolPager(poolViewV4Events))
+	}
+	if m.uniswapShowingPoolList {
+		cmds = append(cmds, m.reloadPoolPager(poolViewList))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m *model) handlePoolDetails(msg poolDetailsMsg) (tea.Model, tea.Cmd) {

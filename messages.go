@@ -184,9 +184,21 @@ type liquidityPositionsMsg struct {
 	err         error
 }
 
-// v4PoolTableMsg carries a freshly-queried snapshot of indexed V4 pools for the events panel
-type v4PoolTableMsg struct {
-	rows []store.PoolRow
+// poolPageMsg carries one page of indexed V4 pools for a lazily-paged pool view.
+// It is applied only if seq still matches the view's pager (stale results are dropped).
+type poolPageMsg struct {
+	view   poolViewKind
+	seq    int
+	offset int
+	rows   []store.PoolRow
+	total  int
+	err    error
+}
+
+// poolEventSavedMsg reports that a pool monitor event was written to the event store.
+type poolEventSavedMsg struct {
+	event indexer.V4PoolEvent
+	err   error
 }
 
 // webcamReadyMsg signals that the camera opened and streaming began

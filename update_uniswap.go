@@ -103,6 +103,10 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Main swap interface controls
 	switch msg.String() {
 	case "esc":
+		if m.poolEventMonitorActive && m.v4Pager.expanded != nil {
+			m.closePoolDetail(poolViewV4Events)
+			return m, nil
+		}
 		if m.poolEventMonitor != nil {
 			m.poolEventMonitor.Stop()
 			m.poolEventMonitor = nil
@@ -317,13 +321,12 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "o", "O":
 		m.uniswapShowingPoolList = true
+		m.poolListPager.query = m.poolListSearch.Value()
+		m.poolListPager.expanded = nil
 		m.poolListViewport.GotoTop()
-		m.refreshPoolViewports()
-		cmds := []tea.Cmd{m.poolListSearch.Focus()}
-		if m.eventStore != nil {
-			cmds = append(cmds, loadV4PoolTableCmd(m.eventStore))
-		}
-		return m, tea.Batch(cmds...)
+		cmd := m.loadPoolPage(poolViewList, 0, poolPageSize)
+		m.refreshPoolView(poolViewList)
+		return m, tea.Batch(m.poolListSearch.Focus(), cmd)
 
 	case "p", "P":
 		if m.poolEventMonitorActive {
@@ -344,9 +347,9 @@ func (m *model) handleUniswapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.logInfo("Pool Event Monitor starting… (requires wss:// RPC endpoint)")
 			var startCmds []tea.Cmd
 			startCmds = append(startCmds, waitForPoolEvent(monitor), waitForPoolEventData(monitor))
-			if m.eventStore != nil {
-				startCmds = append(startCmds, loadV4PoolTableCmd(m.eventStore))
-			}
+			m.v4Pager.expanded = nil
+			m.v4EventsViewport.GotoTop()
+			startCmds = append(startCmds, m.loadPoolPage(poolViewV4Events, 0, poolPageSize))
 			return m, tea.Batch(startCmds...)
 		}
 		return m, nil
@@ -452,10 +455,17 @@ func (m *model) handlePoolListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "esc":
+		if m.poolListPager.expanded != nil {
+			m.closePoolDetail(poolViewList)
+			return m, nil
+		}
 		m.uniswapShowingPoolList = false
 		m.poolListSearch.Blur()
 		return m, nil
 	case "tab":
+		if m.poolListPager.expanded != nil {
+			return m, nil
+		}
 		if m.poolListSearch.Focused() {
 			m.poolListSearch.Blur()
 			return m, nil
@@ -465,6 +475,11 @@ func (m *model) handlePoolListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.poolListViewport, cmd = m.poolListViewport.Update(msg)
 		return m, cmd
+	}
+
+	// The search box is hidden under an open pool detail: ignore tab, "/" and typing.
+	if m.poolListPager.expanded != nil {
+		return m, nil
 	}
 
 	// While the list (not the search box) has focus, all-motion mouse mode is on
@@ -489,8 +504,9 @@ func (m *model) updatePoolListSearch(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	m.poolListSearch, cmd = m.poolListSearch.Update(msg)
 	if m.poolListSearch.Value() != before {
+		m.poolListPager.query = m.poolListSearch.Value()
 		m.poolListViewport.GotoTop()
-		m.refreshPoolViewports()
+		cmd = tea.Batch(cmd, m.loadPoolPage(poolViewList, 0, poolPageSize))
 	}
 	return cmd
 }

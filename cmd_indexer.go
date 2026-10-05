@@ -76,16 +76,16 @@ func waitForV4BlockScanLine(scanner *helpers.V4BlockScanner) tea.Cmd {
 	}
 }
 
-func loadV4PoolTableCmd(s *store.Store) tea.Cmd {
+func loadPoolPageCmd(s *store.Store, view poolViewKind, search string, offset, limit, seq int) tea.Cmd {
 	return func() tea.Msg {
-		if s == nil {
-			return v4PoolTableMsg{}
-		}
-		rows, err := s.V4PoolStats()
-		if err != nil {
-			return v4PoolTableMsg{}
-		}
-		return v4PoolTableMsg{rows: rows}
+		rows, total, err := s.V4PoolStatsPage(search, limit, offset)
+		return poolPageMsg{view: view, seq: seq, offset: offset, rows: rows, total: total, err: err}
+	}
+}
+
+func savePoolEventCmd(s *store.Store, ev indexer.V4PoolEvent) tea.Cmd {
+	return func() tea.Msg {
+		return poolEventSavedMsg{event: ev, err: s.SaveV4PoolEvent(ev)}
 	}
 }
 

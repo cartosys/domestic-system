@@ -300,11 +300,10 @@ type model struct {
 	eventStoreErr string // set if store failed to open
 
 	// V4 Events panel (shown when pool event monitor is active)
-	v4PoolRows       []store.PoolRow
+	v4Pager          poolPager // lazily-paged pool rows for the V4 events panel
 	v4EventsViewport viewport.Model
 	focusedPanel     focusedPanelKind // which panel (V4 events or log) has scroll focus
 	v4Scroll         scrollbar.State  // scrollbar state for the V4 events panel
-	v4EventsExpandedID string            // pool ID of the expanded card in the V4 events panel ("" = none)
 	v4EventsContent    string            // last content set on v4EventsViewport (for click hit-testing)
 	v4EventsSpans      []uniswap.CardSpan // card positions within v4EventsContent
 
@@ -313,10 +312,9 @@ type model struct {
 	poolListSearch         textinput.Model
 	poolListViewport       viewport.Model
 	poolListScroll         scrollbar.State
-	poolListExpandedID     string
 	poolListContent        string
 	poolListSpans          []uniswap.CardSpan
-	poolListShown          int // number of rows after the search filter
+	poolListPager          poolPager // lazily-paged, search-filtered pool rows
 
 	// Live pool-state reads for expanded cards, shared by the Pool List and V4 events views.
 	poolDetails map[string]*poolDetailState

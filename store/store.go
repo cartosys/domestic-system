@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"math/big"
+	"strings"
 
 	"charm-wallet-tui/indexer"
 
@@ -496,9 +497,41 @@ type PoolRow struct {
 	TickSpacing int64
 }
 
-// V4PoolStats returns all indexed pools with aggregated swap and liquidity metrics,
-// ordered by swap count descending.
-func (s *Store) V4PoolStats() ([]PoolRow, error) {
+// v4PoolSearchWhere builds the WHERE clause for a ticker search over the pool's two
+// token symbols (case-insensitive substring). "A/B" requires one side to match A and
+// the other B, in either order. An empty search matches every pool.
+func v4PoolSearchWhere(search string) (string, []any) {
+	q := strings.TrimSpace(search)
+	if q == "" {
+		return "", nil
+	}
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	like := func(v string) string { return "%" + esc.Replace(strings.TrimSpace(v)) + "%" }
+	const s0 = `COALESCE(t0.symbol, '') LIKE ? ESCAPE '\'`
+	const s1 = `COALESCE(t1.symbol, '') LIKE ? ESCAPE '\'`
+	if a, b, ok := strings.Cut(q, "/"); ok {
+		return "WHERE ((" + s0 + " AND " + s1 + ") OR (" + s1 + " AND " + s0 + "))",
+			[]any{like(a), like(b), like(a), like(b)}
+	}
+	return "WHERE (" + s0 + " OR " + s1 + ")", []any{like(q), like(q)}
+}
+
+// V4PoolStatsPage returns one page of indexed pools (newest first) matching search,
+// with per-pool swap and liquidity aggregates, plus the total number of matching pools.
+// Aggregates are per-pool subqueries so only the requested page is aggregated.
+func (s *Store) V4PoolStatsPage(search string, limit, offset int) ([]PoolRow, int, error) {
+	where, args := v4PoolSearchWhere(search)
+
+	var total int
+	if err := s.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM v4_pools p
+		LEFT JOIN erc20_tokens t0 ON t0.address = p.currency0
+		LEFT JOIN erc20_tokens t1 ON t1.address = p.currency1
+		`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := s.db.Query(`
 		SELECT
 			p.pool_id,
@@ -506,28 +539,27 @@ func (s *Store) V4PoolStats() ([]PoolRow, error) {
 			p.tx_hash,
 			COALESCE(t0.symbol, '') AS token0, COALESCE(t0.name, '') AS name0,
 			p.currency0 AS name0_address,
-			COALESCE(SUM(ABS(s.amount0)), 0) AS swap_volume0,
+			(SELECT COALESCE(SUM(ABS(s.amount0)), 0) FROM v4_swaps s WHERE s.pool_id = p.pool_id) AS swap_volume0,
 			COALESCE(t1.symbol, '') AS token1, COALESCE(t1.name, '') AS name1,
 			p.currency1 AS name1_address,
-			COALESCE(SUM(ABS(s.amount1)), 0) AS swap_volume1,
+			(SELECT COALESCE(SUM(ABS(s.amount1)), 0) FROM v4_swaps s WHERE s.pool_id = p.pool_id) AS swap_volume1,
 			p.fee,
 			COALESCE(t0.decimals, 18) AS dec0,
 			COALESCE(t1.decimals, 18) AS dec1,
-			COUNT(DISTINCT s.id)  AS swaps,
-			COUNT(DISTINCT ml.id) AS liq_events,
-			COALESCE(SUM(ABS(ml.liq_delta)), 0) AS liq_volume,
+			(SELECT COUNT(*) FROM v4_swaps s WHERE s.pool_id = p.pool_id) AS swaps,
+			(SELECT COUNT(*) FROM v4_modify_liquidity ml WHERE ml.pool_id = p.pool_id) AS liq_events,
+			(SELECT COALESCE(SUM(ABS(ml.liq_delta)), 0) FROM v4_modify_liquidity ml WHERE ml.pool_id = p.pool_id) AS liq_volume,
 			p.seen_at,
 			p.hooks,
 			p.tick_spacing
 		FROM v4_pools p
-		LEFT JOIN erc20_tokens        t0 ON t0.address = p.currency0
-		LEFT JOIN erc20_tokens        t1 ON t1.address = p.currency1
-		LEFT JOIN v4_swaps            s  ON s.pool_id  = p.pool_id
-		LEFT JOIN v4_modify_liquidity ml ON ml.pool_id = p.pool_id
-		GROUP BY p.pool_id
-		ORDER BY p.seen_at DESC`)
+		LEFT JOIN erc20_tokens t0 ON t0.address = p.currency0
+		LEFT JOIN erc20_tokens t1 ON t1.address = p.currency1
+		`+where+`
+		ORDER BY p.seen_at DESC, p.pool_id
+		LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -546,5 +578,5 @@ func (s *Store) V4PoolStats() ([]PoolRow, error) {
 		}
 		result = append(result, r)
 	}
-	return result, rows.Err()
+	return result, total, rows.Err()
 }

@@ -947,22 +947,23 @@ func (m *model) renderUniswapPage(headerPanel string) (pageContent, nav string) 
 	if m.uniswapShowingPoolList {
 		// PanelStyle adds 4 vertical lines; size like the V4 events panel so the log still fits.
 		plView := uniswap.RenderPoolList(m.w-2, helpers.Max(1, m.h/2-4), m.poolListSearch.View(),
-			m.poolListSearch.Focused(), m.poolListViewport, m.poolListShown, len(m.v4PoolRows))
+			m.poolListSearch.Focused(), m.poolListViewport, len(m.poolListPager.rows), m.poolListPager.total, m.poolListPager.expanded != nil)
 		c := styles.PanelStyle.Width(m.contentW).Render(plView)
 		// Panel border(1) + padding(1) + RenderPoolList header lines above the viewport.
-		m.poolListScroll.PanelTop = lipgloss.Height(headerPanel) + 2 + uniswap.PoolListHeaderLines
+		m.poolListScroll.PanelTop = lipgloss.Height(headerPanel) + 2 + uniswap.PoolListViewportTop(m.poolListPager.expanded != nil)
 		m.poolListScroll.TrackCol = m.poolListViewport.Width + 3
 		return c, navStr
 	}
 	if m.poolEventMonitorActive {
 		// PanelStyle adds 4 vertical lines; RenderV4Events overhead is 4 — so m.h/2-4 yields half-height.
-		v4View := uniswap.RenderV4Events(m.w-2, helpers.Max(1, m.h/2-4), m.v4EventsViewport)
+		v4View := uniswap.RenderV4Events(m.w-2, helpers.Max(1, m.h/2-4), m.v4EventsViewport, m.v4Pager.expanded != nil)
 		borderColor := styles.CBorder
 		if m.focusedPanel == focusedPanelV4Events {
 			borderColor = styles.CAccent
 		}
 		c := styles.PanelStyle.BorderForeground(borderColor).Width(m.contentW).Render(v4View)
-		m.v4Scroll.PanelTop = lipgloss.Height(headerPanel) + 4
+		// Panel border(1) + padding(1) + RenderV4Events lines above the viewport.
+		m.v4Scroll.PanelTop = lipgloss.Height(headerPanel) + 2 + uniswap.V4EventsViewportTop(m.v4Pager.expanded != nil)
 		m.v4Scroll.TrackCol = m.v4EventsViewport.Width + 3
 		return c, navStr
 	}
