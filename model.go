@@ -197,10 +197,17 @@ type model struct {
 	sendFormError         string
 	sendFormErrTime       time.Time
 	sendFormButtonFocused bool // true once Tab has moved focus past the last field onto Submit
+	sendFormMaxFocused    bool // true while Tab focus is on the Max button (between the amount field and Submit)
+	sendMaxPreview        string
+	sendMax               *sendMaxQuote // last Max quote; used while the amount field still holds its value
 
 	// transaction result panel state
 	txResultPackaging  bool
 	txResultHex        string
+	txResultRLP        string // active step's unsigned RLP hex, shown beside the JSON (📋 copies it)
+	txTableLine        int    // first line (top border) of the JSON/RLP table within txQRViewport content; -1 when absent
+	txTableHeight      int    // table height in lines, borders included
+	txTableColX        [3]int // display columns of the table's left, middle and right borders
 	txResultEIP681     string
 	txResultFormat     string
 	txResultError      string

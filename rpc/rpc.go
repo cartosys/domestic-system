@@ -611,6 +611,59 @@ func PackUnsignedTxEIP4527(from common.Address, to common.Address, value *big.In
 	return BuildUnsignedTxEIP4527(from, to, value, gasLimit, data, p.Nonce, p.Tip, p.MaxFee, p.ChainID)
 }
 
+// MaxETHSend is a "send entire balance" ETH transfer: Value is the live
+// balance minus Fee, where Fee = GasLimit × Params.MaxFee — exactly what a node
+// reserves up front, so the packaged tx can never fail for insufficient funds.
+// The unused part of Fee (MaxFee is 2×baseFee+tip) is refunded to the sender,
+// so a small remainder stays in the account.
+type MaxETHSend struct {
+	Params   TxParams
+	GasLimit uint64
+	Value    *big.Int
+	Fee      *big.Int
+}
+
+// ComputeMaxETHSend fetches live balance and fee params and computes the max
+// sendable ETH. A recipient with no code gets the fixed 21000 transfer gas;
+// a contract recipient gets a buffered eth_estimateGas.
+func ComputeMaxETHSend(rpcURL string, from, to common.Address) (MaxETHSend, error) {
+	p, err := FetchTxParams(rpcURL, from)
+	if err != nil {
+		return MaxETHSend{}, err
+	}
+
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return MaxETHSend{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	balance, err := client.BalanceAt(ctx, from, nil)
+	if err != nil {
+		return MaxETHSend{}, err
+	}
+	code, err := client.CodeAt(ctx, to, nil)
+	if err != nil {
+		return MaxETHSend{}, err
+	}
+
+	gasLimit := uint64(21000)
+	if len(code) > 0 {
+		gasLimit, err = EstimateGasWithBuffer(rpcURL, from, to, big.NewInt(1), nil)
+		if err != nil {
+			return MaxETHSend{}, fmt.Errorf("eth_estimateGas: %w", err)
+		}
+	}
+
+	fee := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), p.MaxFee)
+	value := new(big.Int).Sub(balance, fee)
+	if value.Sign() <= 0 {
+		return MaxETHSend{}, fmt.Errorf("balance too low to cover gas (need %s wei)", fee)
+	}
+	return MaxETHSend{Params: p, GasLimit: gasLimit, Value: value, Fee: fee}, nil
+}
+
 // TransactionPackageEIP4527 contains transaction data packaged per EIP-4527
 type TransactionPackageEIP4527 struct {
 	URData  string // UR-encoded CBOR/RLP payload for QR display
@@ -1364,6 +1417,31 @@ func ParsePackagedTxJSON(jsonStr string) (to common.Address, value *big.Int, non
 	copy(requestID[:], reqIDBytes)
 
 	return to, value, nonce, tip, maxFee, gasLimit, chainID, data, requestID, nil
+}
+
+// UnsignedTxRLPHex re-encodes a packaged tx JSON (as produced by
+// BuildUnsignedTxEIP4527) into its unsigned EIP-1559 serialization,
+// 0x02 || rlp([...]) — the same bytes carried in the eth-sign-request QR.
+func UnsignedTxRLPHex(txJSON string) (string, error) {
+	to, value, nonce, tip, maxFee, gasLimit, chainID, data, _, err := ParsePackagedTxJSON(txJSON)
+	if err != nil {
+		return "", err
+	}
+	rlpBytes, err := rlp.EncodeToBytes(&rlpEIP1559UnsignedTx{
+		ChainID:              chainID,
+		Nonce:                nonce,
+		MaxPriorityFeePerGas: tip,
+		MaxFeePerGas:         maxFee,
+		Gas:                  gasLimit,
+		To:                   to,
+		Value:                value,
+		Data:                 data,
+		AccessList:           []struct{}{},
+	})
+	if err != nil {
+		return "", err
+	}
+	return "0x02" + hex.EncodeToString(rlpBytes), nil
 }
 
 // AssembleSignedTx recombines a 65-byte EIP-4527 eth-signature (r||s||v)

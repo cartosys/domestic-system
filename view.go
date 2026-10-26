@@ -218,6 +218,34 @@ func (m *model) renderTxResultContent() string {
 	if m.txCopiedMsg != "" {
 		result += "\n" + lipgloss.NewStyle().Foreground(styles.CSuccess).Bold(true).Render(m.txCopiedMsg)
 	}
+
+	// Each JSON/RLP table cell is a click-to-copy region over its visible
+	// rows. Screen position is measured from the strings actually rendered
+	// here, matching renderTxResultPanel's layout: the panel (border 1 +
+	// padding 1 top, 1 + 2 left) is centred on screen with lipgloss's floor
+	// split, and each content line is centred within its m.w-8 content width.
+	if m.txTableLine >= 0 {
+		panelTop := helpers.Max(0, (m.h-(lipgloss.Height(result)+4))/2)
+		vpTop := panelTop + 2 + lipgloss.Height(title+"\n\n"+qrSection)
+		vpLeft := 4 + (helpers.Max(0, m.w-8)-lipgloss.Width(vpContent))/2
+		first := helpers.Max(m.txTableLine, vp.YOffset)
+		last := min(m.txTableLine+m.txTableHeight, vp.YOffset+vpH) // exclusive
+		if first < last {
+			y1, y2 := vpTop+first-vp.YOffset, vpTop+last-vp.YOffset
+			if m.txResultHex != "" {
+				m.registerRegion("txResult.copyJSON", uiRegionButton, vpLeft+m.txTableColX[0], y1, vpLeft+m.txTableColX[1], y2, func(m *model) (tea.Model, tea.Cmd) {
+					m.logInfo("Copied transaction JSON to clipboard")
+					return m, copyTxJsonToClipboard(m.txResultHex)
+				})
+			}
+			if m.txResultRLP != "" {
+				m.registerRegion("txResult.copyRLP", uiRegionButton, vpLeft+m.txTableColX[1]+1, y1, vpLeft+m.txTableColX[2]+1, y2, func(m *model) (tea.Model, tea.Cmd) {
+					m.logInfo("Copied RLP hex to clipboard")
+					return m, copyTxJsonToClipboard(m.txResultRLP)
+				})
+			}
+		}
+	}
 	return result
 }
 
@@ -501,16 +529,29 @@ func (m *model) renderSendTxPopup() string {
 		btnStyle = styles.ButtonActive
 	}
 	submitBtn := btnStyle.Render("Submit")
+	maxBtnStyle := styles.ButtonNormal
+	if m.hoveredRegionID == "sendPopup.max" || m.sendFormMaxFocused {
+		maxBtnStyle = styles.ButtonActive
+	}
+	maxBtn := maxBtnStyle.Render("Max")
+	const btnGap = "   "
 	btnRow := lipgloss.NewStyle().
 		Width(SendFormPopupWidth - 8).
 		Align(lipgloss.Center).
-		Render(submitBtn)
+		Render(lipgloss.JoinHorizontal(lipgloss.Top, maxBtn, btnGap, submitBtn))
 
 	hints := lipgloss.NewStyle().Foreground(styles.CMuted).Render(
 		styles.HotkeyStyle.Render("Tab") + " next   " +
 			styles.HotkeyStyle.Render("Enter") + " continue   " +
+			styles.HotkeyStyle.Render("Alt+M") + " max   " +
 			styles.HotkeyStyle.Render("Esc") + " cancel",
 	)
+
+	var maxLine string
+	if m.sendMaxPreview != "" && (m.sendMax == nil || m.sendMaxActive()) {
+		maxLine = "\n" + lipgloss.NewStyle().Foreground(styles.CAccent2).
+			Width(SendFormPopupWidth - 8).Align(lipgloss.Center).Render(m.sendMaxPreview)
+	}
 
 	var errLine string
 	if m.sendFormError != "" && time.Since(m.sendFormErrTime) < 3*time.Second {
@@ -518,7 +559,7 @@ func (m *model) renderSendTxPopup() string {
 			Width(SendFormPopupWidth - 8).Align(lipgloss.Center).Render(m.sendFormError)
 	}
 
-	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", formView, "", btnRow, errLine, "", hints)
+	ui := lipgloss.JoinVertical(lipgloss.Left, title, "", formView, "", btnRow, maxLine, errLine, "", hints)
 	dialog := styles.DialogBox.Padding(1, 2).Render(ui)
 
 	dialogW := lipgloss.Width(dialog)
@@ -532,8 +573,14 @@ func (m *model) renderSendTxPopup() string {
 	btnRowY := dialogStartY + 2 + btnRowOffset
 
 	rowWidth := SendFormPopupWidth - 8
+	maxWidth := lipgloss.Width(maxBtn)
 	btnWidth := lipgloss.Width(submitBtn)
-	btnX1 := contentLeft + (rowWidth-btnWidth)/2
+	maxX1 := contentLeft + (rowWidth-(maxWidth+len(btnGap)+btnWidth))/2
+	maxX2 := maxX1 + maxWidth
+	m.registerRegion("sendPopup.max", uiRegionButton, maxX1, btnRowY, maxX2, btnRowY+1, func(m *model) (tea.Model, tea.Cmd) {
+		return m.applySendMax()
+	})
+	btnX1 := maxX2 + len(btnGap)
 	btnX2 := btnX1 + btnWidth
 	m.registerRegion("sendPopup.submit", uiRegionButton, btnX1, btnRowY, btnX2, btnRowY+1, func(m *model) (tea.Model, tea.Cmd) {
 		return m.trySubmitSendForm()

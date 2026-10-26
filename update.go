@@ -716,9 +716,10 @@ func (m *model) handleMouseLeft(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.activeDialog == dialogTxResult && m.txResultHex != "" {
-		m.logInfo("Copied transaction JSON to clipboard")
-		return m, copyTxJsonToClipboard(m.txResultHex)
+	// Copying is only via the table's 📋 icons (registered regions) or Ctrl+C;
+	// swallow other clicks so they don't reach the page behind the dialog.
+	if m.activeDialog == dialogTxResult {
+		return m, nil
 	}
 	if m.activePage == config.PageDetails && m.details.Address != "" && msg.Y == m.addressLineY {
 		return m, copyToClipboard(m.details.Address)

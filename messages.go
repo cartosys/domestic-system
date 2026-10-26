@@ -86,6 +86,25 @@ type packageTransactionMsg struct {
 	err          error
 }
 
+// sendMaxPreviewMsg contains the estimated max-send amount for the send popup
+type sendMaxPreviewMsg struct {
+	mx  rpc.MaxETHSend
+	to  string
+	err error
+}
+
+// sendFormRefreshMsg is a no-op message used to make huh rebuild the send
+// form's cached view after a field value is set programmatically.
+type sendFormRefreshMsg struct{}
+
+// sendMaxQuote is a Max-button quote plus the amount string it filled in and
+// the recipient it was computed for.
+type sendMaxQuote struct {
+	rpc.MaxETHSend
+	amount string
+	to     string
+}
+
 // terraNullClaimsCountMsg contains the result of a number_of_claims() call
 type terraNullClaimsCountMsg struct {
 	count *big.Int

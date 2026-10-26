@@ -10,11 +10,14 @@ import (
 	"charm-wallet-tui/config"
 	"charm-wallet-tui/helpers"
 	"charm-wallet-tui/indexer"
+	"charm-wallet-tui/rpc"
 	"charm-wallet-tui/styles"
 	"charm-wallet-tui/views/txqr"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -59,6 +62,12 @@ func (m *model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.refreshPoolViewports()
 	m.tokenListViewport.Width = max(0, msg.Width-8)
 	m.txQRViewport.Width = max(0, msg.Width-10)
+	if m.activeDialog == dialogTxResult && m.txResultHex != "" {
+		// The JSON/RLP table is sized to the viewport width; rebuild it.
+		yOffset := m.txQRViewport.YOffset
+		m.setTxViewportContent()
+		m.txQRViewport.SetYOffset(yOffset)
+	}
 	return m, nil
 }
 
@@ -140,36 +149,100 @@ func (m *model) handlePackageTransaction(msg packageTransactionMsg) (tea.Model, 
 // setTxViewportContent rebuilds the scrollable text content for the tx result
 // dialog from current model state.
 func (m *model) setTxViewportContent() {
-	labelStyle := lipgloss.NewStyle().Foreground(styles.CSuccess)
 	muteStyle := lipgloss.NewStyle().Foreground(styles.CMuted)
 	warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true)
 	stepStyle := lipgloss.NewStyle().Foreground(styles.CAccent2).Bold(true)
 
-	var content string
+	var prefix, tbl, suffix string
 	if m.txApproveQRFrames != nil {
 		if !m.txSwapStep {
-			content = stepStyle.Render("Step 1 of 2: Approve token spend") + "\n" +
-				warnStyle.Render("Sign and broadcast this transaction before the swap.") + "\n\n" +
-				labelStyle.Render("Approve transaction (JSON):") + "\n\n" +
-				m.txApproveJSON + "\n\n" +
+			prefix = stepStyle.Render("Step 1 of 2: Approve token spend") + "\n" +
+				warnStyle.Render("Sign and broadcast this transaction before the swap.") + "\n\n"
+			tbl = m.renderTxDataTable("Approve transaction (JSON):", m.txApproveJSON)
+			suffix = "\n\n" +
 				muteStyle.Render("Scan the animated QR • Ctrl+C to copy JSON • Tab → Step 2 • ESC to close")
 		} else {
-			content = stepStyle.Render("Step 2 of 2: Swap") + "\n" +
+			prefix = stepStyle.Render("Step 2 of 2: Swap") + "\n" +
 				muteStyle.Render("Sign after the approve (Step 1) has confirmed on-chain.") + "\n\n" +
-				m.txSwapSummary + "\n\n" +
-				labelStyle.Render("Swap transaction (JSON):") + "\n\n" +
-				m.txSwapJSON + "\n\n" +
+				m.txSwapSummary + "\n\n"
+			tbl = m.renderTxDataTable("Swap transaction (JSON):", m.txSwapJSON)
+			suffix = "\n\n" +
 				muteStyle.Render("Scan the animated QR • Ctrl+C to copy JSON • Tab → Step 1 • ESC to close")
 		}
 	} else {
-		content = m.txSwapSummary + "\n\n" +
-			labelStyle.Render("Transaction data (JSON):") + "\n\n" +
-			m.txResultHex + "\n\n" +
+		prefix = m.txSwapSummary + "\n\n"
+		tbl = m.renderTxDataTable("Transaction data (JSON):", m.txResultHex)
+		suffix = "\n\n" +
 			muteStyle.Render("Scan the animated QR with your air-gapped wallet to sign") + "\n" +
 			muteStyle.Render("↑/↓ or j/k to scroll • Ctrl+C to copy • Enter to scan response • ESC to close")
 	}
-	m.txQRViewport.SetContent(content)
+	if m.txTableLine >= 0 {
+		m.txTableLine += strings.Count(prefix, "\n")
+	}
+	m.txQRViewport.SetContent(prefix + tbl + suffix)
 	m.txQRViewport.GotoTop()
+}
+
+// renderTxDataTable renders a packaged tx as a single-row, two-cell table:
+// its JSON on the left and its unsigned RLP hex (with a 📋 copy icon) on the
+// right, each titled with a 📋 copy icon (clicking anywhere in a cell copies
+// it). It sets m.txResultRLP to the hex, and m.txTableLine/Height/ColX to the
+// table's extent within the returned string, for click hit-testing in
+// renderTxResultContent.
+func (m *model) renderTxDataTable(jsonLabel, txJSON string) string {
+	labelStyle := lipgloss.NewStyle().Foreground(styles.CSuccess)
+	warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true)
+
+	rlpHex, rlpErr := rpc.UnsignedTxRLPHex(txJSON)
+	m.txResultRLP = rlpHex
+
+	// Inner width left for cell text after 3 vertical borders + (0,1) padding on both cells.
+	avail := max(2, m.txQRViewport.Width-7)
+	// JSON keeps its natural width when it fits; the hex (which can break
+	// anywhere) takes the rest, but never less than its own title line.
+	const rlpTitleText = "RLP Encoded Hex String"
+	minHexW := lipgloss.Width(rlpTitleText + " 📋")
+	jsonW := lipgloss.Width(jsonLabel + " 📋")
+	for _, line := range strings.Split(txJSON, "\n") {
+		jsonW = max(jsonW, lipgloss.Width(line))
+	}
+	jsonW = max(1, min(jsonW, avail-minHexW))
+	hexW := max(1, avail-jsonW)
+
+	jsonCell := labelStyle.Render(jsonLabel) + " 📋\n\n" + ansi.Hardwrap(txJSON, jsonW, true)
+	rlpTitle := labelStyle.Render(rlpTitleText)
+	var rlpCell string
+	if rlpErr != nil {
+		rlpCell = rlpTitle + "\n\n" + warnStyle.Render(ansi.Hardwrap(rlpErr.Error(), hexW, true))
+	} else {
+		var chunks []string
+		for s := rlpHex; s != ""; {
+			n := min(hexW, len(s))
+			chunks = append(chunks, s[:n])
+			s = s[n:]
+		}
+		rlpCell = rlpTitle + " 📋\n\n" + strings.Join(chunks, "\n")
+	}
+
+	rendered := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(styles.CBorder)).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			return lipgloss.NewStyle().Padding(0, 1)
+		}).
+		Row(jsonCell, rlpCell).
+		String()
+
+	// Column bounds come from the top border's own corner/junction runes.
+	m.txTableLine = -1
+	top := ansi.Strip(strings.SplitN(rendered, "\n", 2)[0])
+	l, mid, r := strings.Index(top, "┌"), strings.Index(top, "┬"), strings.Index(top, "┐")
+	if l >= 0 && mid > l && r > mid {
+		m.txTableLine = 0
+		m.txTableHeight = lipgloss.Height(rendered)
+		m.txTableColX = [3]int{ansi.StringWidth(top[:l]), ansi.StringWidth(top[:mid]), ansi.StringWidth(top[:r])}
+	}
+	return rendered
 }
 
 func (m *model) handleQRAnimTick() (tea.Model, tea.Cmd) {

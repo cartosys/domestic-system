@@ -21,6 +21,9 @@ func (m *model) createSendForm() {
 	tempSendAmount = ""
 	m.sendFormError = ""
 	m.sendFormButtonFocused = false
+	m.sendFormMaxFocused = false
+	m.sendMaxPreview = ""
+	m.sendMax = nil
 
 	addrField := huh.NewInput().
 		Title("Send To").
@@ -77,12 +80,35 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if pm, ok := msg.(sendMaxPreviewMsg); ok {
+		if pm.err != nil {
+			m.sendMaxPreview = "Max unavailable: " + pm.err.Error()
+			return m, nil
+		}
+		amount := formatWeiExact(pm.mx.Value)
+		m.sendMax = &sendMaxQuote{MaxETHSend: pm.mx, amount: amount, to: pm.to}
+		tempSendAmount = amount
+		if in, ok := m.sendFormFields[len(m.sendFormFields)-1].(*huh.Input); ok {
+			in.Value(&tempSendAmount)
+		}
+		m.sendMaxPreview = fmt.Sprintf("%s reserved for gas", helpers.FormatETH(pm.mx.Fee))
+		// huh.Group renders from a viewport cache that's only rebuilt inside
+		// Update; while the Max/Submit button holds focus no message reaches
+		// the form, so push a no-op through to redraw the new amount.
+		form, cmd := m.sendForm.Update(sendFormRefreshMsg{})
+		if f, ok := form.(*huh.Form); ok {
+			m.sendForm = f
+		}
+		return m, cmd
+	}
+
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		// Intercept ESC key to cancel form
 		if keyMsg.String() == "esc" {
 			m.activeDialog = dialogNone
 			m.sendForm = nil
 			m.sendFormButtonFocused = false
+			m.sendFormMaxFocused = false
 			return m, cmdEnableMouseAllMotion()
 		}
 
@@ -92,7 +118,7 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// field's Update twice for any non-KeyMsg message — once via its
 		// broadcast-to-all-fields branch, once via its focused-field branch
 		// — which double-inserts the pasted text.
-		if keyMsg.String() == "ctrl+v" && !m.sendFormButtonFocused {
+		if keyMsg.String() == "ctrl+v" && !m.sendFormButtonFocused && !m.sendFormMaxFocused {
 			text, err := clipboard.ReadAll()
 			switch {
 			case err != nil:
@@ -108,7 +134,26 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if keyMsg.String() == "alt+m" {
+			return m.applySendMax()
+		}
+
 		lastField := m.sendFormFields[len(m.sendFormFields)-1]
+
+		if m.sendFormMaxFocused {
+			// Focus is on the Max button — same key handling as Submit below.
+			switch keyMsg.String() {
+			case "enter", " ":
+				return m.applySendMax()
+			case "tab":
+				m.sendFormMaxFocused = false
+				m.sendFormButtonFocused = true
+			case "shift+tab":
+				m.sendFormMaxFocused = false
+				return m, lastField.Focus()
+			}
+			return m, nil
+		}
 
 		if m.sendFormButtonFocused {
 			// Focus is on the Submit button, not a text field — handle the
@@ -121,16 +166,16 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, focusHuhField(m.sendForm, m.sendFormFields, 0)
 			case "shift+tab":
 				m.sendFormButtonFocused = false
-				return m, focusHuhField(m.sendForm, m.sendFormFields, len(m.sendFormFields)-1)
+				m.sendFormMaxFocused = true
 			}
 			return m, nil
 		}
 
 		// Tab on the last field would otherwise complete the form directly
 		// (huh treats Tab/Enter on the last field of the only group as
-		// submit); intercept it here so Tab stops on the Submit button first.
+		// submit); intercept it here so Tab stops on the Max button first.
 		if keyMsg.String() == "tab" && m.sendForm.GetFocusedField() == lastField {
-			m.sendFormButtonFocused = true
+			m.sendFormMaxFocused = true
 			return m, lastField.Blur()
 		}
 	}
@@ -149,7 +194,7 @@ func (m *model) handleSendFormMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.txResultHex = ""
 			m.txResultError = ""
 			m.txResultFormat = "EIP-4527"
-			return m, tea.Batch(packageTransaction(m.activeAddress, tempSendToAddr, tempSendAmount, m.rpcURL), cmdEnableMouseAllMotion())
+			return m, tea.Batch(m.sendPackageCmd(tempSendToAddr), cmdEnableMouseAllMotion())
 		}
 
 		// Check if form was aborted (ESC pressed)
@@ -207,7 +252,47 @@ func (m *model) trySubmitSendForm() (tea.Model, tea.Cmd) {
 	m.txResultHex = ""
 	m.txResultError = ""
 	m.txResultFormat = "EIP-4527"
-	return m, tea.Batch(packageTransaction(m.activeAddress, addr, tempSendAmount, m.rpcURL), cmdEnableMouseAllMotion())
+	return m, tea.Batch(m.sendPackageCmd(addr), cmdEnableMouseAllMotion())
+}
+
+// sendMaxActive reports whether the amount field still holds the exact value
+// the Max button filled in.
+func (m *model) sendMaxActive() bool {
+	return m.sendMax != nil && strings.TrimSpace(tempSendAmount) == m.sendMax.amount
+}
+
+// sendPackageCmd returns the packaging cmd for the send form's current amount.
+// An untouched Max amount is packaged from the quote's own gas limit and fees,
+// so value + gasLimit×maxFee still fits the balance; if the recipient changed
+// since the quote (gas limit may differ), the max is recomputed live instead.
+func (m *model) sendPackageCmd(toAddr string) tea.Cmd {
+	if m.sendMaxActive() {
+		if strings.EqualFold(toAddr, m.sendMax.to) {
+			return packageMaxQuote(m.activeAddress, toAddr, m.sendMax.MaxETHSend)
+		}
+		return packageMaxTransaction(m.activeAddress, toAddr, m.rpcURL)
+	}
+	return packageTransaction(m.activeAddress, toAddr, tempSendAmount, m.rpcURL)
+}
+
+// applySendMax kicks off a max-send quote; the amount field is filled in with
+// the computed value when sendMaxPreviewMsg arrives.
+func (m *model) applySendMax() (tea.Model, tea.Cmd) {
+	m.sendMax = nil
+	m.sendMaxPreview = "Estimating max…"
+	return m, estimateMaxSend(m.activeAddress, strings.TrimSpace(tempSendToAddr), m.rpcURL)
+}
+
+// formatWeiExact renders wei as a full-precision ETH decimal string (no
+// rounding), trailing zeros trimmed.
+func formatWeiExact(wei *big.Int) string {
+	q, r := new(big.Int).QuoRem(wei, big.NewInt(1e18), new(big.Int))
+	frac := r.String()
+	frac = strings.TrimRight(strings.Repeat("0", 18-len(frac))+frac, "0")
+	if frac == "" {
+		return q.String()
+	}
+	return q.String() + "." + frac
 }
 
 // confirmDeleteWalletYes deletes the wallet pending confirmation. Shared by

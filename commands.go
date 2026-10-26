@@ -68,6 +68,55 @@ func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string
 	}
 }
 
+// packageMaxTransaction packages an ETH transfer of the entire balance minus
+// the reserved gas fee. Balance and fees are fetched here, at packaging time,
+// so the value and the tx's own fee fields come from the same snapshot.
+func packageMaxTransaction(fromAddr, toAddr string, rpcURL string) tea.Cmd {
+	return func() tea.Msg {
+		from := common.HexToAddress(fromAddr)
+		to := common.HexToAddress(toAddr)
+		mx, err := rpc.ComputeMaxETHSend(rpcURL, from, to)
+		if err != nil {
+			return packageTransactionMsg{err: err}
+		}
+		return buildMaxTransactionMsg(from, to, toAddr, mx)
+	}
+}
+
+// packageMaxQuote packages a max send from an existing quote, so the packaged
+// value matches exactly what the Max button put in the amount field.
+func packageMaxQuote(fromAddr, toAddr string, mx rpc.MaxETHSend) tea.Cmd {
+	return func() tea.Msg {
+		return buildMaxTransactionMsg(common.HexToAddress(fromAddr), common.HexToAddress(toAddr), toAddr, mx)
+	}
+}
+
+func buildMaxTransactionMsg(from, to common.Address, toAddr string, mx rpc.MaxETHSend) packageTransactionMsg {
+	urStr, txJSON, err := rpc.BuildUnsignedTxEIP4527(from, to, mx.Value, mx.GasLimit, nil, mx.Params.Nonce, mx.Params.Tip, mx.Params.MaxFee, mx.Params.ChainID)
+	if err != nil {
+		return packageTransactionMsg{err: err}
+	}
+	summary := fmt.Sprintf("ETH Transfer (max): %s → %s (gas reserved: %s)", helpers.FormatETH(mx.Value), toAddr, helpers.FormatETH(mx.Fee))
+	return packageTransactionMsg{txDisplay: summary, txJSON: txJSON, qrData: urStr, format: "EIP-4527"}
+}
+
+// estimateMaxSend computes a preview of the max sendable amount for the send
+// popup. toAddr may still be empty/invalid; the zero address (no code) then
+// stands in, giving the plain 21000-gas transfer estimate.
+func estimateMaxSend(fromAddr, toAddr string, rpcURL string) tea.Cmd {
+	return func() tea.Msg {
+		to := common.Address{}
+		if helpers.IsValidEthAddress(toAddr) {
+			to = common.HexToAddress(toAddr)
+		}
+		mx, err := rpc.ComputeMaxETHSend(rpcURL, common.HexToAddress(fromAddr), to)
+		if err != nil {
+			return sendMaxPreviewMsg{err: err}
+		}
+		return sendMaxPreviewMsg{mx: mx, to: toAddr}
+	}
+}
+
 // packageSwapTransaction packages a Uniswap V2 swap as an EIP-4527 QR payload.
 // chainID picks the network-appropriate router/WETH addresses (mainnet vs Sepolia).
 // When the ERC-20 allowance is insufficient an approve tx is packaged at nonce N
