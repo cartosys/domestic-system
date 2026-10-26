@@ -179,6 +179,7 @@ func (m *model) setTxViewportContent() {
 	if m.txTableLine >= 0 {
 		m.txTableLine += strings.Count(prefix, "\n")
 	}
+	m.txQRViewport.Height = m.txQRViewportHeight()
 	m.txQRViewport.SetContent(prefix + tbl + suffix)
 	m.txQRViewport.GotoTop()
 }

@@ -184,50 +184,32 @@ func (m *model) renderTxResultContent() string {
 			"\n\n" + muteStyle.Render("Press ESC or Enter to close")
 	}
 
-	// Animated QR section: show current frame, centred, with frame counter.
-	var qrSection string
-	if len(m.txQRFrames) > 0 {
-		qr := m.txQRFrames[m.txQRFrameIdx]
-		if len(m.txQRFrames) > 1 {
-			counter := lipgloss.NewStyle().
-				Foreground(styles.CMuted).
-				Render(fmt.Sprintf("Frame %d / %d", m.txQRFrameIdx+1, len(m.txQRFrames)))
-			qrSection = qr + counter
-		} else {
-			qrSection = qr
-		}
-	}
-	qrH := lipgloss.Height(qrSection)
+	qrSection := m.txQRSection()
 
-	// Remaining vertical space goes to the scrollable text viewport.
-	// Overhead: title(1) + blank(1) + qr + blank(1) + panel borders+padding(4) + slack(1) = qrH+8
-	vpH := helpers.Max(3, m.h-qrH-8)
+	// Viewport height is kept in sync by setTxViewportContent (see txQRViewportHeight).
 	vp := m.txQRViewport
-	vp.Height = vpH
+	vpH := vp.Height
 	track := scrollbar.Track(vpH, vp.TotalLineCount(), vp.YOffset)
 	vpContent := scrollbar.Decorate(vp.View(), track)
-
-	// Viewport scroll tracking: panel is vertically centred; viewport starts
-	// after title(1) + blank(1) + qrSection + blank(1) + panel top border+padding(2) = qrH+5
-	totalPanelH := 1 + 1 + qrH + 1 + vpH + 4 // title+blank+qr+blank+vp+borders/padding
-	panelTop := (m.h - totalPanelH) / 2
-	m.txQRScroll.PanelTop = panelTop + 2 + 1 + qrH + 1 // panel top + border+padding + qr + blank
-	m.txQRScroll.TrackCol = m.txQRViewport.Width + 3
 
 	result := title + "\n\n" + qrSection + "\n" + vpContent
 	if m.txCopiedMsg != "" {
 		result += "\n" + lipgloss.NewStyle().Foreground(styles.CSuccess).Bold(true).Render(m.txCopiedMsg)
 	}
 
-	// Each JSON/RLP table cell is a click-to-copy region over its visible
-	// rows. Screen position is measured from the strings actually rendered
-	// here, matching renderTxResultPanel's layout: the panel (border 1 +
-	// padding 1 top, 1 + 2 left) is centred on screen with lipgloss's floor
-	// split, and each content line is centred within its m.w-8 content width.
+	// Screen position of the viewport, measured from the strings actually
+	// rendered here, matching renderTxResultPanel's layout: the panel (border
+	// 1 + padding 1 top, 1 + 2 left) is centred on screen with lipgloss's
+	// floor split, and each content line is centred within its m.w-8 content
+	// width. Decorate puts the track one space right of the viewport.
+	panelTop := helpers.Max(0, (m.h-(lipgloss.Height(result)+4))/2)
+	vpTop := panelTop + 2 + lipgloss.Height(title+"\n\n"+qrSection)
+	vpLeft := 4 + (helpers.Max(0, m.w-8)-lipgloss.Width(vpContent))/2
+	m.txQRScroll.PanelTop = vpTop
+	m.txQRScroll.TrackCol = vpLeft + vp.Width + 1
+
+	// Each JSON/RLP table cell is a click-to-copy region over its visible rows.
 	if m.txTableLine >= 0 {
-		panelTop := helpers.Max(0, (m.h-(lipgloss.Height(result)+4))/2)
-		vpTop := panelTop + 2 + lipgloss.Height(title+"\n\n"+qrSection)
-		vpLeft := 4 + (helpers.Max(0, m.w-8)-lipgloss.Width(vpContent))/2
 		first := helpers.Max(m.txTableLine, vp.YOffset)
 		last := min(m.txTableLine+m.txTableHeight, vp.YOffset+vpH) // exclusive
 		if first < last {
@@ -247,6 +229,29 @@ func (m *model) renderTxResultContent() string {
 		}
 	}
 	return result
+}
+
+// txQRSection renders the current animated QR frame, with a frame counter
+// when there's more than one.
+func (m *model) txQRSection() string {
+	if len(m.txQRFrames) == 0 {
+		return ""
+	}
+	qr := m.txQRFrames[m.txQRFrameIdx]
+	if len(m.txQRFrames) > 1 {
+		counter := lipgloss.NewStyle().
+			Foreground(styles.CMuted).
+			Render(fmt.Sprintf("Frame %d / %d", m.txQRFrameIdx+1, len(m.txQRFrames)))
+		return qr + counter
+	}
+	return qr
+}
+
+// txQRViewportHeight is the space left for the tx result's scrollable text
+// below the QR. Overhead: title(1) + blank(1) + qr + panel borders+padding(4)
+// + room for the copied-to-clipboard line and slack (2) = qrH+8.
+func (m *model) txQRViewportHeight() int {
+	return helpers.Max(3, m.h-lipgloss.Height(m.txQRSection())-8)
 }
 
 func (m *model) renderTxResultPanel() string {
