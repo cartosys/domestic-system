@@ -268,11 +268,11 @@ func (m *model) sendMaxActive() bool {
 func (m *model) sendPackageCmd(toAddr string) tea.Cmd {
 	if m.sendMaxActive() {
 		if strings.EqualFold(toAddr, m.sendMax.to) {
-			return packageMaxQuote(m.activeAddress, toAddr, m.sendMax.MaxETHSend)
+			return packageMaxQuote(m.details.Address, toAddr, m.sendMax.MaxETHSend)
 		}
-		return packageMaxTransaction(m.activeAddress, toAddr, m.rpcURL)
+		return packageMaxTransaction(m.details.Address, toAddr, m.rpcURL)
 	}
-	return packageTransaction(m.activeAddress, toAddr, tempSendAmount, m.rpcURL)
+	return packageTransaction(m.details.Address, toAddr, tempSendAmount, m.rpcURL)
 }
 
 // applySendMax kicks off a max-send quote; the amount field is filled in with
@@ -280,7 +280,7 @@ func (m *model) sendPackageCmd(toAddr string) tea.Cmd {
 func (m *model) applySendMax() (tea.Model, tea.Cmd) {
 	m.sendMax = nil
 	m.sendMaxPreview = "Estimating max…"
-	return m, estimateMaxSend(m.activeAddress, strings.TrimSpace(tempSendToAddr), m.rpcURL)
+	return m, estimateMaxSend(m.details.Address, strings.TrimSpace(tempSendToAddr), m.rpcURL)
 }
 
 // formatWeiExact renders wei as a full-precision ETH decimal string (no

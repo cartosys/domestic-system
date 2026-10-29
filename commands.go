@@ -51,9 +51,12 @@ func fetchTokenMetadata(client *rpc.Client, addr common.Address) tea.Cmd {
 // packageTransaction packages an ETH transfer as an EIP-4527 QR payload.
 func packageTransaction(fromAddr, toAddr string, ethAmount string, rpcURL string) tea.Cmd {
 	return func() tea.Msg {
-		amountFloat := new(big.Float)
-		amountFloat.SetString(ethAmount)
-		amountWei, _ := new(big.Float).Mul(amountFloat, big.NewFloat(1e18)).Int(nil)
+		amountRat, ok := new(big.Rat).SetString(ethAmount)
+		if !ok {
+			return packageTransactionMsg{err: fmt.Errorf("invalid amount %q", ethAmount)}
+		}
+		amountRat.Mul(amountRat, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)))
+		amountWei := new(big.Int).Quo(amountRat.Num(), amountRat.Denom())
 
 		urStr, txJSON, err := rpc.PackUnsignedTxEIP4527(
 			common.HexToAddress(fromAddr),
