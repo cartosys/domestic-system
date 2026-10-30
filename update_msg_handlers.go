@@ -184,45 +184,89 @@ func (m *model) setTxViewportContent() {
 	m.txQRViewport.GotoTop()
 }
 
-// renderTxDataTable renders a packaged tx as a single-row, two-cell table:
-// its JSON on the left and its unsigned RLP hex (with a 📋 copy icon) on the
-// right, each titled with a 📋 copy icon (clicking anywhere in a cell copies
-// it). It sets m.txResultRLP to the hex, and m.txTableLine/Height/ColX to the
-// table's extent within the returned string, for click hit-testing in
-// renderTxResultContent.
+// renderTxDataTable renders a packaged tx as a single-row, three-cell table:
+// its JSON, its unsigned RLP hex, and the equivalent `cast mktx` command, each
+// titled with a 📋 copy icon (clicking anywhere in a cell copies it). Column
+// widths are shared out from the viewport width and the cells re-wrap to fit.
+// It sets m.txResultRLP/txResultCast to the copied values, and
+// m.txTableLine/Height/ColX to the table's extent within the returned string,
+// for click hit-testing in renderTxResultContent.
 func (m *model) renderTxDataTable(jsonLabel, txJSON string) string {
 	labelStyle := lipgloss.NewStyle().Foreground(styles.CSuccess)
 	warnStyle := lipgloss.NewStyle().Foreground(styles.CWarn).Bold(true)
 
 	rlpHex, rlpErr := rpc.UnsignedTxRLPHex(txJSON)
 	m.txResultRLP = rlpHex
+	castCmd, castErr := rpc.CastMktxCommand(txJSON)
+	m.txResultCast = castCmd
 
-	// Inner width left for cell text after 3 vertical borders + (0,1) padding on both cells.
-	avail := max(2, m.txQRViewport.Width-7)
-	// JSON keeps its natural width when it fits; the hex (which can break
-	// anywhere) takes the rest, but never less than its own title line.
 	const rlpTitleText = "RLP Encoded Hex String"
-	minHexW := lipgloss.Width(rlpTitleText + " 📋")
-	jsonW := lipgloss.Width(jsonLabel + " 📋")
+	const castTitleText = "Sign with Foundry (cast mktx)"
+	titles := [3]string{jsonLabel, rlpTitleText, castTitleText}
+	natural := [3]int{0, len(rlpHex), len(castCmd)}
 	for _, line := range strings.Split(txJSON, "\n") {
-		jsonW = max(jsonW, lipgloss.Width(line))
+		natural[0] = max(natural[0], lipgloss.Width(line))
 	}
-	jsonW = max(1, min(jsonW, avail-minHexW))
-	hexW := max(1, avail-jsonW)
+	if rlpErr != nil {
+		natural[1] = len(rlpErr.Error())
+	}
+	if castErr != nil {
+		natural[2] = len(castErr.Error())
+	}
+	for i := range natural {
+		natural[i] = max(natural[i], lipgloss.Width(titles[i]+" 📋"))
+	}
+	var widths [3]int
+	// Titles re-wrap with their cells when a column is narrower than its title.
+	title := func(i int, copyable bool) string {
+		t := titles[i]
+		if copyable {
+			t += " 📋"
+		}
+		return labelStyle.Render(wrapWords(t, widths[i])) + "\n\n"
+	}
 
-	jsonCell := labelStyle.Render(jsonLabel) + " 📋\n\n" + ansi.Hardwrap(txJSON, jsonW, true)
-	rlpTitle := labelStyle.Render(rlpTitleText)
+	// Inner width left for cell text after 4 vertical borders + (0,1) padding
+	// on all three cells. Water-fill it: a column narrower than an even share
+	// keeps its natural width, and the rest split what's left evenly.
+	avail := max(3, m.txQRViewport.Width-10)
+	open := []int{0, 1, 2}
+	remaining := avail
+	for len(open) > 0 {
+		share := remaining / len(open)
+		var next []int
+		for _, i := range open {
+			if natural[i] <= share {
+				widths[i] = natural[i]
+				remaining -= natural[i]
+			} else {
+				next = append(next, i)
+			}
+		}
+		if len(next) == len(open) {
+			for k, i := range open {
+				widths[i] = max(1, share)
+				if k < remaining-share*len(open) {
+					widths[i]++
+				}
+			}
+			break
+		}
+		open = next
+	}
+
+	jsonCell := title(0, true) + wrapWords(txJSON, widths[0])
 	var rlpCell string
 	if rlpErr != nil {
-		rlpCell = rlpTitle + "\n\n" + warnStyle.Render(ansi.Hardwrap(rlpErr.Error(), hexW, true))
+		rlpCell = title(1, false) + warnStyle.Render(wrapWords(rlpErr.Error(), widths[1]))
 	} else {
-		var chunks []string
-		for s := rlpHex; s != ""; {
-			n := min(hexW, len(s))
-			chunks = append(chunks, s[:n])
-			s = s[n:]
-		}
-		rlpCell = rlpTitle + " 📋\n\n" + strings.Join(chunks, "\n")
+		rlpCell = title(1, true) + ansi.Hardwrap(rlpHex, widths[1], true)
+	}
+	var castCell string
+	if castErr != nil {
+		castCell = title(2, false) + warnStyle.Render(wrapWords(castErr.Error(), widths[2]))
+	} else {
+		castCell = title(2, true) + wrapWords(castCmd, widths[2])
 	}
 
 	rendered := table.New().
@@ -231,19 +275,58 @@ func (m *model) renderTxDataTable(jsonLabel, txJSON string) string {
 		StyleFunc(func(row, col int) lipgloss.Style {
 			return lipgloss.NewStyle().Padding(0, 1)
 		}).
-		Row(jsonCell, rlpCell).
+		Row(jsonCell, rlpCell, castCell).
 		String()
 
 	// Column bounds come from the top border's own corner/junction runes.
 	m.txTableLine = -1
 	top := ansi.Strip(strings.SplitN(rendered, "\n", 2)[0])
-	l, mid, r := strings.Index(top, "┌"), strings.Index(top, "┬"), strings.Index(top, "┐")
-	if l >= 0 && mid > l && r > mid {
+	l, r := strings.Index(top, "┌"), strings.Index(top, "┐")
+	mid1 := strings.Index(top, "┬")
+	mid2 := -1
+	if mid1 >= 0 {
+		if j := strings.Index(top[mid1+len("┬"):], "┬"); j >= 0 {
+			mid2 = mid1 + len("┬") + j
+		}
+	}
+	if l >= 0 && mid1 > l && mid2 > mid1 && r > mid2 {
 		m.txTableLine = 0
 		m.txTableHeight = lipgloss.Height(rendered)
-		m.txTableColX = [3]int{ansi.StringWidth(top[:l]), ansi.StringWidth(top[:mid]), ansi.StringWidth(top[:r])}
+		m.txTableColX = [4]int{ansi.StringWidth(top[:l]), ansi.StringWidth(top[:mid1]), ansi.StringWidth(top[:mid2]), ansi.StringWidth(top[:r])}
 	}
 	return rendered
+}
+
+// wrapWords word-wraps s to width w, breaking only at spaces (never at
+// hyphens, so `--gas-limit` stays whole), keeping each line's leading
+// indentation, and hard-breaking any word longer than w.
+func wrapWords(s string, w int) string {
+	w = max(1, w)
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
+		cur := ""
+		for i, word := range strings.Fields(line) {
+			if i == 0 {
+				word = indent + word
+			}
+			switch {
+			case cur == "":
+				cur = word
+			case ansi.StringWidth(cur)+1+ansi.StringWidth(word) <= w:
+				cur += " " + word
+			default:
+				out = append(out, cur)
+				cur = word
+			}
+			for ansi.StringWidth(cur) > w {
+				out = append(out, ansi.Cut(cur, 0, w))
+				cur = ansi.Cut(cur, w, ansi.StringWidth(cur))
+			}
+		}
+		out = append(out, cur)
+	}
+	return strings.Join(out, "\n")
 }
 
 func (m *model) handleQRAnimTick() (tea.Model, tea.Cmd) {

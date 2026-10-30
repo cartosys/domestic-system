@@ -1444,6 +1444,23 @@ func UnsignedTxRLPHex(txJSON string) (string, error) {
 	return "0x02" + hex.EncodeToString(rlpBytes), nil
 }
 
+// CastMktxCommand renders a packaged tx as a Foundry `cast mktx` command that
+// builds and signs the same EIP-1559 tx, printing raw hex ready to broadcast.
+// Numbers are decimal since cast rejects hex for its gas price flags; calldata
+// is passed as cast's raw-hex SIG argument.
+func CastMktxCommand(txJSON string) (string, error) {
+	to, value, nonce, tip, maxFee, gasLimit, chainID, data, _, err := ParsePackagedTxJSON(txJSON)
+	if err != nil {
+		return "", err
+	}
+	cmd := fmt.Sprintf("cast mktx --interactive --chain %s --nonce %d --gas-limit %d --priority-gas-price %s --gas-price %s --value %s %s",
+		chainID, nonce, gasLimit, tip, maxFee, value, to.Hex())
+	if len(data) > 0 {
+		cmd += " 0x" + hex.EncodeToString(data)
+	}
+	return cmd, nil
+}
+
 // AssembleSignedTx recombines a 65-byte EIP-4527 eth-signature (r||s||v)
 // with the EIP-1559 transaction fields the wallet originally packaged, and
 // returns the final signed transaction as 0x-prefixed raw hex, ready to feed

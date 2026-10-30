@@ -226,6 +226,12 @@ func (m *model) renderTxResultContent() string {
 					return m, copyTxJsonToClipboard(m.txResultRLP)
 				})
 			}
+			if m.txResultCast != "" {
+				m.registerRegion("txResult.copyCast", uiRegionButton, vpLeft+m.txTableColX[2]+1, y1, vpLeft+m.txTableColX[3]+1, y2, func(m *model) (tea.Model, tea.Cmd) {
+					m.logInfo("Copied cast mktx command to clipboard")
+					return m, copyTxJsonToClipboard(m.txResultCast)
+				})
+			}
 		}
 	}
 	return result

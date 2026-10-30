@@ -205,9 +205,10 @@ type model struct {
 	txResultPackaging  bool
 	txResultHex        string
 	txResultRLP        string // active step's unsigned RLP hex, shown beside the JSON (📋 copies it)
-	txTableLine        int    // first line (top border) of the JSON/RLP table within txQRViewport content; -1 when absent
+	txResultCast       string // active step's `cast mktx` command, shown beside the RLP (📋 copies it)
+	txTableLine        int    // first line (top border) of the JSON/RLP/cast table within txQRViewport content; -1 when absent
 	txTableHeight      int    // table height in lines, borders included
-	txTableColX        [3]int // display columns of the table's left, middle and right borders
+	txTableColX        [4]int // display columns of the table's left, two inner and right borders
 	txResultEIP681     string
 	txResultFormat     string
 	txResultError      string
